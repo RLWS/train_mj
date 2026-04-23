@@ -6,7 +6,7 @@ from typing import Any
 
 @dataclass(slots=True)
 class TurnSample:
-    """Supervised sample for a player's turn discard decision."""
+    """Supervised policy sample for one decision point."""
 
     sample_id: str
     game_id: str

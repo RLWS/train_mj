@@ -60,6 +60,21 @@ class HandState:
     def has_tile(self, tile: str) -> bool:
         return self.count_exact(tile) > 0
 
+    def exact_tiles_for_base(self, base_index: int) -> list[str]:
+        """Return exact tiles in hand for one base tile, preserving multiplicity."""
+        count = self.counts[base_index]
+        if count <= 0:
+            return []
+
+        red_count = self.aka_counts.get(base_index, 0)
+        exact_tiles: list[str] = []
+        if red_count:
+            exact_tiles.extend([AKA_TILES_BY_INDEX[base_index]] * red_count)
+        normal_count = count - red_count
+        if normal_count > 0:
+            exact_tiles.extend([base_index_to_tile(base_index)] * normal_count)
+        return exact_tiles
+
     def snapshot(self) -> dict[str, int]:
         """Return an exact-tile multiset for debugging and tests."""
         tiles: dict[str, int] = {}
