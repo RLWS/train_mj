@@ -4,6 +4,9 @@
 # Codefree
 .codefree/
 
+# Claude
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]

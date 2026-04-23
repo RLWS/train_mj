@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from mjai.data.builders.sample_builder import TurnSampleBuilder
+from mjai.data.tenhou.parser import TenhouParser
+
+
+FIXTURE_DIR = Path("tests/fixtures/tenhou")
+
+
+def test_build_turn_samples_from_real_fixtures():
+    parser = TenhouParser()
+    builder = TurnSampleBuilder()
+
+    total_samples = 0
+    for path in sorted(FIXTURE_DIR.glob("*.xml")):
+        samples = builder.build_samples(parser.parse_file(path))
+        assert samples, f"expected turn samples from {path.name}"
+        total_samples += len(samples)
+
+    assert total_samples > 0
+
+
+def test_turn_sample_label_is_in_legal_actions():
+    parser = TenhouParser()
+    builder = TurnSampleBuilder()
+    path = FIXTURE_DIR / "2023010100gm-00e1-0000-8a80056a.xml"
+
+    samples = builder.build_samples(parser.parse_file(path))
+
+    for sample in samples:
+        assert sample.label_action in sample.legal_actions
