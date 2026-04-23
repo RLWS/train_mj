@@ -5,6 +5,7 @@ from dataclasses import dataclass
 SUIT_ORDER = ("m", "p", "s", "z")
 AKA_TILE_STRINGS = {"0m", "0p", "0s"}
 AKA_BASE_INDICES = {4, 13, 22}
+AKA_TILE136 = {16: "0m", 52: "0p", 88: "0s"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,3 +72,22 @@ def parse_tile(tile: str) -> Tile:
 def normalize_tile(tile: str) -> str:
     """Convert an exact tile string to the corresponding non-red tile string."""
     return base_index_to_tile(tile_to_base_index(tile))
+
+
+def tile136_to_base_index(tile136: int) -> int:
+    """Convert a Tenhou 136-tile identifier to a 34-tile base index."""
+    if not 0 <= tile136 < 136:
+        raise ValueError(f"tile136 out of range: {tile136}")
+    return tile136 // 4
+
+
+def is_aka_tile136(tile136: int) -> bool:
+    """Return whether a Tenhou 136-tile identifier is a red five."""
+    return tile136 in AKA_TILE136
+
+
+def tile136_to_string(tile136: int) -> str:
+    """Convert a Tenhou 136-tile identifier to an exact tile string."""
+    if tile136 in AKA_TILE136:
+        return AKA_TILE136[tile136]
+    return base_index_to_tile(tile136_to_base_index(tile136))

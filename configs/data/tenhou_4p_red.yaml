@@ -1,0 +1,8 @@
+ruleset: tenhou_4p_red
+tile_encoding: mahjong_34_plus_aka
+input_root: data/bronze_events
+train_manifest: data/manifests/train.jsonl
+valid_manifest: data/manifests/valid.jsonl
+test_manifest: data/manifests/test.jsonl
+max_history_len: 192
+candidate_limit: 64

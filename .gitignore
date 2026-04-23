@@ -45,8 +45,9 @@ Thumbs.db
 *.pkl
 *.h5
 
-# Data
-data/
+# Data - ignore large model outputs and raw datasets
+# but keep configs/data/ and mjai/data/ tracked
+data/outputs/
+data/checkpoints/
+data/logs/
 datasets/
-*.csv
-*.json
