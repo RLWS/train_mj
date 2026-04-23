@@ -1,0 +1,7 @@
+task: response
+losses:
+  turn_ce: 0.0
+  response_ce: 1.0
+  value_mse: 0.0
+label_key: response_label
+legal_key: response_legal_actions

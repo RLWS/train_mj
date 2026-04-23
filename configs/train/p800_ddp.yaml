@@ -1,0 +1,9 @@
+device: xpu
+precision: bf16
+batch_size: 256
+num_workers: 16
+epochs: 3
+grad_accum_steps: 2
+distributed: true
+backend: vendor
+find_unused_parameters: false

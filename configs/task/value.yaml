@@ -1,0 +1,6 @@
+task: value
+losses:
+  turn_ce: 0.0
+  response_ce: 0.0
+  value_mse: 1.0
+label_key: value_label

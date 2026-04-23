@@ -1,0 +1,4 @@
+seed: 20260423
+exp_name: local_smoke
+output_dir: outputs/checkpoints/${exp_name}
+log_dir: outputs/logs/${exp_name}

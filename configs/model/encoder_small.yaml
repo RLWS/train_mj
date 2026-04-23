@@ -1,0 +1,12 @@
+name: hybrid_transformer_ranker
+hidden_size: 256
+num_layers: 4
+num_heads: 8
+dropout: 0.1
+state_mlp_dim: 512
+action_mlp_dim: 256
+share_encoder: true
+heads:
+  turn: true
+  response: true
+  value: true
