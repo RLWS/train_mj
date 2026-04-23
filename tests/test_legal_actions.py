@@ -52,3 +52,14 @@ def test_legal_responses_include_chi_only_from_upper_player():
     assert ("chi", ("3m", "0m")) in upper_chi
     assert ("chi", ("0m", "6m")) in upper_chi
     assert other_chi == set()
+
+
+def test_legal_responses_include_ron_when_hand_is_complete():
+    hand = HandState.from_tiles(
+        ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
+    )
+
+    actions = legal_responses(hand=hand, actor=1, source=0, tile="5z")
+    normalized = {(action.kind, action.tile) for action in actions}
+
+    assert ("ron", "5z") in normalized

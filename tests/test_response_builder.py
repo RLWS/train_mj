@@ -41,3 +41,15 @@ def test_response_samples_include_non_pass_labels():
     non_pass = [sample for sample in samples if sample.label_action["kind"] != "pass"]
 
     assert non_pass
+
+
+def test_response_samples_include_ron_labels_on_real_fixtures():
+    parser = TenhouParser()
+    builder = ResponseSampleBuilder()
+
+    ron_count = 0
+    for path in sorted(FIXTURE_DIR.glob("*.xml")):
+        samples = builder.build_samples(parser.parse_file(path))
+        ron_count += sum(1 for sample in samples if sample.label_action["kind"] == "ron")
+
+    assert ron_count > 0

@@ -31,3 +31,15 @@ def test_turn_sample_label_is_in_legal_actions():
 
     for sample in samples:
         assert sample.label_action in sample.legal_actions
+
+
+def test_turn_samples_include_riichi_discard_labels_on_real_fixture():
+    parser = TenhouParser()
+    builder = TurnSampleBuilder()
+
+    riichi_count = 0
+    for path in sorted(FIXTURE_DIR.glob("*.xml")):
+        samples = builder.build_samples(parser.parse_file(path))
+        riichi_count += sum(1 for sample in samples if sample.label_action["kind"] == "riichi_discard")
+
+    assert riichi_count > 0

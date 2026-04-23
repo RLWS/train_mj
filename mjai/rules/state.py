@@ -25,6 +25,9 @@ class HandState:
             hand.add_tile(tile)
         return hand
 
+    def copy(self) -> "HandState":
+        return HandState(counts=self.counts.copy(), aka_counts=self.aka_counts.copy())
+
     def total_tiles(self) -> int:
         return sum(self.counts)
 
@@ -112,6 +115,7 @@ class GameState:
     discards: list[list[str]] = field(default_factory=lambda: [[] for _ in range(4)])
     melds: list[list[MeldState]] = field(default_factory=lambda: [[] for _ in range(4)])
     riichi_declared: list[bool] = field(default_factory=lambda: [False] * 4)
+    scores: list[int] = field(default_factory=lambda: [250] * 4)
     last_discard_actor: int | None = None
     last_discard_tile: str | None = None
     hand_index: int = -1
@@ -124,7 +128,8 @@ class GameState:
             HandState.from_tiles(payload["hai2"]),
             HandState.from_tiles(payload["hai3"]),
         ]
-        return cls(hands=hands, hand_index=hand_index)
+        scores = [int(score) for score in str(payload.get("ten", "250,250,250,250")).split(",")]
+        return cls(hands=hands, hand_index=hand_index, scores=scores)
 
     def apply_draw(self, actor: int, tile: str) -> None:
         self.hands[actor].add_tile(tile)
@@ -138,6 +143,8 @@ class GameState:
     def apply_reach(self, actor: int, step: int) -> None:
         if step == 1:
             self.riichi_declared[actor] = True
+        if step == 2 and self.scores[actor] >= 10:
+            self.scores[actor] -= 10
 
     def apply_meld(
         self,
@@ -213,3 +220,9 @@ class GameState:
                 return
 
         raise ValueError(f"kakan without existing pon: actor={actor} tile={called_tile}")
+
+    def has_open_melds(self, actor: int) -> bool:
+        return any(meld.kind in {"chi", "pon", "daiminkan", "kakan"} for meld in self.melds[actor])
+
+    def can_declare_riichi(self, actor: int) -> bool:
+        return not self.riichi_declared[actor] and not self.has_open_melds(actor) and self.scores[actor] >= 10

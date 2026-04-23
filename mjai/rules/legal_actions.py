@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations, product
 
-from mjai.rules.state import HandState
+from mjai.rules.hand_checker import is_agari, is_tenpai_after_discard
+from mjai.rules.state import GameState, HandState
 from mjai.rules.tiles import AKA_BASE_INDICES, base_index_to_tile, tile_to_base_index
 
 
@@ -46,6 +47,22 @@ def legal_discards(hand: HandState) -> list[Action]:
     return actions
 
 
+def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: int | None = None) -> list[Action]:
+    """Return current-turn actions.
+
+    This first pass includes discard and optional riichi-discard actions.
+    """
+    actions = legal_discards(hand)
+    if state is not None and actor is not None and state.can_declare_riichi(actor):
+        riichi_actions = [
+            Action(kind="riichi_discard", tile=action.tile)
+            for action in actions
+            if action.tile is not None and is_tenpai_after_discard(hand, action.tile)
+        ]
+        actions.extend(riichi_actions)
+    return actions
+
+
 def legal_responses(hand: HandState, actor: int, source: int, tile: str) -> list[Action]:
     """Return legal response actions after another player discards one tile."""
     actions: list[Action] = [Action(kind="pass")]
@@ -56,6 +73,8 @@ def legal_responses(hand: HandState, actor: int, source: int, tile: str) -> list
 
     actions.extend(_legal_pon_actions(hand, source, tile, target_base))
     actions.extend(_legal_daiminkan_actions(hand, source, tile, target_base))
+    if is_agari(hand, incoming_tile=tile):
+        actions.append(Action(kind="ron", tile=tile, source=source))
     return _deduplicate_actions(actions)
 
 

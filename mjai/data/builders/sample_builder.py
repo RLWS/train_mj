@@ -4,20 +4,27 @@ from dataclasses import asdict
 
 from mjai.data.schema.events import Event
 from mjai.data.schema.samples import TurnSample
-from mjai.rules.legal_actions import Action, canonicalize_consumed, legal_discards, legal_responses
+from mjai.rules.legal_actions import (
+    Action,
+    canonicalize_consumed,
+    legal_responses,
+    legal_turn_actions,
+)
 from mjai.rules.state import GameState
 
 
 class TurnSampleBuilder:
-    """Build turn discard samples from parsed replay events."""
+    """Build turn decision samples from parsed replay events."""
 
     def build_samples(self, events: list[Event]) -> list[TurnSample]:
         state: GameState | None = None
         samples: list[TurnSample] = []
+        pending_turn_labels: dict[int, str] = {}
 
         for event in events:
             if event.event_type == "init":
                 state = GameState.from_init_payload(event.hand_index, event.payload)
+                pending_turn_labels = {}
                 continue
 
             if state is None:
@@ -30,8 +37,16 @@ class TurnSampleBuilder:
 
             if event.event_type == "discard":
                 assert event.actor is not None
-                legal_actions = [asdict(action) for action in legal_discards(state.hands[event.actor])]
-                label_action = asdict(Action(kind="discard", tile=event.payload["tile"]))
+                label_kind = pending_turn_labels.pop(event.actor, "discard")
+                legal_actions = [
+                    asdict(action)
+                    for action in legal_turn_actions(
+                        state.hands[event.actor],
+                        state=state,
+                        actor=event.actor,
+                    )
+                ]
+                label_action = asdict(Action(kind=label_kind, tile=event.payload["tile"]))
                 sample = TurnSample(
                     sample_id=(
                         f"{event.game_id}:{event.hand_index}:{event.step_index}:"
@@ -64,6 +79,8 @@ class TurnSampleBuilder:
 
             if event.event_type == "reach":
                 assert event.actor is not None
+                if event.payload["step"] == 1:
+                    pending_turn_labels[event.actor] = "riichi_discard"
                 state.apply_reach(event.actor, event.payload["step"])
 
         return samples
@@ -72,8 +89,7 @@ class TurnSampleBuilder:
 class ResponseSampleBuilder:
     """Build response samples after each discard.
 
-    This first pass supports pass / chi / pon / daiminkan labels.
-    Ron labels are skipped until a win checker is implemented.
+    This pass supports pass / chi / pon / daiminkan / ron labels.
     """
 
     def build_samples(self, events: list[Event]) -> list[TurnSample]:
@@ -98,9 +114,6 @@ class ResponseSampleBuilder:
                 state.apply_discard(event.actor, event.payload["tile"])
 
                 resolution = _resolve_discard_window(events, event_index)
-                if resolution["kind"] == "ron":
-                    continue
-
                 for responder in range(4):
                     if responder == event.actor:
                         continue
@@ -206,7 +219,7 @@ def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
 
         if future.event_type == "agari":
             if future.payload.get("fromWho") == str(discard_event.actor):
-                return {"kind": "ron"}
+                return {"kind": "ron", "actor": int(future.payload["who"])}
             return {"kind": "pass"}
 
         if future.event_type in {"draw", "discard", "init", "ryuukyoku"}:
@@ -216,6 +229,8 @@ def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
 
 
 def _response_label_for_actor(responder: int, discard_event: Event, resolution: dict) -> dict:
+    if resolution["kind"] == "ron" and resolution["actor"] == responder:
+        return asdict(Action(kind="ron", tile=discard_event.payload["tile"], source=discard_event.actor))
     if resolution["kind"] == "meld" and resolution["actor"] == responder:
         return resolution["action"]
     return asdict(Action(kind="pass"))
