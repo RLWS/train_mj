@@ -1,95 +1,115 @@
-# Rule Coverage Status
+# 规则覆盖状态
 
-## Implemented
+## 已实现
 
-Current implementation is sufficient for parser validation, replay consistency checks, and first-pass supervised sample building.
+当前实现已经足够支撑 parser 校验、回放一致性检查，以及第一版监督学习样本构建。
 
-### Parsing and Replay
+### 解析与回放
 
-- Tenhou XML parsing for `GO`, `UN`, `TAIKYOKU`, `INIT`, draws, discards, `N`, `DORA`, `REACH`, `AGARI`, `RYUUKYOKU`
-- Tenhou meld decoding for `chi`, `pon`, `daiminkan`, `ankan`, `kakan`
-- Four-player replay state with:
-  - exact hand tiles
-  - red-five bookkeeping
-  - discards
-  - melds
-  - riichi declaration state
-  - basic score tracking for riichi stick deduction
-- Replay validation for:
-  - initial 13-tile hands
-  - discard must exist in hand
-  - meld consumed tiles must exist in hand
-  - meld source and called tile consistency
-  - `kakan` upgrading an existing `pon`
+- 已支持解析天凤 XML 中的以下标签：
+  - `GO`
+  - `UN`
+  - `TAIKYOKU`
+  - `INIT`
+  - 摸牌
+  - 弃牌
+  - `N`
+  - `DORA`
+  - `REACH`
+  - `AGARI`
+  - `RYUUKYOKU`
+- 已支持副露解码：
+  - `chi`
+  - `pon`
+  - `daiminkan`
+  - `ankan`
+  - `kakan`
+- 已实现四人回放状态，包含：
+  - 精确手牌
+  - 赤五记录
+  - 弃牌河
+  - 副露
+  - 立直声明状态
+  - 立直棒扣点所需的基础分数跟踪
+- 已实现回放校验：
+  - 起手必须为 `13` 张
+  - 弃牌必须来自当前手牌
+  - 副露消耗牌必须存在于当前手牌
+  - 副露来源与被叫牌必须和最近一次弃牌一致
+  - `kakan` 必须升级一个已有的 `pon`
 
-### Sample Building
+### 样本构建
 
-- `turn` samples:
+- `turn` 样本当前支持：
   - `discard`
   - `riichi_discard`
-- `response` samples:
+- `response` 样本当前支持：
   - `pass`
   - `chi`
   - `pon`
   - `daiminkan`
   - `ron`
-- Exact red-tile action handling in legal candidate generation
+- 合法动作生成中已经保留赤牌精确表示，不会把赤牌与普通五混掉
 
-### Hand Checks
+### 手牌检查
 
-- Standard agari detection
-- Chiitoitsu detection
-- Kokushi musou detection
-- Basic tenpai-after-discard check for `riichi_discard` legality
+- 已支持标准和牌判断
+- 已支持七对子判断
+- 已支持国士无双判断
+- 已支持 `riichi_discard` 所需的基础“弃牌后听牌”检查
 
-## Not Yet Implemented
+## 尚未实现
 
-These items are intentionally not modeled yet and should be treated as open work, not implied support.
+以下能力目前明确没有建模，不应被误认为“已经支持”。
 
-### Turn Actions
+### 自家回合动作
 
 - `tsumo`
-- `ankan` as a turn decision candidate
-- `kakan` as a turn decision candidate
+- `ankan` 作为自家回合候选动作
+- `kakan` 作为自家回合候选动作
 - `kyuushu_kyuuhai`
-- exhaustive turn-action arbitration across all legal self-turn actions
+- 所有自家回合动作之间的完整仲裁
 
-### Response Actions
+### 响应动作
 
 - `chankan`
-- double or multi-ron edge handling
-- full furiten-aware `ron` filtering
+- 双响或多响边界处理
+- 完整考虑振听的 `ron` 过滤
 
-### Riichi and Win Restrictions
+### 立直与和牌限制
 
-- full riichi legality beyond current approximation
-  - ippatsu state
-  - dead-wall / remaining-tile edge checks
-  - exhaustive lock after riichi
-- complete furiten handling
-- nagashi mangan
-- exhaustive abortive draw handling
+- 超出当前近似实现之外的完整立直合法性
+  - `ippatsu` 状态
+  - 牌山尾部 / 剩余牌数相关边界
+  - 立直后的完整锁定限制
+- 完整振听处理
+- 流局满贯
+- 各类途中流局的完整处理
 
-### Scoring and Round Resolution
+### 计分与终局结算
 
-- full yaku evaluation
-- fu / han scoring
-- point movement validation
-- ura dora, kan dora, kan ura dora effects
-- placement / end-of-game settlement checks
+- 完整役种判断
+- 符 / 番计算
+- 点数移动校验
+- 里宝牌、杠宝牌、杠里宝牌影响
+- 顺位与终局结算校验
 
-### Dataset and Modeling Gaps
+### 数据与建模缺口
 
-- response samples for all unsupported edge cases above
-- serialized event shards (`bronze_events`) are not written yet
-- parquet writing currently starts from raw XML parsing plus in-memory replay, not from persisted `bronze_events`
+- 上述未支持边界情况对应的响应样本尚未覆盖
+- 序列化事件分片 `bronze_events` 尚未落盘
+- 当前 Parquet 样本仍是“原始 XML 解析 + 内存回放”直接产出，而不是从持久化的 `bronze_events` 继续构建
 
-## Practical Meaning
+## 实际含义
 
-At this stage, the repository can reliably:
+在当前阶段，仓库已经可以稳定完成：
 
-- parse real Tenhou logs
-- replay and validate core action legality
-- build first-pass `turn` and `response` supervised samples
+- 解析真实天凤牌谱
+- 回放并校验核心动作合法性
+- 构建第一版 `turn` 与 `response` 监督学习样本
 
-It should not yet be described as a full Riichi rules engine or a complete Mahjong Soul action simulator.
+但它还不能被描述为：
+
+- 完整的日麻规则引擎
+- 完整的雀魂动作模拟器
+- 已可训练和可部署的麻将模型系统

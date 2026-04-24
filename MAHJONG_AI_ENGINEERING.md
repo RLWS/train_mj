@@ -1,5 +1,33 @@
 # 雀魂四麻 AI 工程落地方案
 
+## 0. 当前实现状态（2026-04-24）
+
+本仓库已经从“纯规划阶段”进入“规则与数据链路已落地、训练链路尚未开始”的阶段。当前实际情况如下：
+
+- 已完成：
+  - 天凤 XML 解析
+  - 回放校验
+  - 基础合法动作生成
+  - `turn/response` 样本构建
+  - Parquet 写出与 manifest 切分
+  - 规则与数据链路相关测试
+- 部分完成：
+  - CLI 框架已建立，但目前只有 `build-dataset` 和 `make-manifest` 真正可用
+  - 当前 `build-dataset` 仍直接从 XML 解析并构建样本，`bronze_events` 持久化层尚未实现
+- 尚未开始：
+  - `features/`
+  - `models/`
+  - `training/`
+  - `eval/`
+  - `serving/`
+
+当前已验证结果：
+
+- `pytest` 结果为 `37 passed`
+- 使用 `tests/fixtures/tenhou` 实测可生成 `10` 局、`1542` 条 `turn` 样本、`4626` 条 `response` 样本
+
+更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。
+
 ## 1. 目标
 
 本文档只回答工程落地问题，默认沿用主方案中的技术结论：
@@ -432,6 +460,8 @@ ruleset_id
 ## 8. 首批开发任务清单
 
 建议按下面顺序做，不要并行铺太大。
+
+注：截至 `2026-04-24`，`Task 1` 到 `Task 5` 已基本完成第一版，但 `preprocess` / `validate-events` 与 `bronze_events` 持久化仍未补齐；`Task 6` 及以后尚未开始。详细状态见 `PROJECT_STATUS.md`。
 
 ### Task 1：项目骨架初始化
 
