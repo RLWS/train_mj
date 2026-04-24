@@ -81,6 +81,7 @@ class TurnSampleBuilder:
                 assert event.actor is not None
                 if event.payload["step"] == 1:
                     pending_turn_labels[event.actor] = "riichi_discard"
+                    continue
                 state.apply_reach(event.actor, event.payload["step"])
 
         return samples

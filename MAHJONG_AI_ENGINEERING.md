@@ -2,7 +2,7 @@
 
 ## 0. 当前实现状态（2026-04-24）
 
-本仓库已经从“纯规划阶段”进入“规则与数据链路已落地、训练链路尚未开始”的阶段。当前实际情况如下：
+本仓库已经从“纯规划阶段”进入“规则与数据链路已落地、最小训练链路已打通”的阶段。当前实际情况如下：
 
 - 已完成：
   - 天凤 XML 解析
@@ -11,21 +11,20 @@
   - 基础合法动作生成
   - `turn/response` 样本构建
   - Parquet 写出与 manifest 切分
+  - 最小 `turn` baseline 训练链路
   - 规则与数据链路相关测试
 - 部分完成：
-  - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest` 已可用
+  - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train` 已可用
   - 数据统计、失败归因和 split warning 已有第一版，但调试视图仍比较基础
 - 尚未开始：
-  - `features/`
-  - `models/`
-  - `training/`
   - `eval/`
   - `serving/`
 
 当前已验证结果：
 
-- `pytest` 结果为 `41 passed`
+- `pytest` 结果为 `46 passed`
 - 使用 `tests/fixtures/tenhou` 实测可完成 `10` 局 XML 预处理、`3253` 条事件写入、`10/10` 个事件分片校验通过，并生成 `1542` 条 `turn` 样本、`4626` 条 `response` 样本
+- `turn` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 
 更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。
 

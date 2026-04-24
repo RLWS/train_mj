@@ -115,6 +115,7 @@ class GameState:
     discards: list[list[str]] = field(default_factory=lambda: [[] for _ in range(4)])
     melds: list[list[MeldState]] = field(default_factory=lambda: [[] for _ in range(4)])
     riichi_declared: list[bool] = field(default_factory=lambda: [False] * 4)
+    riichi_pending: list[bool] = field(default_factory=lambda: [False] * 4)
     scores: list[int] = field(default_factory=lambda: [250] * 4)
     last_discard_actor: int | None = None
     last_discard_tile: str | None = None
@@ -142,8 +143,10 @@ class GameState:
 
     def apply_reach(self, actor: int, step: int) -> None:
         if step == 1:
-            self.riichi_declared[actor] = True
+            self.riichi_pending[actor] = True
         if step == 2 and self.scores[actor] >= 10:
+            self.riichi_declared[actor] = True
+            self.riichi_pending[actor] = False
             self.scores[actor] -= 10
 
     def apply_meld(
@@ -225,4 +228,9 @@ class GameState:
         return any(meld.kind in {"chi", "pon", "daiminkan", "kakan"} for meld in self.melds[actor])
 
     def can_declare_riichi(self, actor: int) -> bool:
-        return not self.riichi_declared[actor] and not self.has_open_melds(actor) and self.scores[actor] >= 10
+        return (
+            not self.riichi_declared[actor]
+            and not self.riichi_pending[actor]
+            and not self.has_open_melds(actor)
+            and self.scores[actor] >= 10
+        )

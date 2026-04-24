@@ -1,0 +1,45 @@
+data:
+  ruleset: tenhou_4p_red
+  tile_encoding: mahjong_34_plus_aka
+  input_root: data/bronze_events
+  train_manifest: data/manifests/train.jsonl
+  valid_manifest: data/manifests/valid.jsonl
+  test_manifest: data/manifests/test.jsonl
+  max_history_len: 192
+  candidate_limit: 64
+model:
+  name: hybrid_transformer_ranker
+  hidden_size: 256
+  num_layers: 4
+  num_heads: 8
+  dropout: 0.1
+  state_mlp_dim: 512
+  action_mlp_dim: 256
+  share_encoder: true
+  heads:
+    turn: true
+    response: true
+    value: true
+task:
+  task: turn
+  losses:
+    turn_ce: 1.0
+    response_ce: 0.0
+    value_mse: 0.0
+  label_key: turn_label
+  legal_key: turn_legal_actions
+train:
+  device: cuda
+  precision: fp16
+  batch_size: 32
+  num_workers: 2
+  epochs: 1
+  grad_accum_steps: 1
+  distributed: false
+  log_every_n_steps: 20
+  val_every_n_steps: 100
+  save_every_n_steps: 200
+seed: 20260423
+exp_name: local_smoke
+output_dir: outputs/checkpoints/local_smoke
+log_dir: outputs/logs/local_smoke

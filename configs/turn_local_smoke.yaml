@@ -1,0 +1,20 @@
+seed: 20260423
+exp_name: turn_local_smoke
+output_dir: outputs/checkpoints/turn_local_smoke
+log_dir: outputs/logs/turn_local_smoke
+data:
+  train_manifest: data/manifests/train.jsonl
+  valid_manifest: data/manifests/valid.jsonl
+  candidate_limit: 64
+task:
+  task: turn
+model:
+  hidden_size: 128
+  dropout: 0.1
+train:
+  device: auto
+  batch_size: 64
+  num_workers: 0
+  epochs: 1
+  lr: 0.001
+  weight_decay: 0.0

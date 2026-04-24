@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mjai.rules.state import HandState
+from mjai.rules.state import GameState, HandState
 
 
 def test_hand_state_counts_red_and_normal_five_separately():
@@ -28,3 +28,23 @@ def test_remove_missing_tile_raises():
 
     with pytest.raises(ValueError):
         hand.remove_tile("2m")
+
+
+def test_riichi_pending_becomes_declared_on_step_two():
+    state = GameState()
+
+    state.apply_reach(actor=0, step=1)
+    assert state.riichi_pending[0] is True
+    assert state.riichi_declared[0] is False
+
+    state.apply_reach(actor=0, step=2)
+    assert state.riichi_pending[0] is False
+    assert state.riichi_declared[0] is True
+
+
+def test_can_declare_riichi_is_blocked_while_pending():
+    state = GameState()
+
+    assert state.can_declare_riichi(0) is True
+    state.apply_reach(actor=0, step=1)
+    assert state.can_declare_riichi(0) is False

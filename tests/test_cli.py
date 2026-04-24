@@ -79,10 +79,38 @@ def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, cap
     assert "warning: split 'test' has 0 games" in captured.out
 
 
-def test_cli_train_command_is_still_registered(capsys):
-    exit_code = main(["train", "--config", "configs/base.yaml"])
-    captured = capsys.readouterr()
+def test_cli_train_requires_real_inputs(tmp_path: Path):
+    config_path = tmp_path / "missing_data.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "seed: 20260423",
+                "exp_name: missing_data_test",
+                "output_dir: outputs/checkpoints/missing_data_test",
+                "log_dir: outputs/logs/missing_data_test",
+                "data:",
+                "  train_manifest: data/manifests/train.jsonl",
+                "task:",
+                "  task: turn",
+                "model:",
+                "  hidden_size: 32",
+                "  dropout: 0.0",
+                "train:",
+                "  device: cpu",
+                "  batch_size: 8",
+                "  num_workers: 0",
+                "  epochs: 1",
+                "  lr: 0.001",
+                "  weight_decay: 0.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-    assert exit_code == 0
-    assert "mjai command 'train' is registered" in captured.out
-    assert "loaded config: configs/base.yaml" in captured.out
+    try:
+        main(["train", "--config", str(config_path)])
+    except FileNotFoundError as exc:
+        assert "manifest file not found" in str(exc)
+    else:
+        raise AssertionError("expected train command to require an existing manifest")

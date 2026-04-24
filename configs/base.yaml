@@ -1,3 +1,9 @@
+defaults:
+  - data: tenhou_4p_red
+  - model: encoder_small
+  - task: turn
+  - train: local_smoke
+
 seed: 20260423
 exp_name: local_smoke
 output_dir: outputs/checkpoints/${exp_name}

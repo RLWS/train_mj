@@ -7,7 +7,8 @@ from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.event_validator import EventValidator
 from mjai.data.builders.dataset_builder import DatasetBuilder
 from mjai.data.builders.manifest_builder import ManifestBuilder
-from mjai.utils.config import load_yaml
+from mjai.training.engine import train_turn_model
+from mjai.utils.config import load_resolved_yaml, load_yaml
 
 
 def _add_config_arg(parser: argparse.ArgumentParser) -> None:
@@ -89,6 +90,24 @@ def _run_make_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_train(args: argparse.Namespace) -> int:
+    config = load_resolved_yaml(args.config)
+    summary = train_turn_model(config)
+    print(
+        f"trained task={summary.task} epochs={summary.epochs} "
+        f"train_loss={summary.train_loss:.4f} train_accuracy={summary.train_accuracy:.4f}"
+    )
+    if summary.valid_accuracy is not None:
+        print(
+            f"valid_loss={summary.valid_loss:.4f} "
+            f"valid_accuracy={summary.valid_accuracy:.4f}"
+        )
+    print(f"device={summary.used_device}")
+    print(f"best_checkpoint={summary.best_checkpoint}")
+    print(f"final_checkpoint={summary.final_checkpoint}")
+    return 0
+
+
 def _print_warnings(warnings: tuple[str, ...]) -> None:
     for warning in warnings:
         print(f"warning: {warning}")
@@ -167,6 +186,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_build_dataset(args)
     if args.command == "make-manifest":
         return _run_make_manifest(args)
+    if args.command == "train":
+        return _run_train(args)
     return _not_implemented(args.command, getattr(args, "config", None))
 
 

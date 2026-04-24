@@ -7,15 +7,15 @@
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
-- `Phase 1` 尚未开始：特征、模型、训练、评估仍未落地。
+- `Phase 1` 已启动：`turn` 单任务 baseline 已能本地 smoke train。
 
-换句话说，仓库当前最强的部分是“把牌谱可靠地变成合法训练样本”，而不是“训练模型”。
+换句话说，仓库当前已经从“只能产样本”进入“能产样本并训练最小 baseline”，但训练体系还远没完整。
 
 ## 2. 已验证结果
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `41 passed`。
+- `pytest` 全量通过，当前结果为 `46 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -36,6 +36,12 @@
   - `valid_games=1`
   - `test_games=0`
   - 当前会对空 split 输出 warning
+- `python -m mjai.cli train --config <tmp>` 可运行。
+- 以单局清单裁剪出的最小训练集实测，`turn` 任务可完成 `1` 个 epoch 的 smoke train，并落盘：
+  - `config.resolved.yaml`
+  - `train_metrics.json`
+  - `best.pt`
+  - `final.pt`
 
 ## 3. 按模块看当前状态
 
@@ -56,28 +62,32 @@
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `configs/`
   - 数据、任务、模型、训练配置目录已建立。
+- `mjai/features/`
+  - 已有最小 `turn` 状态特征与动作特征编码。
+- `mjai/models/`
+  - 已有最小共享编码器与 `turn` 候选打分头。
+- `mjai/training/`
+  - 已有最小训练循环、loss、accuracy 指标与 checkpoint 落盘。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
+  - `turn` smoke train 也有回归测试。
 
 ### 部分完成
 
 - `mjai/cli.py`
   - 子命令框架完整。
-  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest` 已可用。
-  - `train`、`eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍是占位实现。
+  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train` 已可用。
+  - `eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
   - 第一版诊断输出已经落地，但还缺少更细的失败样本导出和 case drill-down。
 
 ### 尚未开始或基本未开始
 
-- `mjai/features/`
-- `mjai/models/`
-- `mjai/training/`
 - `mjai/eval/`
 - `mjai/serving/`
 
-这些目录目前只有包骨架或说明性占位，还不能支持训练与推理闭环。
+这些目录目前仍只有包骨架或说明性占位，还不能支持评估与推理闭环。
 
 ## 4. 当前最关键的差距
 
@@ -114,19 +124,24 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 多家荣和等边界情况
 - 更完整的立直限制与流局处理
 
-### 4.3 样本可训练，但训练链路还不存在
+### 4.3 训练链路已打通最小版本，但覆盖面还很窄
 
-仓库已经能产出 `turn` 和 `response` 样本，但仍缺少：
+当前已经有：
 
-- 状态特征编码
-- 历史事件编码
-- 候选动作编码
-- baseline 模型
-- loss / metrics
-- 训练循环
+- `turn` 状态特征编码
+- `turn` 候选动作编码
+- 最小共享编码器和 `turn` 候选排序头
+- `turn` 训练循环
+- `loss / accuracy`
+- checkpoint 与训练指标落盘
+
+仍然缺少：
+
+- `response` 训练路径
+- history encoder
+- 多任务训练
 - 离线评估报告
-
-这也是当前项目最明显的阶段分界点。
+- 推理入口
 
 ## 5. 阶段结论
 
@@ -138,7 +153,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `Task 4` 回放与合法动作生成：已完成第一版
 - `Task 5` 样本构建：已完成第一版
 - `preprocess / validate-events`：已完成第一版
-- `Task 6` baseline 模型与训练引擎：未开始
+- `Task 6` baseline 模型与训练引擎：已完成 `turn` 第一版
 - `Task 7` 离线评估：未开始
 - `Task 8` 多任务训练：未开始
 - `Task 9` 训练机适配：只完成配置骨架，未验证训练链路
@@ -147,17 +162,17 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议按下面顺序推进，不要同时铺太多面。
 
-### 任务 1：实现最小可训练闭环
+### 任务 1：扩展到 `response` 训练基线
 
 目标：
 
-- 先打通 `turn_head` baseline，不要一开始就上完整多任务。
+- 在现有 `turn` baseline 基础上，补上 `response` 单任务训练闭环。
 
 建议范围：
 
-- `state/history/action` 三类特征编码的最小版本
-- 一个轻量共享编码器或直接的 baseline ranker
-- `turn` 任务 loss 与 accuracy
+- `response` 数据读取与候选编码
+- `pass` 不平衡处理
+- `response` 任务指标
 - 本地 `4070` smoke test
 
 最低验收标准：
