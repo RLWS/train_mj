@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from mjai.data.datasets.event_store import read_events_from_parquet
@@ -17,6 +18,11 @@ class BuildSummary:
     games: int
     turn_samples: int
     response_samples: int
+    turn_label_counts: dict[str, int]
+    response_label_counts: dict[str, int]
+    games_with_zero_turn_samples: int
+    games_with_zero_response_samples: int
+    warnings: tuple[str, ...] = ()
 
 
 class DatasetBuilder:
@@ -55,12 +61,18 @@ class DatasetBuilder:
         turn_samples = 0
         response_samples = 0
         games = 0
+        turn_label_counts: Counter[str] = Counter()
+        response_label_counts: Counter[str] = Counter()
+        games_with_zero_turn_samples = 0
+        games_with_zero_response_samples = 0
 
         for game_id, events in event_lists:
             self.validator.validate_events(events)
 
             turn_rows = self.turn_builder.build_samples(events)
             response_rows = self.response_builder.build_samples(events)
+            turn_label_counts.update(str(sample.label_action["kind"]) for sample in turn_rows)
+            response_label_counts.update(str(sample.label_action["kind"]) for sample in response_rows)
 
             turn_count = write_samples_to_parquet(
                 turn_rows,
@@ -74,19 +86,32 @@ class DatasetBuilder:
             turn_samples += turn_count
             response_samples += response_count
             games += 1
+            if turn_count == 0:
+                games_with_zero_turn_samples += 1
+            if response_count == 0:
+                games_with_zero_response_samples += 1
 
-        summary = BuildSummary(games=games, turn_samples=turn_samples, response_samples=response_samples)
+        warnings: list[str] = []
+        if games == 0:
+            warnings.append("no event shards found in input directory")
+        if games_with_zero_turn_samples > 0:
+            warnings.append(f"{games_with_zero_turn_samples} games produced 0 turn samples")
+        if games_with_zero_response_samples > 0:
+            warnings.append(f"{games_with_zero_response_samples} games produced 0 response samples")
+
+        summary = BuildSummary(
+            games=games,
+            turn_samples=turn_samples,
+            response_samples=response_samples,
+            turn_label_counts=dict(sorted(turn_label_counts.items())),
+            response_label_counts=dict(sorted(response_label_counts.items())),
+            games_with_zero_turn_samples=games_with_zero_turn_samples,
+            games_with_zero_response_samples=games_with_zero_response_samples,
+            warnings=tuple(warnings),
+        )
         summary_path = output_root / "build_summary.json"
         summary_path.write_text(
-            json.dumps(
-                {
-                    "games": summary.games,
-                    "turn_samples": summary.turn_samples,
-                    "response_samples": summary.response_samples,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
+            json.dumps(asdict(summary), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return summary

@@ -33,7 +33,11 @@ def _run_preprocess(args: argparse.Namespace) -> int:
     _load_optional_config(getattr(args, "config", None))
     builder = EventBuilder()
     summary = builder.build_from_xml_dir(args.input, args.output)
-    print(f"preprocessed events: games={summary.games} events={summary.events}")
+    print(
+        f"preprocessed events: games={summary.games} events={summary.events} "
+        f"event_types={summary.event_type_counts}"
+    )
+    _print_warnings(summary.warnings)
     return 0
 
 
@@ -43,8 +47,14 @@ def _run_validate_events(args: argparse.Namespace) -> int:
     summary = validator.validate_dir(args.input, args.report)
     print(
         f"validated events: files={summary.files_seen} valid={summary.files_valid} "
-        f"failed={summary.files_failed} total_events={summary.total_events}"
+        f"failed={summary.files_failed} total_events={summary.total_events} "
+        f"total_hands={summary.total_hands} total_discards={summary.total_discards} "
+        f"total_melds={summary.total_melds}"
     )
+    print(f"event types: {summary.event_type_counts}")
+    if summary.error_counts:
+        print(f"errors: {summary.error_counts}")
+    _print_warnings(summary.warnings)
     return 0
 
 
@@ -56,6 +66,9 @@ def _run_build_dataset(args: argparse.Namespace) -> int:
         f"built dataset: games={summary.games} turn_samples={summary.turn_samples} "
         f"response_samples={summary.response_samples}"
     )
+    print(f"turn labels: {summary.turn_label_counts}")
+    print(f"response labels: {summary.response_label_counts}")
+    _print_warnings(summary.warnings)
     return 0
 
 
@@ -66,7 +79,19 @@ def _run_make_manifest(args: argparse.Namespace) -> int:
         f"built manifests: train_games={summary.train_games} "
         f"valid_games={summary.valid_games} test_games={summary.test_games}"
     )
+    print(
+        "manifest samples: "
+        f"train_turn={summary.train_turn_samples} valid_turn={summary.valid_turn_samples} "
+        f"test_turn={summary.test_turn_samples} train_response={summary.train_response_samples} "
+        f"valid_response={summary.valid_response_samples} test_response={summary.test_response_samples}"
+    )
+    _print_warnings(summary.warnings)
     return 0
+
+
+def _print_warnings(warnings: tuple[str, ...]) -> None:
+    for warning in warnings:
+        print(f"warning: {warning}")
 
 
 def build_parser() -> argparse.ArgumentParser:

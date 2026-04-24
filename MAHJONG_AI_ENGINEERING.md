@@ -14,7 +14,7 @@
   - 规则与数据链路相关测试
 - 部分完成：
   - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest` 已可用
-  - 数据统计、失败归因和调试视图仍比较基础
+  - 数据统计、失败归因和 split warning 已有第一版，但调试视图仍比较基础
 - 尚未开始：
   - `features/`
   - `models/`
@@ -24,7 +24,7 @@
 
 当前已验证结果：
 
-- `pytest` 结果为 `40 passed`
+- `pytest` 结果为 `41 passed`
 - 使用 `tests/fixtures/tenhou` 实测可完成 `10` 局 XML 预处理、`3253` 条事件写入、`10/10` 个事件分片校验通过，并生成 `1542` 条 `turn` 样本、`4626` 条 `response` 样本
 
 更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。

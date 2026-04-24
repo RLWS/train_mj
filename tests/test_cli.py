@@ -28,9 +28,12 @@ def test_cli_preprocess_and_validate_events(tmp_path: Path, capsys):
     assert preprocess_exit_code == 0
     assert validate_exit_code == 0
     assert "preprocessed events:" in preprocess_output
+    assert "event_types=" in preprocess_output
     assert "validated events:" in captured.out
+    assert "event types:" in captured.out
     assert report["summary"]["files_seen"] == len(list(FIXTURE_DIR.glob("*.xml")))
     assert report["summary"]["files_failed"] == 0
+    assert report["summary"]["event_type_counts"]["init"] > 0
 
 
 def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
@@ -51,8 +54,29 @@ def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
     assert build_exit_code == 0
     assert "preprocessed events:" in preprocess_output
     assert "built dataset:" in build_output
+    assert "turn labels:" in build_output
+    assert "response labels:" in build_output
     assert (silver_dir / "turn").exists()
     assert (silver_dir / "response").exists()
+
+
+def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, capsys):
+    bronze_dir = tmp_path / "bronze_events"
+    silver_dir = tmp_path / "silver_samples"
+    manifest_dir = tmp_path / "manifests"
+
+    main(["preprocess", "--input", str(FIXTURE_DIR), "--output", str(bronze_dir)])
+    capsys.readouterr()
+    main(["build-dataset", "--input", str(bronze_dir), "--output", str(silver_dir)])
+    capsys.readouterr()
+
+    exit_code = main(["make-manifest", "--input", str(silver_dir), "--output", str(manifest_dir)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "built manifests:" in captured.out
+    assert "manifest samples:" in captured.out
+    assert "warning: split 'test' has 0 games" in captured.out
 
 
 def test_cli_train_command_is_still_registered(capsys):

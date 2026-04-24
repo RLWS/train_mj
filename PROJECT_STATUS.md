@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `40 passed`。
+- `pytest` 全量通过，当前结果为 `41 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -24,17 +24,18 @@
   - `valid=10`
   - `failed=0`
   - `total_events=3253`
+  - 可输出事件分布、失败原因聚合、总局数/弃牌数/副露数摘要
 - `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成：
   - `1542` 条 `turn` 样本
   - `4626` 条 `response` 样本
+  - 可输出 `turn/response` 标签动作分布
 - `python -m mjai.cli make-manifest --input <tmp> --output <tmp>` 可运行。
 - 同一批夹具可生成 manifest，实测分桶结果为：
   - `train_games=9`
   - `valid_games=1`
   - `test_games=0`
-
-最后一项说明当前切分逻辑是按哈希稳定分桶，适合正式数据集；但在很小的样本集上，某个 split 为空是正常现象，后续最好补一个提示。
+  - 当前会对空 split 输出 warning
 
 ## 3. 按模块看当前状态
 
@@ -52,6 +53,7 @@
   - 事件分片回放校验器已实现。
   - `turn` 与 `response` 样本构建器已实现。
   - Parquet 写出与 manifest 生成已实现。
+  - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `configs/`
   - 数据、任务、模型、训练配置目录已建立。
 - `tests/`
@@ -65,7 +67,7 @@
   - `train`、`eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
-  - 当前事件报告和样本统计仍是最小版本，诊断能力还不够。
+  - 第一版诊断输出已经落地，但还缺少更细的失败样本导出和 case drill-down。
 
 ### 尚未开始或基本未开始
 
@@ -79,7 +81,7 @@
 
 ## 4. 当前最关键的差距
 
-### 4.1 数据流水线已经打通，但诊断能力还偏弱
+### 4.1 数据流水线与基础诊断已经打通，但深入排查能力还偏弱
 
 当前已经具备：
 
@@ -87,13 +89,19 @@
 raw_xml -> bronze_events -> validate-events -> silver_samples
 ```
 
+并且已经有：
+
+- 事件分布统计
+- 错误类型聚合
+- 动作标签分布
+- split 样本数统计
+- 小数据集空 split warning
+
 但要把它作为大规模训练前的数据入口，仍然建议继续补：
 
-- 动作分布统计
-- 错误类型聚合
-- 样本级和分片级摘要
-- 小数据集空 split 提示
 - 更方便的失败 case 回溯
+- 样本级抽查工具
+- 更细的分片级和动作级质量报告
 
 ### 4.2 规则引擎仍是 first-pass 版本
 
@@ -139,22 +147,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议按下面顺序推进，不要同时铺太多面。
 
-### 任务 1：补充数据统计与样本诊断
-
-目标：
-
-- 在现有两阶段流水线之上补齐统计和诊断视图。
-- 为后续 `response` 类别不平衡处理提供依据。
-- 为大规模预处理时的排错提供更直接的信息。
-
-最低验收标准：
-
-- 输出每种动作的样本数统计。
-- 输出每类事件和失败原因的统计。
-- 输出每个 split 的局数和样本数。
-- 小数据集出现空 split 时给出提示而不是静默通过。
-
-### 任务 2：实现最小可训练闭环
+### 任务 1：实现最小可训练闭环
 
 目标：
 
@@ -174,7 +167,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - loss 可以下降。
 - 训练过程中不出现非法候选或 NaN。
 
-### 任务 3：扩展规则边界，优先补高价值动作
+### 任务 2：扩展规则边界，优先补高价值动作
 
 建议优先级：
 
@@ -184,3 +177,12 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 4. 更严格的立直限制
 
 原因很直接：这些动作会直接影响标签空间定义，最好在大规模训练前补稳。
+
+### 任务 3：继续增强诊断与抽查能力
+
+建议方向：
+
+- 失败 case 导出
+- 样本抽查 CLI
+- 更细的动作级质量报告
+- 大规模预处理阶段的异常分片汇总
