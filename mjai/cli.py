@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from mjai.data.builders.dataset_builder import DatasetBuilder
+from mjai.data.builders.manifest_builder import ManifestBuilder
 from mjai.utils.config import load_yaml
 
 
@@ -22,6 +24,34 @@ def _not_implemented(command: str, config_path: str | None = None) -> int:
     if config_path:
         print(f"loaded config: {config_path} ({len(config)} top-level keys)")
     print("implementation pending in the next development tasks")
+    return 0
+
+
+def _run_preprocess(command: str, config_path: str | None = None) -> int:
+    return _not_implemented(command, config_path)
+
+
+def _run_validate_events(command: str, config_path: str | None = None) -> int:
+    return _not_implemented(command, config_path)
+
+
+def _run_build_dataset(args: argparse.Namespace) -> int:
+    builder = DatasetBuilder()
+    summary = builder.build_from_xml_dir(args.input, args.output)
+    print(
+        f"built dataset: games={summary.games} turn_samples={summary.turn_samples} "
+        f"response_samples={summary.response_samples}"
+    )
+    return 0
+
+
+def _run_make_manifest(args: argparse.Namespace) -> int:
+    builder = ManifestBuilder()
+    summary = builder.build(args.input, args.output)
+    print(
+        f"built manifests: train_games={summary.train_games} "
+        f"valid_games={summary.valid_games} test_games={summary.test_games}"
+    )
     return 0
 
 
@@ -90,6 +120,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "preprocess":
+        return _run_preprocess(args.command, getattr(args, "config", None))
+    if args.command == "validate-events":
+        return _run_validate_events(args.command, getattr(args, "config", None))
+    if args.command == "build-dataset":
+        return _run_build_dataset(args)
+    if args.command == "make-manifest":
+        return _run_make_manifest(args)
     return _not_implemented(args.command, getattr(args, "config", None))
 
 
