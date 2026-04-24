@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from mjai.data.builders.event_builder import EventBuilder
+from mjai.data.builders.event_validator import EventValidator
 from mjai.data.builders.dataset_builder import DatasetBuilder
 from mjai.data.builders.manifest_builder import ManifestBuilder
 from mjai.utils.config import load_yaml
@@ -27,17 +29,29 @@ def _not_implemented(command: str, config_path: str | None = None) -> int:
     return 0
 
 
-def _run_preprocess(command: str, config_path: str | None = None) -> int:
-    return _not_implemented(command, config_path)
+def _run_preprocess(args: argparse.Namespace) -> int:
+    _load_optional_config(getattr(args, "config", None))
+    builder = EventBuilder()
+    summary = builder.build_from_xml_dir(args.input, args.output)
+    print(f"preprocessed events: games={summary.games} events={summary.events}")
+    return 0
 
 
-def _run_validate_events(command: str, config_path: str | None = None) -> int:
-    return _not_implemented(command, config_path)
+def _run_validate_events(args: argparse.Namespace) -> int:
+    _load_optional_config(getattr(args, "config", None))
+    validator = EventValidator()
+    summary = validator.validate_dir(args.input, args.report)
+    print(
+        f"validated events: files={summary.files_seen} valid={summary.files_valid} "
+        f"failed={summary.files_failed} total_events={summary.total_events}"
+    )
+    return 0
 
 
 def _run_build_dataset(args: argparse.Namespace) -> int:
+    _load_optional_config(getattr(args, "config", None))
     builder = DatasetBuilder()
-    summary = builder.build_from_xml_dir(args.input, args.output)
+    summary = builder.build_from_event_dir(args.input, args.output)
     print(
         f"built dataset: games={summary.games} turn_samples={summary.turn_samples} "
         f"response_samples={summary.response_samples}"
@@ -121,9 +135,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "preprocess":
-        return _run_preprocess(args.command, getattr(args, "config", None))
+        return _run_preprocess(args)
     if args.command == "validate-events":
-        return _run_validate_events(args.command, getattr(args, "config", None))
+        return _run_validate_events(args)
     if args.command == "build-dataset":
         return _run_build_dataset(args)
     if args.command == "make-manifest":

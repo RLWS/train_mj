@@ -5,16 +5,36 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.dataset_builder import DatasetBuilder
+from mjai.data.datasets.event_store import read_events_from_parquet
 from mjai.data.builders.manifest_builder import ManifestBuilder
 
 
 FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
+def test_preprocess_writes_bronze_event_parquet(tmp_path: Path):
+    builder = EventBuilder()
+    summary = builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
+
+    event_files = sorted((tmp_path / "bronze_events").glob("*.parquet"))
+
+    assert summary.games == len(list(FIXTURE_DIR.glob("*.xml")))
+    assert summary.events > 0
+    assert len(event_files) == summary.games
+
+    events = read_events_from_parquet(event_files[0])
+    assert events
+    assert events[0].game_id == event_files[0].stem
+
+
 def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
+    event_builder = EventBuilder()
+    event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
+
     builder = DatasetBuilder()
-    summary = builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "silver_samples")
+    summary = builder.build_from_event_dir(tmp_path / "bronze_events", tmp_path / "silver_samples")
 
     turn_files = sorted((tmp_path / "silver_samples" / "turn").glob("*.parquet"))
     response_files = sorted((tmp_path / "silver_samples" / "response").glob("*.parquet"))
@@ -32,8 +52,11 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
 
 
 def test_make_manifest_writes_jsonl_splits(tmp_path: Path):
+    event_builder = EventBuilder()
+    event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
+
     dataset_builder = DatasetBuilder()
-    dataset_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "silver_samples")
+    dataset_builder.build_from_event_dir(tmp_path / "bronze_events", tmp_path / "silver_samples")
 
     manifest_builder = ManifestBuilder()
     summary = manifest_builder.build(tmp_path / "silver_samples", tmp_path / "manifests")

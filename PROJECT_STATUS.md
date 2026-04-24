@@ -6,7 +6,7 @@
 
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
-- `Phase 0` 基本完成：规则与数据的最小闭环已经跑通。
+- `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
 - `Phase 1` 尚未开始：特征、模型、训练、评估仍未落地。
 
 换句话说，仓库当前最强的部分是“把牌谱可靠地变成合法训练样本”，而不是“训练模型”。
@@ -15,14 +15,22 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `37 passed`。
-- `python -m mjai.cli build-dataset --input tests/fixtures/tenhou --output <tmp>` 可运行。
+- `pytest` 全量通过，当前结果为 `40 passed`。
+- `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
+- 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
+- `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
+- 同一批事件分片实测回放结果为：
+  - `files=10`
+  - `valid=10`
+  - `failed=0`
+  - `total_events=3253`
+- `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成：
   - `1542` 条 `turn` 样本
   - `4626` 条 `response` 样本
 - `python -m mjai.cli make-manifest --input <tmp> --output <tmp>` 可运行。
 - 同一批夹具可生成 manifest，实测分桶结果为：
-  - `train_games=8`
+  - `train_games=9`
   - `valid_games=1`
   - `test_games=0`
 
@@ -40,6 +48,8 @@
   - 基础胡牌判断与立直前听牌检查已实现。
   - 回放校验器已实现，可验证弃牌合法性和副露消耗牌一致性。
 - `mjai/data/builders/`
+  - `bronze_events` 预处理器已实现。
+  - 事件分片回放校验器已实现。
   - `turn` 与 `response` 样本构建器已实现。
   - Parquet 写出与 manifest 生成已实现。
 - `configs/`
@@ -51,11 +61,11 @@
 
 - `mjai/cli.py`
   - 子命令框架完整。
-  - `build-dataset`、`make-manifest` 已可用。
-  - `preprocess`、`validate-events`、`train`、`eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍是占位实现。
+  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest` 已可用。
+  - `train`、`eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍是占位实现。
 - 数据链路
-  - 当前能从 XML 直接构建训练样本。
-  - 但文档规划中的 `bronze_events` 持久化层还没有真正落地。
+  - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
+  - 当前事件报告和样本统计仍是最小版本，诊断能力还不够。
 
 ### 尚未开始或基本未开始
 
@@ -69,26 +79,21 @@
 
 ## 4. 当前最关键的差距
 
-### 4.1 文档中的两阶段数据流水线尚未兑现
+### 4.1 数据流水线已经打通，但诊断能力还偏弱
 
-工程文档规划的是：
-
-```text
-raw_xml -> bronze_events -> silver_samples
-```
-
-但当前实际实现是：
+当前已经具备：
 
 ```text
-xml -> 解析 + 回放 + 样本构建 -> parquet samples
+raw_xml -> bronze_events -> validate-events -> silver_samples
 ```
 
-这意味着本地验证没问题，但想扩展到 20 万局甚至更大规模时，会缺少：
+但要把它作为大规模训练前的数据入口，仍然建议继续补：
 
-- 可复用的中间事件层
-- 事件级校验报告
-- 更稳定的数据版本管理
-- 失败样本回溯能力
+- 动作分布统计
+- 错误类型聚合
+- 样本级和分片级摘要
+- 小数据集空 split 提示
+- 更方便的失败 case 回溯
 
 ### 4.2 规则引擎仍是 first-pass 版本
 
@@ -124,6 +129,7 @@ xml -> 解析 + 回放 + 样本构建 -> parquet samples
 - `Task 3` 天凤解析与事件 schema：已完成
 - `Task 4` 回放与合法动作生成：已完成第一版
 - `Task 5` 样本构建：已完成第一版
+- `preprocess / validate-events`：已完成第一版
 - `Task 6` baseline 模型与训练引擎：未开始
 - `Task 7` 离线评估：未开始
 - `Task 8` 多任务训练：未开始
@@ -133,34 +139,22 @@ xml -> 解析 + 回放 + 样本构建 -> parquet samples
 
 建议按下面顺序推进，不要同时铺太多面。
 
-### 任务 1：补齐 `preprocess` 与 `validate-events`
+### 任务 1：补充数据统计与样本诊断
 
 目标：
 
-- 把当前“直接从 XML 构建样本”的实现拆成真正的两阶段流水线。
-- 产出可持久化的 `bronze_events`。
-- 为失败牌谱和异常事件生成报告。
-
-最低验收标准：
-
-- `python -m mjai.cli preprocess` 可把 XML 转成事件文件。
-- `python -m mjai.cli validate-events` 可输出成功率、失败数和错误摘要。
-- `build-dataset` 可以从 `bronze_events` 而不是原始 XML 继续构建样本。
-
-### 任务 2：补充数据统计与样本诊断
-
-目标：
-
-- 在构建样本后直接看到动作分布、标签分布、空 split、非法标签率等信息。
-- 为后续 `response` 任务的类别不平衡处理提前准备依据。
+- 在现有两阶段流水线之上补齐统计和诊断视图。
+- 为后续 `response` 类别不平衡处理提供依据。
+- 为大规模预处理时的排错提供更直接的信息。
 
 最低验收标准：
 
 - 输出每种动作的样本数统计。
+- 输出每类事件和失败原因的统计。
 - 输出每个 split 的局数和样本数。
 - 小数据集出现空 split 时给出提示而不是静默通过。
 
-### 任务 3：实现最小可训练闭环
+### 任务 2：实现最小可训练闭环
 
 目标：
 
@@ -180,7 +174,7 @@ xml -> 解析 + 回放 + 样本构建 -> parquet samples
 - loss 可以下降。
 - 训练过程中不出现非法候选或 NaN。
 
-### 任务 4：扩展规则边界，优先补高价值动作
+### 任务 3：扩展规则边界，优先补高价值动作
 
 建议优先级：
 

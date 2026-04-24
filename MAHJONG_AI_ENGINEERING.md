@@ -6,14 +6,15 @@
 
 - 已完成：
   - 天凤 XML 解析
+  - `bronze_events` 持久化
   - 回放校验
   - 基础合法动作生成
   - `turn/response` 样本构建
   - Parquet 写出与 manifest 切分
   - 规则与数据链路相关测试
 - 部分完成：
-  - CLI 框架已建立，但目前只有 `build-dataset` 和 `make-manifest` 真正可用
-  - 当前 `build-dataset` 仍直接从 XML 解析并构建样本，`bronze_events` 持久化层尚未实现
+  - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest` 已可用
+  - 数据统计、失败归因和调试视图仍比较基础
 - 尚未开始：
   - `features/`
   - `models/`
@@ -23,8 +24,8 @@
 
 当前已验证结果：
 
-- `pytest` 结果为 `37 passed`
-- 使用 `tests/fixtures/tenhou` 实测可生成 `10` 局、`1542` 条 `turn` 样本、`4626` 条 `response` 样本
+- `pytest` 结果为 `40 passed`
+- 使用 `tests/fixtures/tenhou` 实测可完成 `10` 局 XML 预处理、`3253` 条事件写入、`10/10` 个事件分片校验通过，并生成 `1542` 条 `turn` 样本、`4626` 条 `response` 样本
 
 更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。
 
@@ -461,7 +462,7 @@ ruleset_id
 
 建议按下面顺序做，不要并行铺太大。
 
-注：截至 `2026-04-24`，`Task 1` 到 `Task 5` 已基本完成第一版，但 `preprocess` / `validate-events` 与 `bronze_events` 持久化仍未补齐；`Task 6` 及以后尚未开始。详细状态见 `PROJECT_STATUS.md`。
+注：截至 `2026-04-24`，`Task 1` 到 `Task 5` 及 `preprocess` / `validate-events` 已完成第一版；`Task 6` 及以后尚未开始。详细状态见 `PROJECT_STATUS.md`。
 
 ### Task 1：项目骨架初始化
 
