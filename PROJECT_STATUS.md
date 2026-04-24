@@ -7,7 +7,7 @@
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
-- `Phase 1` 已启动：`turn` 单任务 baseline 已能本地 smoke train。
+- `Phase 1` 已启动：`turn/response` 单任务 baseline 都已能本地 smoke train。
 
 换句话说，仓库当前已经从“只能产样本”进入“能产样本并训练最小 baseline”，但训练体系还远没完整。
 
@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `46 passed`。
+- `pytest` 全量通过，当前结果为 `47 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -37,7 +37,7 @@
   - `test_games=0`
   - 当前会对空 split 输出 warning
 - `python -m mjai.cli train --config <tmp>` 可运行。
-- 以单局清单裁剪出的最小训练集实测，`turn` 任务可完成 `1` 个 epoch 的 smoke train，并落盘：
+- 以单局清单裁剪出的最小训练集实测，`turn` 与 `response` 任务都可完成 `1` 个 epoch 的 smoke train，并落盘：
   - `config.resolved.yaml`
   - `train_metrics.json`
   - `best.pt`
@@ -63,14 +63,14 @@
 - `configs/`
   - 数据、任务、模型、训练配置目录已建立。
 - `mjai/features/`
-  - 已有最小 `turn` 状态特征与动作特征编码。
+  - 已有最小 `turn/response` 状态特征与动作特征编码。
 - `mjai/models/`
-  - 已有最小共享编码器与 `turn` 候选打分头。
+  - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
-  - 已有最小训练循环、loss、accuracy 指标与 checkpoint 落盘。
+  - 已有最小训练循环、加权 loss、accuracy 指标与 checkpoint 落盘。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
-  - `turn` smoke train 也有回归测试。
+  - `turn/response` smoke train 都有回归测试。
 
 ### 部分完成
 
@@ -129,15 +129,15 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 当前已经有：
 
 - `turn` 状态特征编码
-- `turn` 候选动作编码
-- 最小共享编码器和 `turn` 候选排序头
-- `turn` 训练循环
+- `response` 状态特征编码
+- `turn/response` 候选动作编码
+- 最小共享编码器和 `turn/response` 候选排序头
+- `turn/response` 训练循环
 - `loss / accuracy`
 - checkpoint 与训练指标落盘
 
 仍然缺少：
 
-- `response` 训练路径
 - history encoder
 - 多任务训练
 - 离线评估报告
@@ -153,7 +153,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `Task 4` 回放与合法动作生成：已完成第一版
 - `Task 5` 样本构建：已完成第一版
 - `preprocess / validate-events`：已完成第一版
-- `Task 6` baseline 模型与训练引擎：已完成 `turn` 第一版
+- `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版
 - `Task 7` 离线评估：未开始
 - `Task 8` 多任务训练：未开始
 - `Task 9` 训练机适配：只完成配置骨架，未验证训练链路
@@ -162,36 +162,33 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议按下面顺序推进，不要同时铺太多面。
 
-### 任务 1：扩展到 `response` 训练基线
+### 任务 1：扩展规则边界，优先补高价值动作
 
 目标：
 
-- 在现有 `turn` baseline 基础上，补上 `response` 单任务训练闭环。
+- 在进入更完整训练与评估前，先补稳会直接影响标签空间的高价值动作。
 
 建议范围：
-
-- `response` 数据读取与候选编码
-- `pass` 不平衡处理
-- `response` 任务指标
-- 本地 `4070` smoke test
-
-最低验收标准：
-
-- 能读取 manifest 和 Parquet 样本。
-- 能跑完 `1` 个 epoch。
-- loss 可以下降。
-- 训练过程中不出现非法候选或 NaN。
-
-### 任务 2：扩展规则边界，优先补高价值动作
-
-建议优先级：
 
 1. `tsumo`
 2. `ankan / kakan` 的自家回合决策
 3. 更完整的振听与 `ron` 过滤
 4. 更严格的立直限制
 
-原因很直接：这些动作会直接影响标签空间定义，最好在大规模训练前补稳。
+最低验收标准：
+
+- 新增动作能进入合法候选集合。
+- 对应标签可进入样本构建。
+- 不引入回放校验回归。
+
+### 任务 2：补离线评估与错误分析
+
+建议范围：
+
+- `turn/response` top-k accuracy
+- 分类别 precision / recall
+- JSON 或 Markdown 报告导出
+- 固定验证集评估入口
 
 ### 任务 3：继续增强诊断与抽查能力
 

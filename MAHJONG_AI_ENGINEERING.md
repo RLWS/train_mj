@@ -11,7 +11,7 @@
   - 基础合法动作生成
   - `turn/response` 样本构建
   - Parquet 写出与 manifest 切分
-  - 最小 `turn` baseline 训练链路
+  - 最小 `turn/response` baseline 训练链路
   - 规则与数据链路相关测试
 - 部分完成：
   - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train` 已可用
@@ -22,9 +22,9 @@
 
 当前已验证结果：
 
-- `pytest` 结果为 `46 passed`
+- `pytest` 结果为 `47 passed`
 - 使用 `tests/fixtures/tenhou` 实测可完成 `10` 局 XML 预处理、`3253` 条事件写入、`10/10` 个事件分片校验通过，并生成 `1542` 条 `turn` 样本、`4626` 条 `response` 样本
-- `turn` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
+- `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 
 更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。
 

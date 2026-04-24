@@ -1,0 +1,26 @@
+seed: 20260423
+exp_name: response_local_smoke
+output_dir: outputs/checkpoints/response_local_smoke
+log_dir: outputs/logs/response_local_smoke
+data:
+  train_manifest: data/manifests/train.jsonl
+  valid_manifest: data/manifests/valid.jsonl
+  candidate_limit: 16
+task:
+  task: response
+model:
+  hidden_size: 128
+  dropout: 0.1
+train:
+  device: auto
+  batch_size: 128
+  num_workers: 0
+  epochs: 1
+  lr: 0.001
+  weight_decay: 0.0
+  response_class_weights:
+    pass: 1.0
+    chi: 8.0
+    pon: 8.0
+    daiminkan: 8.0
+    ron: 12.0

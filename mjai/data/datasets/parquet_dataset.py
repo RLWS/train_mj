@@ -11,8 +11,13 @@ import torch
 from torch.utils.data import Dataset
 
 from mjai.data.schema.samples import TurnSample
-from mjai.features.action_features import TURN_ACTION_DIM, encode_turn_action
-from mjai.features.state_features import TURN_STATE_DIM, encode_turn_state
+from mjai.features.action_features import (
+    RESPONSE_ACTION_DIM,
+    TURN_ACTION_DIM,
+    encode_response_action,
+    encode_turn_action,
+)
+from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM, encode_response_state, encode_turn_state
 from mjai.utils.paths import ensure_dir
 
 
@@ -77,6 +82,26 @@ class ManifestTurnDataset(Dataset):
         }
 
 
+class ManifestResponseDataset(Dataset):
+    """In-memory response dataset loaded from manifest-listed parquet shards."""
+
+    def __init__(self, manifest_path: str | Path) -> None:
+        self.manifest_path = Path(manifest_path)
+        self.rows = _load_response_rows(self.manifest_path)
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def __getitem__(self, index: int) -> dict:
+        row = self.rows[index]
+        return {
+            "sample_id": row["sample_id"],
+            "state": json.loads(row["state_json"]),
+            "legal_actions": json.loads(row["legal_actions_json"]),
+            "label_action": json.loads(row["label_action_json"]),
+        }
+
+
 def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, torch.Tensor | list[str]]:
     max_candidates = max(len(row["legal_actions"]) for row in rows)
     if max_candidates > candidate_limit:
@@ -115,6 +140,47 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
     }
 
 
+def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, torch.Tensor | list[str]]:
+    max_candidates = max(len(row["legal_actions"]) for row in rows)
+    if max_candidates > candidate_limit:
+        raise ValueError(f"candidate count exceeds configured limit: {max_candidates} > {candidate_limit}")
+
+    batch_size = len(rows)
+    state_feats = torch.zeros((batch_size, RESPONSE_STATE_DIM), dtype=torch.float32)
+    candidate_feats = torch.zeros((batch_size, max_candidates, RESPONSE_ACTION_DIM), dtype=torch.float32)
+    candidate_mask = torch.zeros((batch_size, max_candidates), dtype=torch.bool)
+    labels = torch.zeros((batch_size,), dtype=torch.long)
+    label_kinds: list[str] = []
+    sample_ids: list[str] = []
+
+    for batch_index, row in enumerate(rows):
+        state_feats[batch_index] = torch.tensor(encode_response_state(row["state"]), dtype=torch.float32)
+        label_key = _action_key(row["label_action"])
+        legal_action_keys = [_action_key(action) for action in row["legal_actions"]]
+        try:
+            labels[batch_index] = legal_action_keys.index(label_key)
+        except ValueError as exc:
+            raise ValueError(f"label action missing from legal actions: {row['sample_id']}") from exc
+
+        for candidate_index, action in enumerate(row["legal_actions"]):
+            candidate_feats[batch_index, candidate_index] = torch.tensor(
+                encode_response_action(action),
+                dtype=torch.float32,
+            )
+            candidate_mask[batch_index, candidate_index] = True
+        label_kinds.append(str(row["label_action"]["kind"]))
+        sample_ids.append(str(row["sample_id"]))
+
+    return {
+        "state_feats": state_feats,
+        "candidate_feats": candidate_feats,
+        "candidate_mask": candidate_mask,
+        "labels": labels,
+        "label_kinds": label_kinds,
+        "sample_ids": sample_ids,
+    }
+
+
 def _load_turn_rows(manifest_path: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     if not manifest_path.exists():
@@ -126,6 +192,20 @@ def _load_turn_rows(manifest_path: Path) -> list[dict[str, object]]:
         record = json.loads(line)
         turn_path = Path(record["turn_path"])
         rows.extend(pq.read_table(turn_path).to_pylist())
+    return rows
+
+
+def _load_response_rows(manifest_path: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"manifest file not found: {manifest_path}")
+
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        response_path = Path(record["response_path"])
+        rows.extend(pq.read_table(response_path).to_pylist())
     return rows
 
 

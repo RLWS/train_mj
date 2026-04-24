@@ -13,6 +13,7 @@ def _build_exact_tile_vocab() -> list[str]:
 EXACT_TILE_VOCAB = _build_exact_tile_vocab()
 EXACT_TILE_INDEX = {tile: index for index, tile in enumerate(EXACT_TILE_VOCAB)}
 TURN_STATE_DIM = len(EXACT_TILE_VOCAB) + (4 * len(EXACT_TILE_VOCAB)) + (len(EXACT_TILE_VOCAB) + 1) + 5 + 4 + 1 + 5
+RESPONSE_STATE_DIM = TURN_STATE_DIM + 5 + (len(EXACT_TILE_VOCAB) + 1)
 
 
 def encode_turn_state(state: dict) -> list[float]:
@@ -32,6 +33,14 @@ def encode_turn_state(state: dict) -> list[float]:
     features.extend(_encode_actor_onehot(int(state.get("actor", 0))))
     features.append(1.0 if state.get("riichi_declared", False) else 0.0)
     features.extend(_encode_own_meld_counts(state.get("own_melds", [])))
+    return features
+
+
+def encode_response_state(state: dict) -> list[float]:
+    features = encode_turn_state(state)
+    response_target = state.get("response_target", {})
+    features.extend(_encode_optional_actor(response_target.get("source")))
+    features.extend(_encode_optional_tile(response_target.get("tile")))
     return features
 
 

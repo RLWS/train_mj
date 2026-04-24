@@ -25,6 +25,7 @@ class MahjongPolicyNet(nn.Module):
             dropout=dropout,
         )
         self.turn_head = TurnHead(hidden_size=hidden_size)
+        self.response_head = TurnHead(hidden_size=hidden_size)
 
     def forward_turn(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         state_hidden, candidate_hidden = self.encoder(
@@ -32,6 +33,17 @@ class MahjongPolicyNet(nn.Module):
             batch["candidate_feats"],
         )
         return self.turn_head(
+            state_hidden=state_hidden,
+            candidate_hidden=candidate_hidden,
+            candidate_mask=batch["candidate_mask"],
+        )
+
+    def forward_response(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        state_hidden, candidate_hidden = self.encoder(
+            batch["state_feats"],
+            batch["candidate_feats"],
+        )
+        return self.response_head(
             state_hidden=state_hidden,
             candidate_hidden=candidate_hidden,
             candidate_mask=batch["candidate_mask"],
