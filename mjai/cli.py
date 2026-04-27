@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Sequence
 
 from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.event_validator import EventValidator
 from mjai.data.builders.dataset_builder import DatasetBuilder
 from mjai.data.builders.manifest_builder import ManifestBuilder
+from mjai.data.datasets.parquet_dataset import inspect_dataset_sample
+from mjai.eval.offline import evaluate_checkpoint
 from mjai.training.engine import train_turn_model
 from mjai.utils.config import load_resolved_yaml, load_yaml
 
@@ -108,6 +111,38 @@ def _run_train(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_eval(args: argparse.Namespace) -> int:
+    config_override = _load_optional_config(getattr(args, "config", None))
+    summary = evaluate_checkpoint(
+        ckpt_path=args.ckpt,
+        split=args.split,
+        config_override=config_override,
+        report_path=getattr(args, "report", None),
+    )
+    print(
+        f"evaluated task={summary.task} split={summary.split} "
+        f"loss={summary.loss:.4f} top1={summary.top1_accuracy:.4f} "
+        f"top3={summary.top3_accuracy:.4f} top5={summary.top5_accuracy:.4f}"
+    )
+    print(f"samples={summary.samples} batches={summary.batches} device={summary.used_device}")
+    print(f"manifest={summary.manifest_path}")
+    print(f"report={summary.report_path}")
+    if summary.per_kind:
+        per_kind = ", ".join(
+            f"{kind}:{kind_summary.samples}/{kind_summary.top1_accuracy:.4f}"
+            for kind, kind_summary in sorted(summary.per_kind.items())
+        )
+        print(f"per_kind_top1={per_kind}")
+    return 0
+
+
+def _run_inspect_sample(args: argparse.Namespace) -> int:
+    _load_optional_config(getattr(args, "config", None))
+    sample = inspect_dataset_sample(args.dataset, args.index)
+    print(json.dumps(sample, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _print_warnings(warnings: tuple[str, ...]) -> None:
     for warning in warnings:
         print(f"warning: {warning}")
@@ -149,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser = subparsers.add_parser("eval", help="Run offline evaluation.")
     eval_parser.add_argument("--ckpt", required=True, help="Checkpoint path.")
     eval_parser.add_argument("--split", default="valid", choices=["train", "valid", "test"])
+    eval_parser.add_argument("--report", default=None, help="Optional output report path.")
     _add_config_arg(eval_parser)
 
     replay_eval = subparsers.add_parser("replay-eval", help="Run fixed-game replay evaluation.")
@@ -188,6 +224,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_make_manifest(args)
     if args.command == "train":
         return _run_train(args)
+    if args.command == "eval":
+        return _run_eval(args)
+    if args.command == "inspect-sample":
+        return _run_inspect_sample(args)
     return _not_implemented(args.command, getattr(args, "config", None))
 
 

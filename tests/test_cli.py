@@ -81,6 +81,7 @@ def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, cap
 
 def test_cli_train_requires_real_inputs(tmp_path: Path):
     config_path = tmp_path / "missing_data.yaml"
+    missing_manifest = tmp_path / "missing_train.jsonl"
     config_path.write_text(
         "\n".join(
             [
@@ -89,7 +90,7 @@ def test_cli_train_requires_real_inputs(tmp_path: Path):
                 "output_dir: outputs/checkpoints/missing_data_test",
                 "log_dir: outputs/logs/missing_data_test",
                 "data:",
-                "  train_manifest: data/manifests/train.jsonl",
+                f"  train_manifest: {missing_manifest.as_posix()}",
                 "task:",
                 "  task: turn",
                 "model:",
@@ -114,3 +115,26 @@ def test_cli_train_requires_real_inputs(tmp_path: Path):
         assert "manifest file not found" in str(exc)
     else:
         raise AssertionError("expected train command to require an existing manifest")
+
+
+def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
+    bronze_dir = tmp_path / "bronze_events"
+    silver_dir = tmp_path / "silver_samples"
+
+    assert main(["preprocess", "--input", str(FIXTURE_DIR), "--output", str(bronze_dir)]) == 0
+    capsys.readouterr()
+    assert main(["build-dataset", "--input", str(bronze_dir), "--output", str(silver_dir)]) == 0
+    capsys.readouterr()
+
+    exit_code = main(["inspect-sample", "--dataset", str(silver_dir), "--index", "0"])
+    captured = capsys.readouterr()
+
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["dataset_path"] == silver_dir.as_posix()
+    assert payload["global_index"] == 0
+    assert payload["sample_id"]
+    assert payload["decision_type"] in {"turn", "response"}
+    assert payload["candidate_count"] > 0
+    assert isinstance(payload["legal_actions"], list)
+    assert isinstance(payload["state"], dict)

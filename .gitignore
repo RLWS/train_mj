@@ -1,11 +1,17 @@
 # IDE
 .idea/
+.vscode/
 
 # Codefree
 .codefree/
 
 # Claude
 .claude/
+
+# Local env
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -34,6 +40,13 @@ venv/
 ENV/
 env/
 
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 # Logs
 *.log
 
@@ -48,8 +61,9 @@ Thumbs.db
 *.pkl
 *.h5
 
-# Data - ignore large model outputs and raw datasets
-# but keep configs/data/ and mjai/data/ tracked
-data/outputs/
-data/checkpoints/
-data/logs/
+# Local generated datasets and training artifacts.
+# This does not affect configs/data/ or mjai/data/.
+data/*
+!data/.gitkeep
+outputs/*
+!outputs/.gitkeep

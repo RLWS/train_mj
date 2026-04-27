@@ -102,6 +102,33 @@ class ManifestResponseDataset(Dataset):
         }
 
 
+def inspect_dataset_sample(dataset_path: str | Path, index: int) -> dict[str, object]:
+    if index < 0:
+        raise IndexError(f"sample index must be non-negative, got: {index}")
+
+    source_path = Path(dataset_path)
+    parquet_files = _resolve_sample_parquet_files(source_path)
+    remaining = index
+
+    for parquet_path in parquet_files:
+        rows_in_file = pq.read_metadata(parquet_path).num_rows
+        if remaining < rows_in_file:
+            table = pq.read_table(parquet_path).slice(remaining, 1)
+            rows = table.to_pylist()
+            if not rows:
+                break
+            return _build_inspected_sample(
+                row=rows[0],
+                dataset_path=source_path,
+                source_path=parquet_path,
+                global_index=index,
+                source_row_index=remaining,
+            )
+        remaining -= rows_in_file
+
+    raise IndexError(f"sample index out of range: {index}")
+
+
 def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, torch.Tensor | list[str]]:
     max_candidates = max(len(row["legal_actions"]) for row in rows)
     if max_candidates > candidate_limit:
@@ -112,6 +139,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
     candidate_feats = torch.zeros((batch_size, max_candidates, TURN_ACTION_DIM), dtype=torch.float32)
     candidate_mask = torch.zeros((batch_size, max_candidates), dtype=torch.bool)
     labels = torch.zeros((batch_size,), dtype=torch.long)
+    label_kinds: list[str] = []
     sample_ids: list[str] = []
 
     for batch_index, row in enumerate(rows):
@@ -129,6 +157,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
                 dtype=torch.float32,
             )
             candidate_mask[batch_index, candidate_index] = True
+        label_kinds.append(str(row["label_action"]["kind"]))
         sample_ids.append(str(row["sample_id"]))
 
     return {
@@ -136,7 +165,11 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
         "candidate_feats": candidate_feats,
         "candidate_mask": candidate_mask,
         "labels": labels,
+        "label_kinds": label_kinds,
         "sample_ids": sample_ids,
+        "label_actions": [row["label_action"] for row in rows],
+        "legal_actions": [row["legal_actions"] for row in rows],
+        "candidate_counts": [len(row["legal_actions"]) for row in rows],
     }
 
 
@@ -178,6 +211,9 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
         "labels": labels,
         "label_kinds": label_kinds,
         "sample_ids": sample_ids,
+        "label_actions": [row["label_action"] for row in rows],
+        "legal_actions": [row["legal_actions"] for row in rows],
+        "candidate_counts": [len(row["legal_actions"]) for row in rows],
     }
 
 
@@ -211,3 +247,64 @@ def _load_response_rows(manifest_path: Path) -> list[dict[str, object]]:
 
 def _action_key(action: dict) -> str:
     return json.dumps(action, ensure_ascii=False, sort_keys=True)
+
+
+def _resolve_sample_parquet_files(dataset_path: Path) -> list[Path]:
+    if dataset_path.is_file():
+        if dataset_path.suffix != ".parquet":
+            raise ValueError(f"inspect-sample expects a sample directory or parquet file: {dataset_path}")
+        return [dataset_path]
+
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"dataset path not found: {dataset_path}")
+
+    parquet_files: list[Path] = []
+    turn_dir = dataset_path / "turn"
+    response_dir = dataset_path / "response"
+
+    if turn_dir.is_dir():
+        parquet_files.extend(sorted(turn_dir.glob("*.parquet")))
+    if response_dir.is_dir():
+        parquet_files.extend(sorted(response_dir.glob("*.parquet")))
+    if parquet_files:
+        return parquet_files
+
+    parquet_files = sorted(dataset_path.glob("*.parquet"))
+    if parquet_files:
+        return parquet_files
+
+    raise FileNotFoundError(f"no parquet sample files found under: {dataset_path}")
+
+
+def _build_inspected_sample(
+    row: dict[str, object],
+    dataset_path: Path,
+    source_path: Path,
+    global_index: int,
+    source_row_index: int,
+) -> dict[str, object]:
+    legal_actions = json.loads(str(row["legal_actions_json"]))
+    label_action = json.loads(str(row["label_action_json"]))
+    state = json.loads(str(row["state_json"]))
+    label_key = _action_key(label_action)
+    legal_action_keys = [_action_key(action) for action in legal_actions]
+    label_index = legal_action_keys.index(label_key) if label_key in legal_action_keys else None
+
+    return {
+        "dataset_path": str(dataset_path.as_posix()),
+        "global_index": global_index,
+        "source_path": str(source_path.as_posix()),
+        "source_row_index": source_row_index,
+        "sample_id": row["sample_id"],
+        "game_id": row["game_id"],
+        "hand_index": int(row["hand_index"]),
+        "step_index": int(row["step_index"]),
+        "actor": int(row["actor"]),
+        "decision_type": row["decision_type"],
+        "candidate_count": len(legal_actions),
+        "label_in_legal": label_index is not None,
+        "label_index": label_index,
+        "label_action": label_action,
+        "legal_actions": legal_actions,
+        "state": state,
+    }

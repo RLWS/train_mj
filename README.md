@@ -11,7 +11,9 @@
 - 已完成第一阶段的数据闭环：天凤 XML 解析、`bronze_events` 持久化、回放校验、合法动作生成、`turn/response` 样本构建、Parquet 写出、按 `game_id` 的 manifest 切分。
 - 已补上第一版诊断输出：事件分布、失败原因聚合、动作标签分布、split 样本数和空 split warning。
 - 已打通第一版最小训练闭环：`turn/response` manifest 读取、状态/动作特征、候选排序模型、单 epoch smoke train、checkpoint 与指标落盘。
-- 当前测试基线为 `pytest` 全量通过，结果是 `47 passed`。
+- 已补上第一版离线评估：可从 checkpoint 对 `turn/response` 的 `train/valid/test` split 做 `loss`、`top-k accuracy` 和按动作类别聚合评估，并导出 JSON 报告。
+- 已补上第一版样本抽查：可直接从 `silver_samples` 目录按全局索引读取样本，查看 label、合法动作和状态快照。
+- 当前测试基线为 `pytest` 全量通过，结果是 `49 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `10` 局 XML 预处理
   - `3253` 条事件写入 `bronze_events`
@@ -20,7 +22,8 @@
   - `4626` 条 `response` 样本
   - `turn` 单任务 `1` epoch smoke train
   - `response` 单任务 `1` epoch smoke train
-- `eval/`、`serving/` 仍基本是骨架或占位；`features/`、`models/`、`training/` 已有最小 `turn/response` baseline 实现。
+  - `turn` / `response` checkpoint 的 `valid` split 离线评估
+- `serving/` 仍基本是骨架或占位；`features/`、`models/`、`training/`、`eval/` 已有最小 `turn/response` baseline 实现。
 
 ## 当前可用命令
 
@@ -30,6 +33,8 @@ python -m mjai.cli validate-events --input <bronze_events_dir> --report <report_
 python -m mjai.cli build-dataset --input <bronze_events_dir> --output <samples_dir>
 python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
 python -m mjai.cli train --config <train_config_yaml>
+python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
+python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
 pytest
 ```
 
@@ -40,13 +45,15 @@ pytest
 - `build-dataset` 当前从 `bronze_events` 构建 `turn/response` Parquet 样本，并输出标签分布摘要。
 - `make-manifest` 会按 `game_id` 生成 `train/valid/test` 清单，并输出 split 样本统计与 warning。
 - `train` 当前支持最小 `turn/response` baseline，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
-- `eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍未实装。
+- `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、按动作类别聚合指标、候选规模分桶和错例导出，并生成 JSON 报告。
+- `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引抽查样本。
+- `replay-eval`、`infer-on-state`、`dump-case` 仍未实装。
 
 ## 当前缺口
 
 - 规则引擎还不是完整日麻规则实现，缺少 `tsumo`、`ankan/kakan` 的回合决策、完整振听判断等能力。
-- 诊断输出已经有第一版，但还缺少更细的 case drill-down、失败样本导出和更丰富的数据质量报告。
-- 当前训练只覆盖最小 `turn/response` baseline，多任务、离线评估和推理服务都还没开始。
+- 诊断输出已经有第一版，但还缺少更细的 case drill-down、固定 case 定位和更丰富的数据质量报告。
+- 当前训练与评估只覆盖最小 `turn/response` baseline；多任务、错误分析工具和推理服务都还没开始。
 
 ## 文档索引
 
@@ -57,6 +64,6 @@ pytest
 
 ## 建议的下一步
 
-1. 先补规则边界，优先做 `tsumo`、`ankan/kakan` 回合动作和更完整的 `ron/riichi` 限制。
-2. 然后补离线评估和错误分析，至少有 `turn/response` 的 top-k、分类别指标和报告导出。
-3. 最后继续增强诊断与抽查，补失败 case 导出、样本抽查和更细粒度报告。
+1. 先继续补错误分析深度，优先做固定 case drill-down、`dump-case` 和更细的错例聚合。
+2. 然后补规则边界，优先做 `tsumo`、`ankan/kakan` 回合动作和更完整的 `ron/riichi` 限制。
+3. 最后继续扩训练覆盖，补多任务训练、更完整离线指标和推理入口。

@@ -1,13 +1,13 @@
 # 项目进度状态
 
-更新时间：`2026-04-24`
+更新时间：`2026-04-27`
 
 ## 1. 总体判断
 
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
-- `Phase 1` 已启动：`turn/response` 单任务 baseline 都已能本地 smoke train。
+- `Phase 1` 已启动：`turn/response` 单任务 baseline 都已能本地 smoke train，并可做第一版离线评估。
 
 换句话说，仓库当前已经从“只能产样本”进入“能产样本并训练最小 baseline”，但训练体系还远没完整。
 
@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `47 passed`。
+- `pytest` 全量通过，当前结果为 `50 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -42,6 +42,21 @@
   - `train_metrics.json`
   - `best.pt`
   - `final.pt`
+- `python -m mjai.cli eval --ckpt <tmp> --split valid --report <tmp>` 可运行。
+- 对最小 `turn` 与 `response` smoke checkpoint 实测，可输出：
+  - `loss`
+  - `top1 / top3 / top5 accuracy`
+  - 按动作类别聚合的样本数与 `top-k` 指标
+  - 按候选动作数量分桶的 `top-k` 指标
+  - 首批错例样本的 label、top-k 预测与 legal actions
+  - JSON 评估报告
+- `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
+- 对生成的 `silver_samples` 实测，可按全局索引输出：
+  - `sample_id / game_id / hand_index / step_index / actor`
+  - label action
+  - legal actions
+  - 状态快照
+  - 来源 parquet 文件与文件内行号
 
 ## 3. 按模块看当前状态
 
@@ -68,26 +83,28 @@
   - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
   - 已有最小训练循环、加权 loss、accuracy 指标与 checkpoint 落盘。
+- `mjai/eval/`
+  - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
+  - 已支持候选规模分桶与首批错例导出。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
-  - `turn/response` smoke train 都有回归测试。
+  - `turn/response` smoke train、offline eval 与 `inspect-sample` 都有回归测试。
 
 ### 部分完成
 
 - `mjai/cli.py`
   - 子命令框架完整。
-  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train` 已可用。
-  - `eval`、`replay-eval`、`inspect-sample`、`infer-on-state`、`dump-case` 仍是占位实现。
+  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`inspect-sample` 已可用。
+  - `replay-eval`、`infer-on-state`、`dump-case` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
   - 第一版诊断输出已经落地，但还缺少更细的失败样本导出和 case drill-down。
 
 ### 尚未开始或基本未开始
 
-- `mjai/eval/`
 - `mjai/serving/`
 
-这些目录目前仍只有包骨架或说明性占位，还不能支持评估与推理闭环。
+这些目录目前仍只有包骨架或说明性占位，还不能支持推理闭环。
 
 ## 4. 当前最关键的差距
 
@@ -124,7 +141,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 多家荣和等边界情况
 - 更完整的立直限制与流局处理
 
-### 4.3 训练链路已打通最小版本，但覆盖面还很窄
+### 4.3 训练与评估链路已打通最小版本，但覆盖面还很窄
 
 当前已经有：
 
@@ -134,13 +151,14 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 最小共享编码器和 `turn/response` 候选排序头
 - `turn/response` 训练循环
 - `loss / accuracy`
+- `turn/response` 离线 `top-k` 评估与按类别聚合报告
 - checkpoint 与训练指标落盘
 
 仍然缺少：
 
 - history encoder
 - 多任务训练
-- 离线评估报告
+- 更细的错误分析与样本级检查
 - 推理入口
 
 ## 5. 阶段结论
@@ -154,7 +172,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `Task 5` 样本构建：已完成第一版
 - `preprocess / validate-events`：已完成第一版
 - `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版
-- `Task 7` 离线评估：未开始
+- `Task 7` 离线评估：已完成第一版
 - `Task 8` 多任务训练：未开始
 - `Task 9` 训练机适配：只完成配置骨架，未验证训练链路
 
@@ -162,11 +180,26 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议按下面顺序推进，不要同时铺太多面。
 
-### 任务 1：扩展规则边界，优先补高价值动作
+### 任务 1：继续补错误分析深度
 
 目标：
 
-- 在进入更完整训练与评估前，先补稳会直接影响标签空间的高价值动作。
+- 在已有 train/eval/inspect 闭环基础上，继续补固定 case 定位和更细粒度聚合，否则问题仍然只能停留在“知道错了，但不够好追”。
+
+建议范围：
+
+1. `dump-case`
+2. 固定错例 case list
+3. 更细的按牌型/动作来源/候选规模聚合报告
+4. 评估报告到具体样本的跳转字段
+
+最低验收标准：
+
+- 能从 checkpoint 评估结果稳定复现到具体样本。
+- 能从样本定位到具体牌谱与决策点。
+- 不破坏当前 train/eval 回归测试。
+
+### 任务 2：扩展规则边界，优先补高价值动作
 
 建议范围：
 
@@ -175,26 +208,11 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 3. 更完整的振听与 `ron` 过滤
 4. 更严格的立直限制
 
-最低验收标准：
-
-- 新增动作能进入合法候选集合。
-- 对应标签可进入样本构建。
-- 不引入回放校验回归。
-
-### 任务 2：补离线评估与错误分析
-
-建议范围：
-
-- `turn/response` top-k accuracy
-- 分类别 precision / recall
-- JSON 或 Markdown 报告导出
-- 固定验证集评估入口
-
-### 任务 3：继续增强诊断与抽查能力
+### 任务 3：继续扩训练覆盖
 
 建议方向：
 
-- 失败 case 导出
-- 样本抽查 CLI
-- 更细的动作级质量报告
-- 大规模预处理阶段的异常分片汇总
+- 多任务训练
+- 更完整的分类指标
+- 推理入口
+- 大规模训练配置验证
