@@ -9,6 +9,7 @@ from mjai.data.builders.event_validator import EventValidator
 from mjai.data.builders.dataset_builder import DatasetBuilder
 from mjai.data.builders.manifest_builder import ManifestBuilder
 from mjai.data.datasets.parquet_dataset import inspect_dataset_sample
+from mjai.eval.case_dump import dump_case_to_json
 from mjai.eval.offline import evaluate_checkpoint
 from mjai.training.engine import train_turn_model
 from mjai.utils.config import load_resolved_yaml, load_yaml
@@ -143,6 +144,20 @@ def _run_inspect_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_dump_case(args: argparse.Namespace) -> int:
+    _load_optional_config(getattr(args, "config", None))
+    print(
+        dump_case_to_json(
+            bronze_dir=args.bronze_dir,
+            game_id=args.game_id,
+            hand_index=int(args.hand_id),
+            step_index=int(args.step_id),
+            context_radius=int(args.context_radius),
+        )
+    )
+    return 0
+
+
 def _print_warnings(warnings: tuple[str, ...]) -> None:
     for warning in warnings:
         print(f"warning: {warning}")
@@ -206,6 +221,17 @@ def build_parser() -> argparse.ArgumentParser:
     dump_case.add_argument("--game-id", required=True)
     dump_case.add_argument("--hand-id", required=True)
     dump_case.add_argument("--step-id", required=True)
+    dump_case.add_argument(
+        "--bronze-dir",
+        default="data/bronze_events",
+        help="Directory containing bronze event parquet shards.",
+    )
+    dump_case.add_argument(
+        "--context-radius",
+        type=int,
+        default=5,
+        help="Number of same-hand events to include before and after the target event.",
+    )
     _add_config_arg(dump_case)
 
     return parser
@@ -228,6 +254,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_eval(args)
     if args.command == "inspect-sample":
         return _run_inspect_sample(args)
+    if args.command == "dump-case":
+        return _run_dump_case(args)
     return _not_implemented(args.command, getattr(args, "config", None))
 
 

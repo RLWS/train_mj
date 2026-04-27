@@ -13,6 +13,7 @@
 - 已打通第一版最小训练闭环：`turn/response` manifest 读取、状态/动作特征、候选排序模型、单 epoch smoke train、checkpoint 与指标落盘。
 - 已补上第一版离线评估：可从 checkpoint 对 `turn/response` 的 `train/valid/test` split 做 `loss`、`top-k accuracy` 和按动作类别聚合评估，并导出 JSON 报告。
 - 已补上第一版样本抽查：可直接从 `silver_samples` 目录按全局索引读取样本，查看 label、合法动作和状态快照。
+- 已补上第一版 case 定位：可从 `bronze_events` 按 `game_id / hand_index / step_index` 回溯目标事件及其前后上下文。
 - 当前测试基线为 `pytest` 全量通过，结果是 `49 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `10` 局 XML 预处理
@@ -35,6 +36,7 @@ python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
 python -m mjai.cli train --config <train_config_yaml>
 python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
 python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
+python -m mjai.cli dump-case --game-id <game_id> --hand-id <hand_index> --step-id <step_index>
 pytest
 ```
 
@@ -47,7 +49,8 @@ pytest
 - `train` 当前支持最小 `turn/response` baseline，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
 - `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、按动作类别聚合指标、候选规模分桶和错例导出，并生成 JSON 报告。
 - `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引抽查样本。
-- `replay-eval`、`infer-on-state`、`dump-case` 仍未实装。
+- `dump-case` 当前支持从 `bronze_events` 中定位目标决策点的原始事件上下文。
+- `replay-eval`、`infer-on-state` 仍未实装。
 
 ## 当前缺口
 
@@ -64,6 +67,6 @@ pytest
 
 ## 建议的下一步
 
-1. 先继续补错误分析深度，优先做固定 case drill-down、`dump-case` 和更细的错例聚合。
+1. 先继续补错误分析深度，优先把 eval 错例和 `dump-case` 串起来，再补更细的错例聚合。
 2. 然后补规则边界，优先做 `tsumo`、`ankan/kakan` 回合动作和更完整的 `ron/riichi` 限制。
 3. 最后继续扩训练覆盖，补多任务训练、更完整离线指标和推理入口。

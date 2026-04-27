@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `50 passed`。
+- `pytest` 全量通过，当前结果为 `51 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -57,6 +57,12 @@
   - legal actions
   - 状态快照
   - 来源 parquet 文件与文件内行号
+- `python -m mjai.cli dump-case --game-id <id> --hand-id <id> --step-id <id>` 可运行。
+- 对生成的 `bronze_events` 实测，可按 `game_id / hand_index / step_index` 输出：
+  - 目标事件
+  - 同一手内的完整事件列表
+  - 目标事件前后上下文
+  - 来源 parquet 分片路径
 
 ## 3. 按模块看当前状态
 
@@ -88,14 +94,14 @@
   - 已支持候选规模分桶与首批错例导出。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
-  - `turn/response` smoke train、offline eval 与 `inspect-sample` 都有回归测试。
+  - `turn/response` smoke train、offline eval、`inspect-sample` 与 `dump-case` 都有回归测试。
 
 ### 部分完成
 
 - `mjai/cli.py`
   - 子命令框架完整。
-  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`inspect-sample` 已可用。
-  - `replay-eval`、`infer-on-state`、`dump-case` 仍是占位实现。
+  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`inspect-sample`、`dump-case` 已可用。
+  - `replay-eval`、`infer-on-state` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
   - 第一版诊断输出已经落地，但还缺少更细的失败样本导出和 case drill-down。
@@ -188,15 +194,15 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. `dump-case`
+1. eval 错例到 `dump-case` 的可复现跳转
 2. 固定错例 case list
 3. 更细的按牌型/动作来源/候选规模聚合报告
-4. 评估报告到具体样本的跳转字段
+4. 评估报告到具体样本和事件上下文的跳转字段
 
 最低验收标准：
 
 - 能从 checkpoint 评估结果稳定复现到具体样本。
-- 能从样本定位到具体牌谱与决策点。
+- 能从样本稳定定位到具体牌谱与决策点。
 - 不破坏当前 train/eval 回归测试。
 
 ### 任务 2：扩展规则边界，优先补高价值动作
