@@ -23,7 +23,7 @@ class TurnSampleBuilder:
 
         for event in events:
             if event.event_type == "init":
-                state = GameState.from_init_payload(event.hand_index, event.payload)
+                state = GameState.from_init_payload(event.kyoku_index, event.payload)
                 pending_turn_labels = {}
                 continue
 
@@ -49,11 +49,11 @@ class TurnSampleBuilder:
                 label_action = asdict(Action(kind=label_kind, tile=event.payload["tile"]))
                 sample = TurnSample(
                     sample_id=(
-                        f"{event.game_id}:{event.hand_index}:{event.step_index}:"
+                        f"{event.game_id}:{event.kyoku_index}:{event.step_index}:"
                         f"{event.actor}:turn"
                     ),
                     game_id=event.game_id,
-                    hand_index=event.hand_index,
+                    kyoku_index=event.kyoku_index,
                     step_index=event.step_index,
                     actor=event.actor,
                     decision_type="turn",
@@ -99,7 +99,7 @@ class ResponseSampleBuilder:
 
         for event_index, event in enumerate(events):
             if event.event_type == "init":
-                state = GameState.from_init_payload(event.hand_index, event.payload)
+                state = GameState.from_init_payload(event.kyoku_index, event.payload)
                 continue
 
             if state is None:
@@ -132,11 +132,11 @@ class ResponseSampleBuilder:
                     label_action = _response_label_for_actor(responder, event, resolution)
                     sample = TurnSample(
                         sample_id=(
-                            f"{event.game_id}:{event.hand_index}:{event.step_index}:"
+                            f"{event.game_id}:{event.kyoku_index}:{event.step_index}:"
                             f"{responder}:response"
                         ),
                         game_id=event.game_id,
-                        hand_index=event.hand_index,
+                        kyoku_index=event.kyoku_index,
                         step_index=event.step_index,
                         actor=responder,
                         decision_type="response",
@@ -197,7 +197,7 @@ def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
     discard_event = events[discard_index]
 
     for future in events[discard_index + 1 :]:
-        if future.hand_index != discard_event.hand_index:
+        if future.kyoku_index != discard_event.kyoku_index:
             break
 
         if future.event_type == "reach":

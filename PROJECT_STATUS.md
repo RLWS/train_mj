@@ -52,15 +52,15 @@
   - JSON 评估报告
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
-  - `sample_id / game_id / hand_index / step_index / actor`
+  - `sample_id / game_id / kyoku_index / step_index / actor`
   - label action
   - legal actions
   - 状态快照
   - 来源 parquet 文件与文件内行号
-- `python -m mjai.cli dump-case --game-id <id> --hand-id <id> --step-id <id>` 可运行。
-- 对生成的 `bronze_events` 实测，可按 `game_id / hand_index / step_index` 输出：
+- `python -m mjai.cli dump-case --game-id <id> --kyoku-id <id> --step-id <id>` 可运行。
+- 对生成的 `bronze_events` 实测，可按 `game_id / kyoku_index / step_index` 输出：
   - 目标事件
-  - 同一手内的完整事件列表
+  - 同一局内的完整事件列表
   - 目标事件前后上下文
   - 来源 parquet 分片路径
 

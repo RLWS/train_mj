@@ -10,7 +10,7 @@ class TurnSample:
 
     sample_id: str
     game_id: str
-    hand_index: int
+    kyoku_index: int
     step_index: int
     actor: int
     decision_type: str

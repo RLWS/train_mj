@@ -9,7 +9,7 @@ class Event:
     """Normalized replay event emitted by the Tenhou parser."""
 
     game_id: str
-    hand_index: int
+    kyoku_index: int
     step_index: int
     event_type: str
     actor: int | None = None

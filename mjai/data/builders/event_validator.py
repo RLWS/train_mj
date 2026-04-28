@@ -15,7 +15,7 @@ class ValidationSummary:
     files_valid: int
     files_failed: int
     total_events: int
-    total_hands: int
+    total_kyokus: int
     total_discards: int
     total_melds: int
     event_type_counts: dict[str, int]
@@ -38,7 +38,7 @@ class EventValidator:
         files_valid = 0
         files_failed = 0
         total_events = 0
-        total_hands = 0
+        total_kyokus = 0
         total_discards = 0
         total_melds = 0
         event_type_counts: Counter[str] = Counter()
@@ -69,7 +69,7 @@ class EventValidator:
                 continue
 
             files_valid += 1
-            total_hands += summary.hands_seen
+            total_kyokus += summary.kyokus_seen
             total_discards += summary.total_discards
             total_melds += summary.total_melds
             file_reports.append(
@@ -92,7 +92,7 @@ class EventValidator:
             files_valid=files_valid,
             files_failed=files_failed,
             total_events=total_events,
-            total_hands=total_hands,
+            total_kyokus=total_kyokus,
             total_discards=total_discards,
             total_melds=total_melds,
             event_type_counts=dict(sorted(event_type_counts.items())),

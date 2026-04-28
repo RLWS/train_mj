@@ -53,7 +53,7 @@ def _run_validate_events(args: argparse.Namespace) -> int:
     print(
         f"validated events: files={summary.files_seen} valid={summary.files_valid} "
         f"failed={summary.files_failed} total_events={summary.total_events} "
-        f"total_hands={summary.total_hands} total_discards={summary.total_discards} "
+        f"total_kyokus={summary.total_kyokus} total_discards={summary.total_discards} "
         f"total_melds={summary.total_melds}"
     )
     print(f"event types: {summary.event_type_counts}")
@@ -150,7 +150,7 @@ def _run_dump_case(args: argparse.Namespace) -> int:
         dump_case_to_json(
             bronze_dir=args.bronze_dir,
             game_id=args.game_id,
-            hand_index=int(args.hand_id),
+            kyoku_index=int(args.kyoku_id),
             step_index=int(args.step_id),
             context_radius=int(args.context_radius),
         )
@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     dump_case = subparsers.add_parser("dump-case", help="Dump a parsed decision case.")
     dump_case.add_argument("--game-id", required=True)
-    dump_case.add_argument("--hand-id", required=True)
+    dump_case.add_argument("--kyoku-id", required=True)
     dump_case.add_argument("--step-id", required=True)
     dump_case.add_argument(
         "--bronze-dir",
@@ -230,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--context-radius",
         type=int,
         default=5,
-        help="Number of same-hand events to include before and after the target event.",
+        help="Number of same-kyoku events to include before and after the target event.",
     )
     _add_config_arg(dump_case)
 

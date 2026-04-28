@@ -25,7 +25,7 @@ SAMPLE_SCHEMA = pa.schema(
     [
         ("sample_id", pa.string()),
         ("game_id", pa.string()),
-        ("hand_index", pa.int32()),
+        ("kyoku_index", pa.int32()),
         ("step_index", pa.int32()),
         ("actor", pa.int8()),
         ("decision_type", pa.string()),
@@ -40,7 +40,7 @@ def serialize_sample(sample: TurnSample) -> dict[str, object]:
     return {
         "sample_id": sample.sample_id,
         "game_id": sample.game_id,
-        "hand_index": sample.hand_index,
+        "kyoku_index": sample.kyoku_index,
         "step_index": sample.step_index,
         "actor": sample.actor,
         "decision_type": sample.decision_type,
@@ -297,7 +297,7 @@ def _build_inspected_sample(
         "source_row_index": source_row_index,
         "sample_id": row["sample_id"],
         "game_id": row["game_id"],
-        "hand_index": int(row["hand_index"]),
+        "kyoku_index": int(row["kyoku_index"]),
         "step_index": int(row["step_index"]),
         "actor": int(row["actor"]),
         "decision_type": row["decision_type"],

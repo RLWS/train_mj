@@ -17,7 +17,7 @@ class TenhouParser:
     def parse_file(self, path: str | Path) -> list[Event]:
         file_path = Path(path)
         game_id = file_path.stem
-        hand_index = -1
+        kyoku_index = -1
         step_index = 0
         events: list[Event] = []
 
@@ -30,7 +30,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="go",
                         actor=None,
@@ -46,7 +46,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="un",
                         actor=None,
@@ -64,7 +64,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="taikyoku",
                         actor=None,
@@ -74,12 +74,12 @@ class TenhouParser:
                 )
                 step_index += 1
             elif tag == "INIT":
-                hand_index += 1
+                kyoku_index += 1
                 step_index = 0
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="init",
                         actor=None,
@@ -100,7 +100,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="dora",
                         actor=None,
@@ -116,7 +116,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="reach",
                         actor=_parse_actor(tag, elem),
@@ -133,7 +133,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type=tag.lower(),
                         actor=_parse_actor(tag, elem),
@@ -148,7 +148,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="meld",
                         actor=actor,
@@ -168,7 +168,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="draw",
                         actor=DRAW_TAG_TO_ACTOR[normalized_head],
@@ -185,7 +185,7 @@ class TenhouParser:
                 events.append(
                     Event(
                         game_id=game_id,
-                        hand_index=hand_index,
+                        kyoku_index=kyoku_index,
                         step_index=step_index,
                         event_type="discard",
                         actor=DISCARD_TAG_TO_ACTOR[normalized_head],

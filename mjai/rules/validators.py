@@ -12,7 +12,7 @@ class ReplaySummary:
     """Small replay summary for tests and diagnostics."""
 
     game_id: str
-    hands_seen: int
+    kyokus_seen: int
     total_events: int
     total_discards: int
     total_melds: int
@@ -26,14 +26,14 @@ class ReplayValidator:
             raise ValueError("cannot validate an empty event list")
 
         state: GameState | None = None
-        hands_seen = 0
+        kyokus_seen = 0
         total_discards = 0
         total_melds = 0
 
         for event in events:
             if event.event_type == "init":
-                state = GameState.from_init_payload(event.hand_index, event.payload)
-                hands_seen += 1
+                state = GameState.from_init_payload(event.kyoku_index, event.payload)
+                kyokus_seen += 1
                 self._validate_init_state(state)
                 continue
 
@@ -72,7 +72,7 @@ class ReplayValidator:
 
         return ReplaySummary(
             game_id=events[0].game_id,
-            hands_seen=hands_seen,
+            kyokus_seen=kyokus_seen,
             total_events=len(events),
             total_discards=total_discards,
             total_melds=total_melds,
@@ -82,14 +82,14 @@ class ReplayValidator:
         for actor, hand in enumerate(state.hands):
             if hand.total_tiles() != 13:
                 raise ValueError(
-                    f"init hand must contain 13 tiles: hand={state.hand_index} actor={actor} "
+                    f"init hand must contain 13 tiles: kyoku={state.kyoku_index} actor={actor} "
                     f"count={hand.total_tiles()}"
                 )
 
     def _validate_discard_is_legal(self, state: GameState, actor: int, tile: str) -> None:
         if not state.hands[actor].has_tile(tile):
             raise ValueError(
-                f"illegal discard: hand={state.hand_index} actor={actor} tile={tile} "
+                f"illegal discard: kyoku={state.kyoku_index} actor={actor} tile={tile} "
                 f"hand_snapshot={state.hands[actor].snapshot()}"
             )
 
@@ -126,6 +126,6 @@ class ReplayValidator:
             for tile in consumed_tiles:
                 if not state.hands[actor].has_tile(tile):
                     raise ValueError(
-                        f"meld consumes missing tile: hand={state.hand_index} actor={actor} "
+                        f"meld consumes missing tile: kyoku={state.kyoku_index} actor={actor} "
                         f"kind={kind} tile={tile} hand_snapshot={state.hands[actor].snapshot()}"
                     )

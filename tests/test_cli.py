@@ -138,6 +138,7 @@ def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
     assert payload["candidate_count"] > 0
     assert isinstance(payload["legal_actions"], list)
     assert isinstance(payload["state"], dict)
+    assert "kyoku_index" in payload
 
 
 def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):
@@ -153,7 +154,7 @@ def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):
             str(bronze_dir),
             "--game-id",
             "2023010100gm-00e1-0000-8a80056a",
-            "--hand-id",
+            "--kyoku-id",
             "0",
             "--step-id",
             "1",
@@ -166,9 +167,9 @@ def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):
     payload = json.loads(captured.out)
     assert exit_code == 0
     assert payload["game_id"] == "2023010100gm-00e1-0000-8a80056a"
-    assert payload["hand_index"] == 0
+    assert payload["kyoku_index"] == 0
     assert payload["step_index"] == 1
     assert payload["target_event"]["event_type"]
-    assert isinstance(payload["hand_events"], list)
+    assert isinstance(payload["kyoku_events"], list)
     assert isinstance(payload["context_before"], list)
     assert isinstance(payload["context_after"], list)

@@ -119,10 +119,10 @@ class GameState:
     scores: list[int] = field(default_factory=lambda: [250] * 4)
     last_discard_actor: int | None = None
     last_discard_tile: str | None = None
-    hand_index: int = -1
+    kyoku_index: int = -1
 
     @classmethod
-    def from_init_payload(cls, hand_index: int, payload: dict) -> "GameState":
+    def from_init_payload(cls, kyoku_index: int, payload: dict) -> "GameState":
         hands = [
             HandState.from_tiles(payload["hai0"]),
             HandState.from_tiles(payload["hai1"]),
@@ -130,7 +130,7 @@ class GameState:
             HandState.from_tiles(payload["hai3"]),
         ]
         scores = [int(score) for score in str(payload.get("ten", "250,250,250,250")).split(",")]
-        return cls(hands=hands, hand_index=hand_index, scores=scores)
+        return cls(hands=hands, kyoku_index=kyoku_index, scores=scores)
 
     def apply_draw(self, actor: int, tile: str) -> None:
         self.hands[actor].add_tile(tile)

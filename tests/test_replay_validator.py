@@ -18,7 +18,7 @@ def test_validate_all_real_fixtures():
         summary = validator.validate_events(events)
 
         assert summary.game_id == path.stem
-        assert summary.hands_seen >= 1
+        assert summary.kyokus_seen >= 1
         assert summary.total_events == len(events)
         assert summary.total_discards > 0
 

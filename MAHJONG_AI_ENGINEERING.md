@@ -367,7 +367,7 @@ python -m mjai.cli replay-eval --ckpt outputs/checkpoints/turn_small/best.pt --g
 ```bash
 python -m mjai.cli inspect-sample --dataset data/silver_samples --index 100
 python -m mjai.cli infer-on-state --ckpt outputs/checkpoints/turn_small/best.pt --state-json tests/fixtures/state_case_01.json
-python -m mjai.cli dump-case --game-id <id> --hand-id <id> --step-id <id>
+python -m mjai.cli dump-case --game-id <id> --kyoku-id <id> --step-id <id>
 ```
 
 说明：
@@ -412,7 +412,7 @@ class MahjongPolicyNet(nn.Module):
 
 - `candidate_mask` 用于屏蔽非法动作
 - `label` 必须是候选动作索引，不直接是牌字符串
-- `meta` 保存 `game_id`、`hand_id`、`step_id`、`actor`
+- `meta` 保存 `game_id`、`kyoku_id`、`step_id`、`actor`
 
 ## 7. 数据格式约定
 
@@ -420,7 +420,7 @@ class MahjongPolicyNet(nn.Module):
 
 ```text
 game_id
-hand_id
+kyoku_id
 step_id
 event_type
 actor
@@ -439,7 +439,7 @@ raw_payload
 ```text
 sample_id
 game_id
-hand_id
+kyoku_id
 step_id
 decision_type        # turn / response / value
 state_blob
