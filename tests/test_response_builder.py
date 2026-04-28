@@ -369,3 +369,284 @@ def test_response_samples_mark_riichi_furiten_after_passing_ron():
     assert any(action["kind"] == "ron" for action in first_response.legal_actions)
     assert second_response.state["riichi_furiten"] is True
     assert all(action["kind"] != "ron" for action in second_response.legal_actions)
+
+
+def test_response_samples_include_chankan_on_kakan_window():
+    builder = ResponseSampleBuilder()
+    events = [
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=0,
+            event_type="init",
+            payload={
+                "hai0": ["2m", "3m", "4m", "6m", "7m", "1p", "2p", "3p", "4s", "4s", "5m", "5m", "5m"],
+                "hai1": ["1m", "2m", "3m", "4m", "6m", "7m", "8m", "2p", "3p", "4p", "5z", "5z", "9s"],
+                "hai2": ["2z"] * 12 + ["5m"],
+                "hai3": ["3z"] * 13,
+                "ten": "250,250,250,250",
+            },
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=1,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "5m", "tsumogiri": False},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=2,
+            event_type="meld",
+            actor=0,
+            payload={
+                "kind": "pon",
+                "source": 2,
+                "called_tile": "5m",
+                "consumed_tiles": ["5m", "5m"],
+                "raw_value": 0,
+            },
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=3,
+            event_type="discard",
+            actor=0,
+            payload={"tile": "1p", "tsumogiri": False},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=4,
+            event_type="draw",
+            actor=1,
+            payload={"tile": "9m"},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=5,
+            event_type="discard",
+            actor=1,
+            payload={"tile": "9s", "tsumogiri": False},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=6,
+            event_type="draw",
+            actor=2,
+            payload={"tile": "1z"},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=7,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "1z", "tsumogiri": True},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=8,
+            event_type="draw",
+            actor=3,
+            payload={"tile": "1z"},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=9,
+            event_type="discard",
+            actor=3,
+            payload={"tile": "1z", "tsumogiri": True},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=10,
+            event_type="draw",
+            actor=0,
+            payload={"tile": "2z"},
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=11,
+            event_type="meld",
+            actor=0,
+            payload={
+                "kind": "kakan",
+                "source": 2,
+                "called_tile": "5m",
+                "consumed_tiles": ["5m", "5m", "5m"],
+                "raw_value": 0,
+            },
+        ),
+        Event(
+            game_id="chankan-case",
+            kyoku_index=0,
+            step_index=12,
+            event_type="agari",
+            actor=1,
+            payload={"who": "1", "fromWho": "0"},
+        ),
+    ]
+
+    samples = builder.build_samples(events)
+    target_sample = next(sample for sample in samples if sample.sample_id == "chankan-case:0:11:1:response")
+
+    assert target_sample.label_action["kind"] == "chankan"
+    assert any(action["kind"] == "chankan" for action in target_sample.legal_actions)
+
+
+def test_response_samples_skip_applying_kakan_when_chankan_resolves():
+    builder = ResponseSampleBuilder()
+    events = [
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=0,
+            event_type="init",
+            payload={
+                "hai0": ["2m", "3m", "4m", "6m", "7m", "1p", "2p", "3p", "4s", "4s", "5m", "5m", "5m"],
+                "hai1": ["1m", "2m", "3m", "4m", "6m", "7m", "8m", "2p", "3p", "4p", "5z", "5z", "9s"],
+                "hai2": ["2z"] * 12 + ["5m"],
+                "hai3": ["3z"] * 13,
+                "ten": "250,250,250,250",
+            },
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=1,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "5m", "tsumogiri": False},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=2,
+            event_type="meld",
+            actor=0,
+            payload={
+                "kind": "pon",
+                "source": 2,
+                "called_tile": "5m",
+                "consumed_tiles": ["5m", "5m"],
+                "raw_value": 0,
+            },
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=3,
+            event_type="discard",
+            actor=0,
+            payload={"tile": "1p", "tsumogiri": False},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=4,
+            event_type="draw",
+            actor=1,
+            payload={"tile": "9m"},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=5,
+            event_type="discard",
+            actor=1,
+            payload={"tile": "9s", "tsumogiri": False},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=6,
+            event_type="draw",
+            actor=2,
+            payload={"tile": "1z"},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=7,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "1z", "tsumogiri": True},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=8,
+            event_type="draw",
+            actor=3,
+            payload={"tile": "1z"},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=9,
+            event_type="discard",
+            actor=3,
+            payload={"tile": "1z", "tsumogiri": True},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=10,
+            event_type="draw",
+            actor=0,
+            payload={"tile": "2z"},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=11,
+            event_type="meld",
+            actor=0,
+            payload={
+                "kind": "kakan",
+                "source": 2,
+                "called_tile": "5m",
+                "consumed_tiles": ["5m", "5m", "5m"],
+                "raw_value": 0,
+            },
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=12,
+            event_type="agari",
+            actor=1,
+            payload={"who": "1", "fromWho": "0"},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=13,
+            event_type="draw",
+            actor=0,
+            payload={"tile": "1z"},
+        ),
+        Event(
+            game_id="chankan-state-case",
+            kyoku_index=0,
+            step_index=14,
+            event_type="discard",
+            actor=0,
+            payload={"tile": "5m", "tsumogiri": False},
+        ),
+    ]
+
+    samples = builder.build_samples(events)
+    post_agari_sample = next(sample for sample in samples if sample.sample_id == "chankan-state-case:0:14:1:response")
+
+    assert post_agari_sample.state["response_target"]["tile"] == "5m"

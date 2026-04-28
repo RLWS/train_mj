@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `72 passed`。
+- `pytest` 全量通过，当前结果为 `76 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -76,12 +76,13 @@
   - 手牌状态、回放状态、弃牌/吃碰杠/荣和的第一版合法动作生成已实现。
   - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan`。
   - `response` 的 `ron` 已补上自家舍牌振听、同巡振听与立直后振听过滤。
+  - `response` 已补上第一版 `chankan`。
   - 基础胡牌判断与立直前听牌检查已实现。
   - 回放校验器已实现，可验证弃牌合法性和副露消耗牌一致性。
 - `mjai/data/builders/`
   - `bronze_events` 预处理器已实现。
   - 事件分片回放校验器已实现。
-  - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo` 与 `ankan` 的 `turn` 样本，`kakan` 也已进入合法动作与样本构建链路。
+  - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo` 与 `ankan` 的 `turn` 样本，`kakan` 与 `chankan` 也已进入合法动作与样本构建链路。
   - Parquet 写出与 manifest 生成已实现。
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `configs/`
@@ -144,7 +145,6 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 当前规则层已经足够支撑“早期监督学习样本构建”，但还不足以称为完整日麻规则引擎。主要缺口包括：
 
 - 更完整的和牌机会放弃语义与残余振听边界
-- `chankan`
 - 多家荣和等边界情况
 - 更完整的立直限制与流局处理
 
@@ -210,10 +210,10 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. 更完整的振听与 `ron` 过滤
-2. `chankan`
-3. `kyuushu_kyuuhai` 与途中流局边界
-4. 更严格的立直限制
+1. 更完整的和牌机会放弃语义与残余振听边界
+2. `kyuushu_kyuuhai` 与途中流局边界
+3. 更严格的立直限制
+4. 多家荣和等边界情况
 
 ### 任务 3：继续扩训练覆盖
 

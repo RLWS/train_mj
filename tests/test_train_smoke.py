@@ -117,6 +117,7 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
                 "    pon: 6.0",
                 "    daiminkan: 6.0",
                 "    ron: 10.0",
+                "    chankan: 10.0",
                 "",
             ]
         ),
@@ -263,6 +264,7 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
                 "    pon: 6.0",
                 "    daiminkan: 6.0",
                 "    ron: 10.0",
+                "    chankan: 10.0",
                 "",
             ]
         ),

@@ -74,6 +74,7 @@ def legal_responses(
     source: int,
     tile: str,
     state: GameState | None = None,
+    allow_chankan: bool = False,
 ) -> list[Action]:
     """Return legal response actions after another player discards one tile."""
     actions: list[Action] = [Action(kind="pass")]
@@ -84,13 +85,16 @@ def legal_responses(
 
     actions.extend(_legal_pon_actions(hand, source, tile, target_base))
     actions.extend(_legal_daiminkan_actions(hand, source, tile, target_base))
-    if is_agari(hand, incoming_tile=tile) and not _is_ron_blocked_by_furiten(
+    can_agari = is_agari(hand, incoming_tile=tile) and not _is_ron_blocked_by_furiten(
         hand=hand,
         actor=actor,
         tile=tile,
         state=state,
-    ):
+    )
+    if can_agari:
         actions.append(Action(kind="ron", tile=tile, source=source))
+        if allow_chankan:
+            actions.append(Action(kind="chankan", tile=tile, source=source))
     return _deduplicate_actions(actions)
 
 

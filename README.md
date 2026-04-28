@@ -16,7 +16,8 @@
 - 已补上第一版 case 定位：可从 `eval` 错例跳转到 `inspect-sample`，再按 `game_id / kyoku_index / step_index` 回溯 `bronze_events` 上下文。
 - 已补上第一版自家高价值回合动作：`turn` 合法动作与样本链路已支持 `tsumo`、`ankan` 和 `kakan`，其中当前真实夹具已覆盖 `tsumo` 与 `ankan` 样本。
 - 已补上第一版 `ron` 正确性过滤：当前 `response` 合法动作与样本链路已支持自家舍牌振听、同巡振听和立直后振听。
-- 当前测试基线为 `pytest` 全量通过，结果是 `72 passed`。
+- 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠。
+- 当前测试基线为 `pytest` 全量通过，结果是 `76 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `10` 局 XML 预处理
   - `3253` 条事件写入 `bronze_events`
@@ -57,7 +58,7 @@ pytest
 
 ## 当前缺口
 
-- 规则引擎还不是完整日麻规则实现；虽然已补上自家舍牌振听、同巡振听和立直后振听的 `ron` 过滤，但仍缺少更完整的和牌机会放弃语义、`chankan`、`kyuushu_kyuuhai`、途中流局与完整计分结算等能力。
+- 规则引擎还不是完整日麻规则实现；虽然已补上自家舍牌振听、同巡振听、立直后振听和第一版 `chankan`，但仍缺少更完整的和牌机会放弃语义、`kyuushu_kyuuhai`、途中流局与完整计分结算等能力。
 - 诊断输出已经有第一版，并已打通 `eval -> inspect-sample -> dump-case` 的轻量跳转链路，但还缺少更细的错例聚合、固定 case 集合和更丰富的数据质量报告。
 - 当前训练与评估只覆盖最小 `turn/response` baseline；多任务、错误分析工具和推理服务都还没开始。
 
@@ -71,5 +72,5 @@ pytest
 ## 建议的下一步
 
 1. 先继续补错误分析深度，围绕现有 `eval -> inspect-sample -> dump-case` 链路补固定错例集和更细的错例聚合。
-2. 然后补规则边界，优先做更完整的振听/`ron` 限制、`chankan` 和流局边界。
+2. 然后补规则边界，优先做更完整的和牌机会放弃语义、`kyuushu_kyuuhai` 和流局边界。
 3. 最后继续扩训练覆盖，补多任务训练、更完整离线指标和推理入口。

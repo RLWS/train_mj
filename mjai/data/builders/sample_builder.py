@@ -118,7 +118,7 @@ class TurnSampleBuilder:
 class ResponseSampleBuilder:
     """Build response samples after each discard.
 
-    This pass supports pass / chi / pon / daiminkan / ron labels.
+    This pass supports pass / chi / pon / daiminkan / ron / chankan labels.
     """
 
     def build_samples(self, events: list[Event]) -> list[TurnSample]:
@@ -186,6 +186,53 @@ class ResponseSampleBuilder:
             if event.event_type == "meld":
                 assert event.actor is not None
                 payload = event.payload
+                if payload["kind"] == "kakan":
+                    resolution = _resolve_kakan_window(events, event_index)
+                    for responder in range(4):
+                        if responder == event.actor:
+                            continue
+
+                        legal_actions = [
+                            asdict(action)
+                            for action in legal_responses(
+                                hand=state.hands[responder],
+                                actor=responder,
+                                source=event.actor,
+                                tile=payload["called_tile"],
+                                state=state,
+                                allow_chankan=True,
+                            )
+                        ]
+                        label_action = _kakan_response_label_for_actor(
+                            responder=responder,
+                            actor=event.actor,
+                            tile=payload["called_tile"],
+                            resolution=resolution,
+                        )
+                        sample = TurnSample(
+                            sample_id=(
+                                f"{event.game_id}:{event.kyoku_index}:{event.step_index}:"
+                                f"{responder}:response"
+                            ),
+                            game_id=event.game_id,
+                            kyoku_index=event.kyoku_index,
+                            step_index=event.step_index,
+                            actor=responder,
+                            decision_type="response",
+                            state=_response_view_snapshot(state, responder, event.actor, payload["called_tile"]),
+                            legal_actions=legal_actions,
+                            label_action=label_action,
+                        )
+                        samples.append(sample)
+                        _mark_missed_chankan_if_needed(
+                            state=state,
+                            responder=responder,
+                            source=event.actor,
+                            tile=payload["called_tile"],
+                            label_action=label_action,
+                        )
+                    if resolution["kind"] == "chankan":
+                        continue
                 state.apply_meld(
                     actor=event.actor,
                     kind=payload["kind"],
@@ -294,11 +341,39 @@ def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
     return {"kind": "pass"}
 
 
+def _resolve_kakan_window(events: list[Event], meld_index: int) -> dict:
+    meld_event = events[meld_index]
+
+    for future in events[meld_index + 1 :]:
+        if future.kyoku_index != meld_event.kyoku_index:
+            break
+
+        if future.event_type == "reach":
+            continue
+
+        if future.event_type == "dora":
+            continue
+
+        if future.event_type == "agari" and future.payload.get("fromWho") == str(meld_event.actor):
+            return {"kind": "chankan", "actor": int(future.payload["who"])}
+
+        if future.event_type in {"draw", "discard", "init", "ryuukyoku", "meld"}:
+            return {"kind": "pass"}
+
+    return {"kind": "pass"}
+
+
 def _response_label_for_actor(responder: int, discard_event: Event, resolution: dict) -> dict:
     if resolution["kind"] == "ron" and resolution["actor"] == responder:
         return asdict(Action(kind="ron", tile=discard_event.payload["tile"], source=discard_event.actor))
     if resolution["kind"] == "meld" and resolution["actor"] == responder:
         return resolution["action"]
+    return asdict(Action(kind="pass"))
+
+
+def _kakan_response_label_for_actor(responder: int, actor: int, tile: str, resolution: dict) -> dict:
+    if resolution["kind"] == "chankan" and resolution["actor"] == responder:
+        return asdict(Action(kind="chankan", tile=tile, source=actor))
     return asdict(Action(kind="pass"))
 
 
@@ -326,4 +401,26 @@ def _mark_missed_ron_if_needed(
         state=state,
     )
     if any(action.kind == "ron" for action in legal_actions):
+        state.mark_missed_ron(responder)
+
+
+def _mark_missed_chankan_if_needed(
+    state: GameState,
+    responder: int,
+    source: int,
+    tile: str,
+    label_action: dict,
+) -> None:
+    if label_action["kind"] != "pass":
+        return
+
+    legal_actions = legal_responses(
+        hand=state.hands[responder],
+        actor=responder,
+        source=source,
+        tile=tile,
+        state=state,
+        allow_chankan=True,
+    )
+    if any(action.kind == "chankan" for action in legal_actions):
         state.mark_missed_ron(responder)

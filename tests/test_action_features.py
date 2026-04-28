@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM, encode_response_state, encode_turn_state
-from mjai.features.action_features import TURN_ACTION_KINDS, encode_turn_action
+from mjai.features.action_features import RESPONSE_ACTION_KINDS, TURN_ACTION_KINDS, encode_response_action, encode_turn_action
 
 
 def test_encode_turn_action_supports_tsumo():
@@ -17,6 +17,12 @@ def test_encode_turn_action_supports_ankan_and_kakan():
 
     assert ankan_vector[TURN_ACTION_KINDS.index("ankan")] == 1.0
     assert kakan_vector[TURN_ACTION_KINDS.index("kakan")] == 1.0
+
+
+def test_encode_response_action_supports_chankan():
+    vector = encode_response_action({"kind": "chankan", "tile": "5m", "source": 1})
+
+    assert vector[RESPONSE_ACTION_KINDS.index("chankan")] == 1.0
 
 
 def test_encode_turn_state_includes_furiten_flags():
