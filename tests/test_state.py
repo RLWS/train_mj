@@ -50,6 +50,15 @@ def test_can_declare_riichi_is_blocked_while_pending():
     assert state.can_declare_riichi(0) is False
 
 
+def test_discard_records_furiten_base_tile():
+    hand = HandState.from_tiles(["5z"])
+    state = GameState(hands=[hand, HandState(), HandState(), HandState()])
+
+    state.apply_discard(actor=0, tile="5z")
+
+    assert state.is_furiten(0, "5z") is True
+
+
 def test_kakan_upgrades_existing_pon_and_consumes_added_tile():
     state = GameState(
         hands=[HandState.from_tiles(["5m"]), HandState(), HandState(), HandState()],

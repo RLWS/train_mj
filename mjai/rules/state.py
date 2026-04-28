@@ -117,6 +117,7 @@ class GameState:
     riichi_declared: list[bool] = field(default_factory=lambda: [False] * 4)
     riichi_pending: list[bool] = field(default_factory=lambda: [False] * 4)
     scores: list[int] = field(default_factory=lambda: [250] * 4)
+    furiten_discard_bases: list[set[int]] = field(default_factory=lambda: [set() for _ in range(4)])
     last_discard_actor: int | None = None
     last_discard_tile: str | None = None
     kyoku_index: int = -1
@@ -138,6 +139,7 @@ class GameState:
     def apply_discard(self, actor: int, tile: str) -> None:
         self.hands[actor].remove_tile(tile)
         self.discards[actor].append(tile)
+        self.furiten_discard_bases[actor].add(tile_to_base_index(tile))
         self.last_discard_actor = actor
         self.last_discard_tile = tile
 
@@ -234,3 +236,6 @@ class GameState:
             and not self.has_open_melds(actor)
             and self.scores[actor] >= 10
         )
+
+    def is_furiten(self, actor: int, winning_tile: str) -> bool:
+        return tile_to_base_index(winning_tile) in self.furiten_discard_bases[actor]

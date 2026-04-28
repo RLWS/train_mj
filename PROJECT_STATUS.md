@@ -75,6 +75,7 @@
 - `mjai/rules/`
   - 手牌状态、回放状态、弃牌/吃碰杠/荣和的第一版合法动作生成已实现。
   - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan`。
+  - `response` 的 `ron` 已补上基于自家弃牌的常规振听过滤。
   - 基础胡牌判断与立直前听牌检查已实现。
   - 回放校验器已实现，可验证弃牌合法性和副露消耗牌一致性。
 - `mjai/data/builders/`

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations, product
 
-from mjai.rules.hand_checker import is_agari, is_tenpai_after_discard
+from mjai.rules.hand_checker import is_agari, is_tenpai_after_discard, winning_tile_base_indices
 from mjai.rules.state import GameState, HandState
 from mjai.rules.tiles import AKA_BASE_INDICES, base_index_to_tile, tile_to_base_index
 
@@ -68,7 +68,13 @@ def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: i
     return actions
 
 
-def legal_responses(hand: HandState, actor: int, source: int, tile: str) -> list[Action]:
+def legal_responses(
+    hand: HandState,
+    actor: int,
+    source: int,
+    tile: str,
+    state: GameState | None = None,
+) -> list[Action]:
     """Return legal response actions after another player discards one tile."""
     actions: list[Action] = [Action(kind="pass")]
     target_base = tile_to_base_index(tile)
@@ -78,7 +84,12 @@ def legal_responses(hand: HandState, actor: int, source: int, tile: str) -> list
 
     actions.extend(_legal_pon_actions(hand, source, tile, target_base))
     actions.extend(_legal_daiminkan_actions(hand, source, tile, target_base))
-    if is_agari(hand, incoming_tile=tile):
+    if is_agari(hand, incoming_tile=tile) and not _is_ron_blocked_by_furiten(
+        hand=hand,
+        actor=actor,
+        tile=tile,
+        state=state,
+    ):
         actions.append(Action(kind="ron", tile=tile, source=source))
     return _deduplicate_actions(actions)
 
@@ -189,6 +200,17 @@ def _legal_kakan_actions(hand: HandState, state: GameState, actor: int) -> list[
                 )
             )
     return _deduplicate_actions(actions)
+
+
+def _is_ron_blocked_by_furiten(hand: HandState, actor: int, tile: str, state: GameState | None) -> bool:
+    if state is None:
+        return False
+
+    winning_bases = winning_tile_base_indices(hand)
+    if not winning_bases:
+        return False
+
+    return any(base_index in state.furiten_discard_bases[actor] for base_index in winning_bases)
 
 
 def canonicalize_consumed(consumed: tuple[str, ...] | tuple[str, str] | tuple[str, str, str]) -> tuple[str, ...]:

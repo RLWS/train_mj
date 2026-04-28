@@ -31,12 +31,18 @@ def is_tenpai_after_discard(hand: HandState, discard_tile: str) -> bool:
     reduced = hand.copy()
     reduced.remove_tile(discard_tile)
 
-    for base_index, count in enumerate(reduced.counts):
+    return bool(winning_tile_base_indices(reduced))
+
+
+def winning_tile_base_indices(hand: HandState) -> set[int]:
+    """Return base tiles that would complete the current hand."""
+    winning_tiles: set[int] = set()
+    for base_index, count in enumerate(hand.counts):
         if count >= 4:
             continue
-        if is_agari(reduced, incoming_tile=base_index_to_tile(base_index)):
-            return True
-    return False
+        if is_agari(hand, incoming_tile=base_index_to_tile(base_index)):
+            winning_tiles.add(base_index)
+    return winning_tiles
 
 
 def _is_chiitoitsu(counts: tuple[int, ...]) -> bool:

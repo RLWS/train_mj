@@ -154,6 +154,7 @@ class ResponseSampleBuilder:
                             actor=responder,
                             source=event.actor,
                             tile=event.payload["tile"],
+                            state=state,
                         )
                     ]
                     label_action = _response_label_for_actor(responder, event, resolution)
