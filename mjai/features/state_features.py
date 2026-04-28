@@ -23,13 +23,14 @@ ACTOR_DIM = 4
 
 # encode_turn_state layout:
 # hand counts | 4 players' discard counts | last discard tile | last discard actor |
-# current actor | riichi flag | own meld kind counts
+# current actor | riichi flag | furiten flags | own meld kind counts
 HAND_COUNTS_DIM = EXACT_TILE_DIM
 ALL_DISCARD_COUNTS_DIM = 4 * EXACT_TILE_DIM
 LAST_DISCARD_TILE_DIM = OPTIONAL_TILE_DIM
 LAST_DISCARD_ACTOR_DIM = OPTIONAL_ACTOR_DIM
 CURRENT_ACTOR_DIM = ACTOR_DIM
 RIICHI_FLAG_DIM = 1
+FURITEN_FLAGS_DIM = 2
 OWN_MELD_COUNTS_DIM = 5
 
 TURN_STATE_DIM = (
@@ -39,6 +40,7 @@ TURN_STATE_DIM = (
     + LAST_DISCARD_ACTOR_DIM
     + CURRENT_ACTOR_DIM
     + RIICHI_FLAG_DIM
+    + FURITEN_FLAGS_DIM
     + OWN_MELD_COUNTS_DIM
 )
 
@@ -65,6 +67,8 @@ def encode_turn_state(state: dict) -> list[float]:
     features.extend(_encode_optional_actor(state.get("last_discard_actor")))
     features.extend(_encode_actor_onehot(int(state.get("actor", 0))))
     features.append(1.0 if state.get("riichi_declared", False) else 0.0)
+    features.append(1.0 if state.get("temporary_furiten", False) else 0.0)
+    features.append(1.0 if state.get("riichi_furiten", False) else 0.0)
     features.extend(_encode_own_meld_counts(state.get("own_melds", [])))
     return features
 

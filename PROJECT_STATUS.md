@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `60 passed`。
+- `pytest` 全量通过，当前结果为 `72 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -75,7 +75,7 @@
 - `mjai/rules/`
   - 手牌状态、回放状态、弃牌/吃碰杠/荣和的第一版合法动作生成已实现。
   - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan`。
-  - `response` 的 `ron` 已补上基于自家弃牌的常规振听过滤。
+  - `response` 的 `ron` 已补上自家舍牌振听、同巡振听与立直后振听过滤。
   - 基础胡牌判断与立直前听牌检查已实现。
   - 回放校验器已实现，可验证弃牌合法性和副露消耗牌一致性。
 - `mjai/data/builders/`
@@ -143,7 +143,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 当前规则层已经足够支撑“早期监督学习样本构建”，但还不足以称为完整日麻规则引擎。主要缺口包括：
 
-- 完整振听判断
+- 更完整的和牌机会放弃语义与残余振听边界
 - `chankan`
 - 多家荣和等边界情况
 - 更完整的立直限制与流局处理

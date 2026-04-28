@@ -210,7 +210,11 @@ def _is_ron_blocked_by_furiten(hand: HandState, actor: int, tile: str, state: Ga
     if not winning_bases:
         return False
 
-    return any(base_index in state.furiten_discard_bases[actor] for base_index in winning_bases)
+    return (
+        state.has_discard_furiten(actor, winning_bases)
+        or state.temporary_furiten[actor]
+        or state.riichi_furiten[actor]
+    )
 
 
 def canonicalize_consumed(consumed: tuple[str, ...] | tuple[str, str] | tuple[str, str, str]) -> tuple[str, ...]:

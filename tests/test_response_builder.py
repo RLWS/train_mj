@@ -67,7 +67,7 @@ def test_response_sample_furiten_omits_ron_from_legal_actions():
             payload={
                 "hai0": ["1z"] * 12 + ["5z"],
                 "hai1": ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"],
-                "hai2": ["2z"] * 13,
+                "hai2": ["2z"] * 12 + ["5z"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
             },
@@ -119,3 +119,253 @@ def test_response_sample_furiten_omits_ron_from_legal_actions():
 
     assert target_sample.label_action["kind"] == "pass"
     assert all(action["kind"] != "ron" for action in target_sample.legal_actions)
+
+
+def test_response_samples_mark_temporary_furiten_after_passing_ron():
+    builder = ResponseSampleBuilder()
+    events = [
+        Event(
+            game_id="temp-furiten-case",
+            kyoku_index=0,
+            step_index=0,
+            event_type="init",
+            payload={
+                "hai0": ["1z"] * 12 + ["5z"],
+                "hai1": ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"],
+                "hai2": ["2z"] * 12 + ["5z"],
+                "hai3": ["3z"] * 13,
+                "ten": "250,250,250,250",
+            },
+        ),
+        Event(
+            game_id="temp-furiten-case",
+            kyoku_index=0,
+            step_index=1,
+            event_type="draw",
+            actor=0,
+            payload={"tile": "4z"},
+        ),
+        Event(
+            game_id="temp-furiten-case",
+            kyoku_index=0,
+            step_index=2,
+            event_type="discard",
+            actor=0,
+            payload={"tile": "5z", "tsumogiri": False},
+        ),
+        Event(
+            game_id="temp-furiten-case",
+            kyoku_index=0,
+            step_index=3,
+            event_type="draw",
+            actor=2,
+            payload={"tile": "4z"},
+        ),
+        Event(
+            game_id="temp-furiten-case",
+            kyoku_index=0,
+            step_index=4,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "5z", "tsumogiri": False},
+        ),
+        Event(
+            game_id="temp-furiten-case",
+            kyoku_index=0,
+            step_index=5,
+            event_type="draw",
+            actor=1,
+            payload={"tile": "9s"},
+        ),
+    ]
+
+    samples = builder.build_samples(events)
+    first_response = next(sample for sample in samples if sample.sample_id == "temp-furiten-case:0:2:1:response")
+    second_response = next(sample for sample in samples if sample.sample_id == "temp-furiten-case:0:4:1:response")
+
+    assert first_response.label_action["kind"] == "pass"
+    assert any(action["kind"] == "ron" for action in first_response.legal_actions)
+    assert first_response.state["temporary_furiten"] is False
+    assert second_response.state["temporary_furiten"] is True
+    assert all(action["kind"] != "ron" for action in second_response.legal_actions)
+
+
+def test_response_samples_clear_temporary_furiten_after_self_draw():
+    builder = ResponseSampleBuilder()
+    events = [
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=0,
+            event_type="init",
+            payload={
+                "hai0": ["1z"] * 12 + ["5z"],
+                "hai1": ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"],
+                "hai2": ["2z"] * 12 + ["5z"],
+                "hai3": ["3z"] * 13,
+                "ten": "250,250,250,250",
+            },
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=1,
+            event_type="draw",
+            actor=0,
+            payload={"tile": "4z"},
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=2,
+            event_type="discard",
+            actor=0,
+            payload={"tile": "5z", "tsumogiri": False},
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=3,
+            event_type="draw",
+            actor=1,
+            payload={"tile": "9s"},
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=4,
+            event_type="discard",
+            actor=1,
+            payload={"tile": "9s", "tsumogiri": True},
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=5,
+            event_type="draw",
+            actor=2,
+            payload={"tile": "4z"},
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=6,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "5z", "tsumogiri": False},
+        ),
+        Event(
+            game_id="temp-furiten-clear",
+            kyoku_index=0,
+            step_index=7,
+            event_type="draw",
+            actor=3,
+            payload={"tile": "4z"},
+        ),
+    ]
+
+    samples = builder.build_samples(events)
+    second_response = next(sample for sample in samples if sample.sample_id == "temp-furiten-clear:0:6:1:response")
+
+    assert second_response.state["temporary_furiten"] is False
+    assert any(action["kind"] == "ron" for action in second_response.legal_actions)
+
+
+def test_response_samples_mark_riichi_furiten_after_passing_ron():
+    builder = ResponseSampleBuilder()
+    events = [
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=0,
+            event_type="init",
+            payload={
+                "hai0": ["1z"] * 12 + ["5z"],
+                "hai1": ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"],
+                "hai2": ["2z"] * 12 + ["5z"],
+                "hai3": ["3z"] * 13,
+                "ten": "250,250,250,250",
+            },
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=1,
+            event_type="draw",
+            actor=1,
+            payload={"tile": "9s"},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=2,
+            event_type="reach",
+            actor=1,
+            payload={"step": 1},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=3,
+            event_type="discard",
+            actor=1,
+            payload={"tile": "9s", "tsumogiri": True},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=4,
+            event_type="reach",
+            actor=1,
+            payload={"step": 2},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=5,
+            event_type="draw",
+            actor=0,
+            payload={"tile": "4z"},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=6,
+            event_type="discard",
+            actor=0,
+            payload={"tile": "5z", "tsumogiri": False},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=7,
+            event_type="draw",
+            actor=2,
+            payload={"tile": "4z"},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=8,
+            event_type="discard",
+            actor=2,
+            payload={"tile": "5z", "tsumogiri": False},
+        ),
+        Event(
+            game_id="riichi-furiten-case",
+            kyoku_index=0,
+            step_index=9,
+            event_type="draw",
+            actor=3,
+            payload={"tile": "4z"},
+        ),
+    ]
+
+    samples = builder.build_samples(events)
+    first_response = next(sample for sample in samples if sample.sample_id == "riichi-furiten-case:0:6:1:response")
+    second_response = next(sample for sample in samples if sample.sample_id == "riichi-furiten-case:0:8:1:response")
+
+    assert first_response.label_action["kind"] == "pass"
+    assert any(action["kind"] == "ron" for action in first_response.legal_actions)
+    assert second_response.state["riichi_furiten"] is True
+    assert all(action["kind"] != "ron" for action in second_response.legal_actions)

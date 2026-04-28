@@ -78,6 +78,32 @@ def test_legal_responses_exclude_ron_when_actor_is_furiten():
     assert ("ron", "5z") not in normalized
 
 
+def test_legal_responses_exclude_ron_when_actor_is_temporarily_furiten():
+    hand = HandState.from_tiles(
+        ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
+    )
+    state = GameState(hands=[HandState(), hand, HandState(), HandState()])
+    state.temporary_furiten[1] = True
+
+    actions = legal_responses(hand=hand, actor=1, source=0, tile="5z", state=state)
+    normalized = {(action.kind, action.tile) for action in actions}
+
+    assert ("ron", "5z") not in normalized
+
+
+def test_legal_responses_exclude_ron_when_actor_is_riichi_furiten():
+    hand = HandState.from_tiles(
+        ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
+    )
+    state = GameState(hands=[HandState(), hand, HandState(), HandState()])
+    state.riichi_furiten[1] = True
+
+    actions = legal_responses(hand=hand, actor=1, source=0, tile="5z", state=state)
+    normalized = {(action.kind, action.tile) for action in actions}
+
+    assert ("ron", "5z") not in normalized
+
+
 def test_legal_turn_actions_include_tsumo_for_complete_hand():
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z", "5z"]

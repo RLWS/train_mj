@@ -116,6 +116,8 @@ class GameState:
     melds: list[list[MeldState]] = field(default_factory=lambda: [[] for _ in range(4)])
     riichi_declared: list[bool] = field(default_factory=lambda: [False] * 4)
     riichi_pending: list[bool] = field(default_factory=lambda: [False] * 4)
+    temporary_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
+    riichi_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
     scores: list[int] = field(default_factory=lambda: [250] * 4)
     furiten_discard_bases: list[set[int]] = field(default_factory=lambda: [set() for _ in range(4)])
     last_discard_actor: int | None = None
@@ -134,6 +136,7 @@ class GameState:
         return cls(hands=hands, kyoku_index=kyoku_index, scores=scores)
 
     def apply_draw(self, actor: int, tile: str) -> None:
+        self.temporary_furiten[actor] = False
         self.hands[actor].add_tile(tile)
 
     def apply_discard(self, actor: int, tile: str) -> None:
@@ -237,5 +240,18 @@ class GameState:
             and self.scores[actor] >= 10
         )
 
+    def has_discard_furiten(self, actor: int, winning_tile_bases: set[int]) -> bool:
+        return any(base_index in self.furiten_discard_bases[actor] for base_index in winning_tile_bases)
+
     def is_furiten(self, actor: int, winning_tile: str) -> bool:
-        return tile_to_base_index(winning_tile) in self.furiten_discard_bases[actor]
+        winning_base = tile_to_base_index(winning_tile)
+        return (
+            self.has_discard_furiten(actor, {winning_base})
+            or self.temporary_furiten[actor]
+            or self.riichi_furiten[actor]
+        )
+
+    def mark_missed_ron(self, actor: int) -> None:
+        self.temporary_furiten[actor] = True
+        if self.riichi_declared[actor]:
+            self.riichi_furiten[actor] = True

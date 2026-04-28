@@ -10,6 +10,7 @@ from mjai.rules.legal_actions import (
     legal_responses,
     legal_turn_actions,
 )
+from mjai.rules.hand_checker import winning_tile_base_indices
 from mjai.rules.state import GameState
 
 
@@ -173,6 +174,13 @@ class ResponseSampleBuilder:
                         label_action=label_action,
                     )
                     samples.append(sample)
+                    _mark_missed_ron_if_needed(
+                        state=state,
+                        responder=responder,
+                        source=event.actor,
+                        tile=event.payload["tile"],
+                        label_action=label_action,
+                    )
                 continue
 
             if event.event_type == "meld":
@@ -209,6 +217,8 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
             for meld in state.melds[actor]
         ],
         "riichi_declared": state.riichi_declared[actor],
+        "temporary_furiten": state.temporary_furiten[actor],
+        "riichi_furiten": state.riichi_furiten[actor],
         "last_discard_actor": state.last_discard_actor,
         "last_discard_tile": state.last_discard_tile,
         "all_discards": [list(discard_row) for discard_row in state.discards],
@@ -290,3 +300,30 @@ def _response_label_for_actor(responder: int, discard_event: Event, resolution: 
     if resolution["kind"] == "meld" and resolution["actor"] == responder:
         return resolution["action"]
     return asdict(Action(kind="pass"))
+
+
+def _mark_missed_ron_if_needed(
+    state: GameState,
+    responder: int,
+    source: int,
+    tile: str,
+    label_action: dict,
+) -> None:
+    if label_action["kind"] != "pass":
+        return
+
+    if responder == source:
+        return
+
+    if not winning_tile_base_indices(state.hands[responder]):
+        return
+
+    legal_actions = legal_responses(
+        hand=state.hands[responder],
+        actor=responder,
+        source=source,
+        tile=tile,
+        state=state,
+    )
+    if any(action.kind == "ron" for action in legal_actions):
+        state.mark_missed_ron(responder)

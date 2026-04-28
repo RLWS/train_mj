@@ -165,6 +165,8 @@ def test_cli_inspect_sample_reads_by_sample_id(tmp_path: Path, capsys):
     assert exit_code == 0
     assert payload["sample_id"] == "2023010100gm-00e1-0000-8a80056a:0:2:0:turn"
     assert payload["game_id"] == "2023010100gm-00e1-0000-8a80056a"
+    assert "temporary_furiten" in payload["state"]
+    assert "riichi_furiten" in payload["state"]
 
 
 def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):

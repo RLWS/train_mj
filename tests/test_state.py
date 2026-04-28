@@ -59,6 +59,27 @@ def test_discard_records_furiten_base_tile():
     assert state.is_furiten(0, "5z") is True
 
 
+def test_draw_clears_temporary_furiten_only():
+    state = GameState()
+    state.temporary_furiten[0] = True
+    state.riichi_furiten[0] = True
+
+    state.apply_draw(actor=0, tile="1m")
+
+    assert state.temporary_furiten[0] is False
+    assert state.riichi_furiten[0] is True
+
+
+def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
+    state = GameState()
+    state.riichi_declared[0] = True
+
+    state.mark_missed_ron(0)
+
+    assert state.temporary_furiten[0] is True
+    assert state.riichi_furiten[0] is True
+
+
 def test_kakan_upgrades_existing_pon_and_consumes_added_tile():
     state = GameState(
         hands=[HandState.from_tiles(["5m"]), HandState(), HandState(), HandState()],
