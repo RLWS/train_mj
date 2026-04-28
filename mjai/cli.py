@@ -8,7 +8,7 @@ from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.event_validator import EventValidator
 from mjai.data.builders.dataset_builder import DatasetBuilder
 from mjai.data.builders.manifest_builder import ManifestBuilder
-from mjai.data.datasets.parquet_dataset import inspect_dataset_sample
+from mjai.data.datasets.parquet_dataset import inspect_dataset_sample, inspect_dataset_sample_by_id
 from mjai.eval.case_dump import dump_case_to_json
 from mjai.eval.offline import evaluate_checkpoint
 from mjai.training.engine import train_turn_model
@@ -139,7 +139,12 @@ def _run_eval(args: argparse.Namespace) -> int:
 
 def _run_inspect_sample(args: argparse.Namespace) -> int:
     _load_optional_config(getattr(args, "config", None))
-    sample = inspect_dataset_sample(args.dataset, args.index)
+    if args.sample_id is None and args.index is None:
+        raise ValueError("inspect-sample requires either --index or --sample-id")
+    if args.sample_id is not None:
+        sample = inspect_dataset_sample_by_id(args.dataset, args.sample_id)
+    else:
+        sample = inspect_dataset_sample(args.dataset, args.index)
     print(json.dumps(sample, ensure_ascii=False, indent=2))
     return 0
 
@@ -209,7 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect_sample = subparsers.add_parser("inspect-sample", help="Inspect one dataset sample.")
     inspect_sample.add_argument("--dataset", required=True, help="Sample dataset path.")
-    inspect_sample.add_argument("--index", type=int, required=True, help="Sample index.")
+    inspect_sample.add_argument("--index", type=int, default=None, help="Sample index.")
+    inspect_sample.add_argument("--sample-id", default=None, help="Sample id.")
     _add_config_arg(inspect_sample)
 
     infer_on_state = subparsers.add_parser("infer-on-state", help="Run inference on one state.")

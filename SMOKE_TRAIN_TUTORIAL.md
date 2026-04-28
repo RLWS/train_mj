@@ -255,7 +255,13 @@ python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt 
 - `candidate_buckets`
 - `misclassified_examples`
 
-其中 `misclassified_examples` 就是后面把“错例 -> dump-case”完全串起来的基础。
+其中 `misclassified_examples` 现在已经带有：
+
+- 样本定位信息：`sample_id / game_id / kyoku_index / step_index / actor`
+- 可直接执行的 `inspect-sample --sample-id ...`
+- 可直接执行的 `dump-case --bronze-dir ... --game-id ... --kyoku-id ... --step-id ...`
+
+也就是说，评估报告里的错例已经可以直接跳回样本和原始事件上下文。
 
 ## 10. 一套建议你自己手动跑的完整命令
 

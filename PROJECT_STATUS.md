@@ -48,9 +48,10 @@
   - `top1 / top3 / top5 accuracy`
   - 按动作类别聚合的样本数与 `top-k` 指标
   - 按候选动作数量分桶的 `top-k` 指标
-  - 首批错例样本的 label、top-k 预测与 legal actions
+  - 首批错例样本的 label、top-k 预测、legal actions，以及可直接执行的 `inspect-sample` / `dump-case` 跳转命令
   - JSON 评估报告
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
+- `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
   - `sample_id / game_id / kyoku_index / step_index / actor`
   - label action

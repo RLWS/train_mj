@@ -74,12 +74,7 @@ class ManifestTurnDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         row = self.rows[index]
-        return {
-            "sample_id": row["sample_id"],
-            "state": json.loads(row["state_json"]),
-            "legal_actions": json.loads(row["legal_actions_json"]),
-            "label_action": json.loads(row["label_action_json"]),
-        }
+        return _deserialize_dataset_row(row)
 
 
 class ManifestResponseDataset(Dataset):
@@ -94,12 +89,7 @@ class ManifestResponseDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         row = self.rows[index]
-        return {
-            "sample_id": row["sample_id"],
-            "state": json.loads(row["state_json"]),
-            "legal_actions": json.loads(row["legal_actions_json"]),
-            "label_action": json.loads(row["label_action_json"]),
-        }
+        return _deserialize_dataset_row(row)
 
 
 def inspect_dataset_sample(dataset_path: str | Path, index: int) -> dict[str, object]:
@@ -129,6 +119,28 @@ def inspect_dataset_sample(dataset_path: str | Path, index: int) -> dict[str, ob
     raise IndexError(f"sample index out of range: {index}")
 
 
+def inspect_dataset_sample_by_id(dataset_path: str | Path, sample_id: str) -> dict[str, object]:
+    source_path = Path(dataset_path)
+    parquet_files = _resolve_sample_parquet_files(source_path)
+    global_index = 0
+
+    for parquet_path in parquet_files:
+        rows = pq.read_table(parquet_path).to_pylist()
+        for source_row_index, row in enumerate(rows):
+            if str(row["sample_id"]) != sample_id:
+                global_index += 1
+                continue
+            return _build_inspected_sample(
+                row=row,
+                dataset_path=source_path,
+                source_path=parquet_path,
+                global_index=global_index,
+                source_row_index=source_row_index,
+            )
+
+    raise ValueError(f"sample_id not found in dataset: {sample_id}")
+
+
 def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, torch.Tensor | list[str]]:
     max_candidates = max(len(row["legal_actions"]) for row in rows)
     if max_candidates > candidate_limit:
@@ -141,6 +153,11 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
     labels = torch.zeros((batch_size,), dtype=torch.long)
     label_kinds: list[str] = []
     sample_ids: list[str] = []
+    game_ids: list[str] = []
+    kyoku_indices: list[int] = []
+    step_indices: list[int] = []
+    actors: list[int] = []
+    decision_types: list[str] = []
 
     for batch_index, row in enumerate(rows):
         state_feats[batch_index] = torch.tensor(encode_turn_state(row["state"]), dtype=torch.float32)
@@ -159,6 +176,11 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
             candidate_mask[batch_index, candidate_index] = True
         label_kinds.append(str(row["label_action"]["kind"]))
         sample_ids.append(str(row["sample_id"]))
+        game_ids.append(str(row["game_id"]))
+        kyoku_indices.append(int(row["kyoku_index"]))
+        step_indices.append(int(row["step_index"]))
+        actors.append(int(row["actor"]))
+        decision_types.append(str(row["decision_type"]))
 
     return {
         "state_feats": state_feats,
@@ -170,6 +192,11 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
         "label_actions": [row["label_action"] for row in rows],
         "legal_actions": [row["legal_actions"] for row in rows],
         "candidate_counts": [len(row["legal_actions"]) for row in rows],
+        "game_ids": game_ids,
+        "kyoku_indices": kyoku_indices,
+        "step_indices": step_indices,
+        "actors": actors,
+        "decision_types": decision_types,
     }
 
 
@@ -185,6 +212,11 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
     labels = torch.zeros((batch_size,), dtype=torch.long)
     label_kinds: list[str] = []
     sample_ids: list[str] = []
+    game_ids: list[str] = []
+    kyoku_indices: list[int] = []
+    step_indices: list[int] = []
+    actors: list[int] = []
+    decision_types: list[str] = []
 
     for batch_index, row in enumerate(rows):
         state_feats[batch_index] = torch.tensor(encode_response_state(row["state"]), dtype=torch.float32)
@@ -203,6 +235,11 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
             candidate_mask[batch_index, candidate_index] = True
         label_kinds.append(str(row["label_action"]["kind"]))
         sample_ids.append(str(row["sample_id"]))
+        game_ids.append(str(row["game_id"]))
+        kyoku_indices.append(int(row["kyoku_index"]))
+        step_indices.append(int(row["step_index"]))
+        actors.append(int(row["actor"]))
+        decision_types.append(str(row["decision_type"]))
 
     return {
         "state_feats": state_feats,
@@ -214,6 +251,11 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
         "label_actions": [row["label_action"] for row in rows],
         "legal_actions": [row["legal_actions"] for row in rows],
         "candidate_counts": [len(row["legal_actions"]) for row in rows],
+        "game_ids": game_ids,
+        "kyoku_indices": kyoku_indices,
+        "step_indices": step_indices,
+        "actors": actors,
+        "decision_types": decision_types,
     }
 
 
@@ -307,4 +349,18 @@ def _build_inspected_sample(
         "label_action": label_action,
         "legal_actions": legal_actions,
         "state": state,
+    }
+
+
+def _deserialize_dataset_row(row: dict[str, object]) -> dict[str, object]:
+    return {
+        "sample_id": row["sample_id"],
+        "game_id": row["game_id"],
+        "kyoku_index": int(row["kyoku_index"]),
+        "step_index": int(row["step_index"]),
+        "actor": int(row["actor"]),
+        "decision_type": row["decision_type"],
+        "state": json.loads(row["state_json"]),
+        "legal_actions": json.loads(row["legal_actions_json"]),
+        "label_action": json.loads(row["label_action_json"]),
     }

@@ -39,11 +39,40 @@ class EvalBucketSummary:
 
 
 @dataclass(slots=True, frozen=True)
+class SampleLocator:
+    sample_id: str
+    game_id: str
+    kyoku_index: int
+    step_index: int
+    actor: int
+    decision_type: str
+
+
+@dataclass(slots=True, frozen=True)
+class CaseLocator:
+    bronze_dir: str
+    game_id: str
+    kyoku_index: int
+    step_index: int
+    dump_case_command: str
+
+
+@dataclass(slots=True, frozen=True)
+class SampleInspectLocator:
+    dataset_dir: str
+    sample_id: str
+    inspect_sample_command: str
+
+
+@dataclass(slots=True, frozen=True)
 class MisclassifiedExample:
     sample_id: str
     label_kind: str
     candidate_count: int
     label_index: int
+    sample_locator: SampleLocator
+    case_locator: CaseLocator
+    inspect_locator: SampleInspectLocator
     label_action: dict[str, Any]
     top_predictions: list[dict[str, Any]]
     legal_actions: list[dict[str, Any]]
@@ -90,6 +119,8 @@ def evaluate_checkpoint(
     batch_size = int(config.get("train", {}).get("batch_size", 32))
     max_misclassified_examples = int(config.get("eval", {}).get("max_misclassified_examples", 10))
     device = _resolve_device(config.get("train", {}).get("device"))
+    dataset_dir = _resolve_dataset_dir(manifest_path, task_name)
+    bronze_dir = _resolve_bronze_dir(config)
 
     dataset = _build_dataset(task_name, manifest_path)
     if len(dataset) == 0:
@@ -164,12 +195,44 @@ def evaluate_checkpoint(
                     bucket_hits[bucket_name][k] += hit
 
                 if rank > 1 and len(misclassified_examples) < max_misclassified_examples:
+                    sample_id = str(prepared_batch["sample_ids"][batch_index])
+                    game_id = str(prepared_batch["game_ids"][batch_index])
+                    kyoku_index = int(prepared_batch["kyoku_indices"][batch_index])
+                    step_index = int(prepared_batch["step_indices"][batch_index])
+                    actor = int(prepared_batch["actors"][batch_index])
+                    decision_type = str(prepared_batch["decision_types"][batch_index])
                     misclassified_examples.append(
                         MisclassifiedExample(
-                            sample_id=str(prepared_batch["sample_ids"][batch_index]),
+                            sample_id=sample_id,
                             label_kind=label_kind,
                             candidate_count=candidate_count,
                             label_index=int(prepared_batch["labels"][batch_index].item()),
+                            sample_locator=SampleLocator(
+                                sample_id=sample_id,
+                                game_id=game_id,
+                                kyoku_index=kyoku_index,
+                                step_index=step_index,
+                                actor=actor,
+                                decision_type=decision_type,
+                            ),
+                            case_locator=CaseLocator(
+                                bronze_dir=bronze_dir.as_posix(),
+                                game_id=game_id,
+                                kyoku_index=kyoku_index,
+                                step_index=step_index,
+                                dump_case_command=(
+                                    f"python -m mjai.cli dump-case --bronze-dir {bronze_dir.as_posix()} "
+                                    f"--game-id {game_id} --kyoku-id {kyoku_index} --step-id {step_index}"
+                                ),
+                            ),
+                            inspect_locator=SampleInspectLocator(
+                                dataset_dir=dataset_dir.as_posix(),
+                                sample_id=sample_id,
+                                inspect_sample_command=(
+                                    f"python -m mjai.cli inspect-sample --dataset {dataset_dir.as_posix()} "
+                                    f"--sample-id {sample_id}"
+                                ),
+                            ),
                             label_action=dict(prepared_batch["label_actions"][batch_index]),
                             top_predictions=_build_top_predictions(
                                 logits[batch_index],
@@ -253,6 +316,25 @@ def _resolve_report_path(
     if report_path is not None:
         return Path(report_path)
     return checkpoint_path.parent / f"eval_{split}.json"
+
+
+def _resolve_dataset_dir(manifest_path: Path, task_name: str) -> Path:
+    first_record = _read_first_manifest_record(manifest_path)
+    sample_path_key = "turn_path" if task_name == "turn" else "response_path"
+    sample_path = Path(str(first_record[sample_path_key]))
+    return sample_path.parent.parent
+
+
+def _resolve_bronze_dir(config: dict[str, Any]) -> Path:
+    bronze_dir = config.get("data", {}).get("input_root", "data/bronze_events")
+    return Path(str(bronze_dir))
+
+
+def _read_first_manifest_record(manifest_path: Path) -> dict[str, Any]:
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            return json.loads(line)
+    raise ValueError(f"manifest has no records: {manifest_path}")
 
 
 def _compute_label_ranks(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:

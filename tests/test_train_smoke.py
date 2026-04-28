@@ -207,6 +207,11 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
     assert report["per_kind"]
     assert report["candidate_buckets"]
     assert "misclassified_examples" in report
+    if report["misclassified_examples"]:
+        example = report["misclassified_examples"][0]
+        assert example["sample_locator"]["sample_id"] == example["sample_id"]
+        assert "inspect-sample --dataset" in example["inspect_locator"]["inspect_sample_command"]
+        assert "dump-case --bronze-dir" in example["case_locator"]["dump_case_command"]
 
 
 def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
@@ -287,3 +292,8 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
     assert report["per_kind"]
     assert report["candidate_buckets"]
     assert "misclassified_examples" in report
+    if report["misclassified_examples"]:
+        example = report["misclassified_examples"][0]
+        assert example["sample_locator"]["sample_id"] == example["sample_id"]
+        assert "inspect-sample --dataset" in example["inspect_locator"]["inspect_sample_command"]
+        assert "dump-case --bronze-dir" in example["case_locator"]["dump_case_command"]

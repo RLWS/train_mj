@@ -36,6 +36,7 @@ python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
 python -m mjai.cli train --config <train_config_yaml>
 python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
 python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
+python -m mjai.cli inspect-sample --dataset <samples_dir> --sample-id <sample_id>
 python -m mjai.cli dump-case --game-id <game_id> --kyoku-id <kyoku_index> --step-id <step_index>
 pytest
 ```
@@ -48,7 +49,7 @@ pytest
 - `make-manifest` 会按 `game_id` 生成 `train/valid/test` 清单，并输出 split 样本统计与 warning。
 - `train` 当前支持最小 `turn/response` baseline，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
 - `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、按动作类别聚合指标、候选规模分桶和错例导出，并生成 JSON 报告。
-- `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引抽查样本。
+- `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引或 `sample_id` 抽查样本。
 - `dump-case` 当前支持从 `bronze_events` 中定位目标决策点的原始事件上下文。
 - `replay-eval`、`infer-on-state` 仍未实装。
 

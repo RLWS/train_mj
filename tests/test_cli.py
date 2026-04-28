@@ -141,6 +141,32 @@ def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
     assert "kyoku_index" in payload
 
 
+def test_cli_inspect_sample_reads_by_sample_id(tmp_path: Path, capsys):
+    bronze_dir = tmp_path / "bronze_events"
+    silver_dir = tmp_path / "silver_samples"
+
+    assert main(["preprocess", "--input", str(FIXTURE_DIR), "--output", str(bronze_dir)]) == 0
+    capsys.readouterr()
+    assert main(["build-dataset", "--input", str(bronze_dir), "--output", str(silver_dir)]) == 0
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "inspect-sample",
+            "--dataset",
+            str(silver_dir),
+            "--sample-id",
+            "2023010100gm-00e1-0000-8a80056a:0:2:0:turn",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["sample_id"] == "2023010100gm-00e1-0000-8a80056a:0:2:0:turn"
+    assert payload["game_id"] == "2023010100gm-00e1-0000-8a80056a"
+
+
 def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):
     bronze_dir = tmp_path / "bronze_events"
 
