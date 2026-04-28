@@ -13,13 +13,14 @@
 - 已打通第一版最小训练闭环：`turn/response` manifest 读取、状态/动作特征、候选排序模型、单 epoch smoke train、checkpoint 与指标落盘。
 - 已补上第一版离线评估：可从 checkpoint 对 `turn/response` 的 `train/valid/test` split 做 `loss`、`top-k accuracy` 和按动作类别聚合评估，并导出 JSON 报告。
 - 已补上第一版样本抽查：可直接从 `silver_samples` 目录按全局索引读取样本，查看 label、合法动作和状态快照。
-- 已补上第一版 case 定位：可从 `bronze_events` 按 `game_id / kyoku_index / step_index` 回溯目标事件及其前后上下文。
-- 当前测试基线为 `pytest` 全量通过，结果是 `49 passed`。
+- 已补上第一版 case 定位：可从 `eval` 错例跳转到 `inspect-sample`，再按 `game_id / kyoku_index / step_index` 回溯 `bronze_events` 上下文。
+- 已补上第一版自家高价值回合动作：`turn` 合法动作与样本链路已支持 `tsumo`、`ankan` 和 `kakan`，其中当前真实夹具已覆盖 `tsumo` 与 `ankan` 样本。
+- 当前测试基线为 `pytest` 全量通过，结果是 `60 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `10` 局 XML 预处理
   - `3253` 条事件写入 `bronze_events`
   - `10` 个事件分片全部校验通过
-  - `1542` 条 `turn` 样本
+  - `1556` 条 `turn` 样本
   - `4626` 条 `response` 样本
   - `turn` 单任务 `1` epoch smoke train
   - `response` 单任务 `1` epoch smoke train
@@ -45,7 +46,7 @@ pytest
 
 - `preprocess` 会把天凤 XML 转成事件分片 Parquet，并输出 `preprocess_summary.json`。
 - `validate-events` 会回放校验事件分片，并输出包含事件分布、失败原因和回放摘要的 JSON 报告。
-- `build-dataset` 当前从 `bronze_events` 构建 `turn/response` Parquet 样本，并输出标签分布摘要。
+- `build-dataset` 当前从 `bronze_events` 构建 `turn/response` Parquet 样本，并输出标签分布摘要；当前真实夹具的 `turn` 标签已覆盖 `discard / riichi_discard / tsumo / ankan`，构建链路本身已支持 `kakan`。
 - `make-manifest` 会按 `game_id` 生成 `train/valid/test` 清单，并输出 split 样本统计与 warning。
 - `train` 当前支持最小 `turn/response` baseline，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
 - `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、按动作类别聚合指标、候选规模分桶和错例导出，并生成 JSON 报告。
@@ -55,8 +56,8 @@ pytest
 
 ## 当前缺口
 
-- 规则引擎还不是完整日麻规则实现，缺少 `tsumo`、`ankan/kakan` 的回合决策、完整振听判断等能力。
-- 诊断输出已经有第一版，但还缺少更细的 case drill-down、固定 case 定位和更丰富的数据质量报告。
+- 规则引擎还不是完整日麻规则实现，当前仍缺少更完整的 `ron`/振听过滤、`chankan`、`kyuushu_kyuuhai`、途中流局与完整计分结算等能力。
+- 诊断输出已经有第一版，并已打通 `eval -> inspect-sample -> dump-case` 的轻量跳转链路，但还缺少更细的错例聚合、固定 case 集合和更丰富的数据质量报告。
 - 当前训练与评估只覆盖最小 `turn/response` baseline；多任务、错误分析工具和推理服务都还没开始。
 
 ## 文档索引
@@ -68,6 +69,6 @@ pytest
 
 ## 建议的下一步
 
-1. 先继续补错误分析深度，优先把 eval 错例和 `dump-case` 串起来，再补更细的错例聚合。
-2. 然后补规则边界，优先做 `tsumo`、`ankan/kakan` 回合动作和更完整的 `ron/riichi` 限制。
+1. 先继续补错误分析深度，围绕现有 `eval -> inspect-sample -> dump-case` 链路补固定错例集和更细的错例聚合。
+2. 然后补规则边界，优先做更完整的 `ron/riichi` 限制、`chankan` 和流局边界。
 3. 最后继续扩训练覆盖，补多任务训练、更完整离线指标和推理入口。

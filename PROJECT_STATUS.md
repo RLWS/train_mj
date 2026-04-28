@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `51 passed`。
+- `pytest` 全量通过，当前结果为 `60 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -27,9 +27,9 @@
   - 可输出事件分布、失败原因聚合、总局数/弃牌数/副露数摘要
 - `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成：
-  - `1542` 条 `turn` 样本
+  - `1556` 条 `turn` 样本
   - `4626` 条 `response` 样本
-  - 可输出 `turn/response` 标签动作分布
+  - 可输出 `turn/response` 标签动作分布，其中当前真实夹具的 `turn` 已覆盖 `discard / riichi_discard / tsumo / ankan`，构建链路本身已支持 `kakan`
 - `python -m mjai.cli make-manifest --input <tmp> --output <tmp>` 可运行。
 - 同一批夹具可生成 manifest，实测分桶结果为：
   - `train_games=9`
@@ -74,12 +74,13 @@
   - 副露解码已实现，覆盖 `chi / pon / daiminkan / ankan / kakan`。
 - `mjai/rules/`
   - 手牌状态、回放状态、弃牌/吃碰杠/荣和的第一版合法动作生成已实现。
+  - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan`。
   - 基础胡牌判断与立直前听牌检查已实现。
   - 回放校验器已实现，可验证弃牌合法性和副露消耗牌一致性。
 - `mjai/data/builders/`
   - `bronze_events` 预处理器已实现。
   - 事件分片回放校验器已实现。
-  - `turn` 与 `response` 样本构建器已实现。
+  - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo` 与 `ankan` 的 `turn` 样本，`kakan` 也已进入合法动作与样本构建链路。
   - Parquet 写出与 manifest 生成已实现。
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `configs/`
@@ -105,7 +106,7 @@
   - `replay-eval`、`infer-on-state` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
-  - 第一版诊断输出已经落地，但还缺少更细的失败样本导出和 case drill-down。
+- 第一版诊断输出已经落地，并已支持从评估错例跳转到样本与事件上下文，但还缺少更细的失败样本聚合和固定 case 管理。
 
 ### 尚未开始或基本未开始
 
@@ -141,8 +142,6 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 当前规则层已经足够支撑“早期监督学习样本构建”，但还不足以称为完整日麻规则引擎。主要缺口包括：
 
-- `tsumo`
-- `ankan` / `kakan` 作为自家回合决策
 - 完整振听判断
 - `chankan`
 - 多家荣和等边界情况
@@ -195,10 +194,10 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. eval 错例到 `dump-case` 的可复现跳转
-2. 固定错例 case list
-3. 更细的按牌型/动作来源/候选规模聚合报告
-4. 评估报告到具体样本和事件上下文的跳转字段
+1. 固定错例 case list
+2. 更细的按牌型/动作来源/候选规模聚合报告
+3. 控制评估报告体积前提下的抽样式上下文导出
+4. 为大规模评估补更明确的数据质量摘要字段
 
 最低验收标准：
 
@@ -206,13 +205,13 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 能从样本稳定定位到具体牌谱与决策点。
 - 不破坏当前 train/eval 回归测试。
 
-### 任务 2：扩展规则边界，优先补高价值动作
+### 任务 2：扩展规则边界，优先补规则正确性
 
 建议范围：
 
-1. `tsumo`
-2. `ankan / kakan` 的自家回合决策
-3. 更完整的振听与 `ron` 过滤
+1. 更完整的振听与 `ron` 过滤
+2. `chankan`
+3. `kyuushu_kyuuhai` 与途中流局边界
 4. 更严格的立直限制
 
 ### 任务 3：继续扩训练覆盖

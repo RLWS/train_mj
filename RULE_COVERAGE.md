@@ -43,6 +43,9 @@
 - `turn` 样本当前支持：
   - `discard`
   - `riichi_discard`
+  - `tsumo`
+  - `ankan`
+  - `kakan`
 - `response` 样本当前支持：
   - `pass`
   - `chi`
@@ -50,6 +53,7 @@
   - `daiminkan`
   - `ron`
 - 合法动作生成中已经保留赤牌精确表示，不会把赤牌与普通五混掉
+- 当前真实夹具已覆盖 `tsumo` 与 `ankan` 的 `turn` 样本；`kakan` 逻辑已进入合法动作与样本链路，但当前夹具尚无对应实测样本
 
 ### 手牌检查
 
@@ -64,9 +68,6 @@
 
 ### 自家回合动作
 
-- `tsumo`
-- `ankan` 作为自家回合候选动作
-- `kakan` 作为自家回合候选动作
 - `kyuushu_kyuuhai`
 - 所有自家回合动作之间的完整仲裁
 

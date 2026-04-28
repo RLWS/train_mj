@@ -50,7 +50,7 @@ def legal_discards(hand: HandState) -> list[Action]:
 def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: int | None = None) -> list[Action]:
     """Return current-turn actions.
 
-    This first pass includes discard and optional riichi-discard actions.
+    This pass includes discard, optional riichi-discard, tsumo, ankan, and kakan.
     """
     actions = legal_discards(hand)
     if state is not None and actor is not None and state.can_declare_riichi(actor):
@@ -60,6 +60,11 @@ def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: i
             if action.tile is not None and is_tenpai_after_discard(hand, action.tile)
         ]
         actions.extend(riichi_actions)
+    if is_agari(hand):
+        actions.append(Action(kind="tsumo"))
+    if state is not None and actor is not None:
+        actions.extend(_legal_ankan_actions(hand, actor))
+        actions.extend(_legal_kakan_actions(hand, state, actor))
     return actions
 
 
@@ -148,6 +153,41 @@ def _legal_daiminkan_actions(hand: HandState, source: int, tile: str, target_bas
         )
         for consumed in combinations(exact_tiles, 3)
     ]
+    return _deduplicate_actions(actions)
+
+
+def _legal_ankan_actions(hand: HandState, actor: int) -> list[Action]:
+    actions: list[Action] = []
+    for base_index in range(34):
+        exact_tiles = hand.exact_tiles_for_base(base_index)
+        if len(exact_tiles) != 4:
+            continue
+        actions.append(
+            Action(
+                kind="ankan",
+                tile=exact_tiles[0],
+                consumed_tiles=canonicalize_consumed(tuple(exact_tiles)),
+                source=actor,
+            )
+        )
+    return actions
+
+
+def _legal_kakan_actions(hand: HandState, state: GameState, actor: int) -> list[Action]:
+    actions: list[Action] = []
+    for meld in state.melds[actor]:
+        if meld.kind != "pon":
+            continue
+        exact_tiles = hand.exact_tiles_for_base(meld.base_index)
+        for added_tile in exact_tiles:
+            actions.append(
+                Action(
+                    kind="kakan",
+                    tile=meld.called_tile,
+                    consumed_tiles=canonicalize_consumed(meld.consumed_tiles + (added_tile,)),
+                    source=meld.source,
+                )
+            )
     return _deduplicate_actions(actions)
 
 

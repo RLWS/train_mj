@@ -52,6 +52,8 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert len(turn_files) == summary.games
     assert len(response_files) == summary.games
     assert build_summary["turn_label_counts"]["discard"] > 0
+    assert build_summary["turn_label_counts"]["tsumo"] > 0
+    assert build_summary["turn_label_counts"]["ankan"] > 0
     assert build_summary["response_label_counts"]["pass"] > 0
 
     turn_rows = pq.read_table(turn_files[0]).to_pylist()

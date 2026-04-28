@@ -54,3 +54,38 @@ def test_riichi_discard_labels_are_present_in_legal_actions_on_real_fixtures():
         for sample in samples:
             if sample.label_action["kind"] == "riichi_discard":
                 assert sample.label_action in sample.legal_actions
+
+
+def test_turn_samples_include_tsumo_and_ankan_labels_on_real_fixtures():
+    parser = TenhouParser()
+    builder = TurnSampleBuilder()
+
+    tsumo_count = 0
+    ankan_count = 0
+    for path in sorted(FIXTURE_DIR.glob("*.xml")):
+        samples = builder.build_samples(parser.parse_file(path))
+        tsumo_count += sum(1 for sample in samples if sample.label_action["kind"] == "tsumo")
+        ankan_count += sum(1 for sample in samples if sample.label_action["kind"] == "ankan")
+
+    assert tsumo_count > 0
+    assert ankan_count > 0
+
+
+def test_turn_samples_keep_tsumo_and_ankan_labels_in_legal_actions():
+    parser = TenhouParser()
+    builder = TurnSampleBuilder()
+
+    found_tsumo = False
+    found_ankan = False
+    for path in sorted(FIXTURE_DIR.glob("*.xml")):
+        samples = builder.build_samples(parser.parse_file(path))
+        for sample in samples:
+            if sample.label_action["kind"] == "tsumo":
+                found_tsumo = True
+                assert sample.label_action in sample.legal_actions
+            if sample.label_action["kind"] == "ankan":
+                found_ankan = True
+                assert sample.label_action in sample.legal_actions
+
+    assert found_tsumo
+    assert found_ankan

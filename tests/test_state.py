@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mjai.rules.state import GameState, HandState
+from mjai.rules.state import GameState, HandState, MeldState
 
 
 def test_hand_state_counts_red_and_normal_five_separately():
@@ -48,3 +48,27 @@ def test_can_declare_riichi_is_blocked_while_pending():
     assert state.can_declare_riichi(0) is True
     state.apply_reach(actor=0, step=1)
     assert state.can_declare_riichi(0) is False
+
+
+def test_kakan_upgrades_existing_pon_and_consumes_added_tile():
+    state = GameState(
+        hands=[HandState.from_tiles(["5m"]), HandState(), HandState(), HandState()],
+        melds=[
+            [MeldState(kind="pon", source=1, called_tile="5m", consumed_tiles=("0m", "5m"))],
+            [],
+            [],
+            [],
+        ],
+    )
+
+    state.apply_meld(
+        actor=0,
+        kind="kakan",
+        source=1,
+        called_tile="5m",
+        consumed_tiles=["0m", "5m", "5m"],
+    )
+
+    assert state.hands[0].count_exact("5m") == 0
+    assert state.melds[0][0].kind == "kakan"
+    assert state.melds[0][0].consumed_tiles == ("0m", "5m", "5m")

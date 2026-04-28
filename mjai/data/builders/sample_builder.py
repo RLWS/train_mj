@@ -68,6 +68,21 @@ class TurnSampleBuilder:
             if event.event_type == "meld":
                 assert event.actor is not None
                 payload = event.payload
+                if payload["kind"] in {"ankan", "kakan"}:
+                    sample = _build_turn_sample(
+                        state=state,
+                        event=event,
+                        actor=event.actor,
+                        label_action=asdict(
+                            Action(
+                                kind=payload["kind"],
+                                tile=payload["called_tile"],
+                                consumed_tiles=canonicalize_consumed(tuple(payload["consumed_tiles"])),
+                                source=payload["source"],
+                            )
+                        ),
+                    )
+                    samples.append(sample)
                 state.apply_meld(
                     actor=event.actor,
                     kind=payload["kind"],
@@ -83,6 +98,18 @@ class TurnSampleBuilder:
                     pending_turn_labels[event.actor] = "riichi_discard"
                     continue
                 state.apply_reach(event.actor, event.payload["step"])
+                continue
+
+            if event.event_type == "agari":
+                assert event.actor is not None
+                if event.payload.get("who") == event.payload.get("fromWho"):
+                    sample = _build_turn_sample(
+                        state=state,
+                        event=event,
+                        actor=event.actor,
+                        label_action=asdict(Action(kind="tsumo")),
+                    )
+                    samples.append(sample)
 
         return samples
 
@@ -191,6 +218,33 @@ def _response_view_snapshot(state: GameState, actor: int, source: int, tile: str
     snapshot = _player_view_snapshot(state, actor)
     snapshot["response_target"] = {"source": source, "tile": tile}
     return snapshot
+
+
+def _build_turn_sample(
+    state: GameState,
+    event: Event,
+    actor: int,
+    label_action: dict,
+) -> TurnSample:
+    legal_actions = [
+        asdict(action)
+        for action in legal_turn_actions(
+            state.hands[actor],
+            state=state,
+            actor=actor,
+        )
+    ]
+    return TurnSample(
+        sample_id=f"{event.game_id}:{event.kyoku_index}:{event.step_index}:{actor}:turn",
+        game_id=event.game_id,
+        kyoku_index=event.kyoku_index,
+        step_index=event.step_index,
+        actor=actor,
+        decision_type="turn",
+        state=_player_view_snapshot(state, actor),
+        legal_actions=legal_actions,
+        label_action=label_action,
+    )
 
 
 def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
