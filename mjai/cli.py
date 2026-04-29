@@ -99,12 +99,14 @@ def _run_train(args: argparse.Namespace) -> int:
     summary = train_turn_model(config)
     print(
         f"trained task={summary.task} epochs={summary.epochs} "
-        f"train_loss={summary.train_loss:.4f} train_accuracy={summary.train_accuracy:.4f}"
+        f"train_loss={summary.train_loss:.4f} train_accuracy={summary.train_accuracy:.4f} "
+        f"train_macro_accuracy={summary.train_macro_accuracy:.4f}"
     )
     if summary.valid_accuracy is not None:
         print(
             f"valid_loss={summary.valid_loss:.4f} "
-            f"valid_accuracy={summary.valid_accuracy:.4f}"
+            f"valid_accuracy={summary.valid_accuracy:.4f} "
+            f"valid_macro_accuracy={summary.valid_macro_accuracy:.4f}"
         )
     print(f"device={summary.used_device}")
     print(f"best_checkpoint={summary.best_checkpoint}")
@@ -123,7 +125,8 @@ def _run_eval(args: argparse.Namespace) -> int:
     print(
         f"evaluated task={summary.task} split={summary.split} "
         f"loss={summary.loss:.4f} top1={summary.top1_accuracy:.4f} "
-        f"top3={summary.top3_accuracy:.4f} top5={summary.top5_accuracy:.4f}"
+        f"top3={summary.top3_accuracy:.4f} top5={summary.top5_accuracy:.4f} "
+        f"macro_top1={summary.macro_top1_accuracy:.4f}"
     )
     print(f"samples={summary.samples} batches={summary.batches} device={summary.used_device}")
     print(f"manifest={summary.manifest_path}")
@@ -134,6 +137,12 @@ def _run_eval(args: argparse.Namespace) -> int:
             for kind, kind_summary in sorted(summary.per_kind.items())
         )
         print(f"per_kind_top1={per_kind}")
+    if summary.class_groups:
+        class_groups = ", ".join(
+            f"{group}:{group_summary.samples}/{group_summary.top1_accuracy:.4f}"
+            for group, group_summary in sorted(summary.class_groups.items())
+        )
+        print(f"class_group_top1={class_groups}")
     return 0
 
 

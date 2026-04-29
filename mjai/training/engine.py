@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
@@ -19,6 +20,7 @@ from mjai.data.datasets.parquet_dataset import (
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
 from mjai.models.policy_net import MahjongPolicyNet
+from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
 from mjai.utils.config import dump_yaml
 from mjai.utils.device import normalize_device_name
@@ -27,13 +29,23 @@ from mjai.utils.seed import seed_everything
 
 
 @dataclass(slots=True, frozen=True)
+class LabelMetricSummary:
+    samples: int
+    loss: float
+    accuracy: float
+
+
+@dataclass(slots=True, frozen=True)
 class EpochSummary:
     epoch: int
     split: str
     loss: float
     accuracy: float
+    macro_accuracy: float
     batches: int
     samples: int
+    per_kind: dict[str, LabelMetricSummary]
+    class_groups: dict[str, LabelMetricSummary]
 
 
 @dataclass(slots=True, frozen=True)
@@ -42,8 +54,10 @@ class TrainSummary:
     epochs: int
     train_loss: float
     train_accuracy: float
+    train_macro_accuracy: float
     valid_loss: float | None
     valid_accuracy: float | None
+    valid_macro_accuracy: float | None
     train_samples: int
     valid_samples: int
     best_checkpoint: str
@@ -102,7 +116,8 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         lr=float(config.get("train", {}).get("lr", 1e-3)),
         weight_decay=float(config.get("train", {}).get("weight_decay", 0.0)),
     )
-    response_weight_map = config.get("train", {}).get("response_class_weights", {})
+    train_config = config.get("train", {})
+    weight_map = class_weight_map(task_name, train_config)
 
     epochs = int(config.get("train", {}).get("epochs", 1))
     epoch_summaries: list[dict[str, Any]] = []
@@ -123,7 +138,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
             split="train",
             task_name=task_name,
             train=True,
-            response_weight_map=response_weight_map,
+            weight_map=weight_map,
         )
         epoch_summaries.append(asdict(last_train_summary))
 
@@ -137,7 +152,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
                 split="valid",
                 task_name=task_name,
                 train=False,
-                response_weight_map=response_weight_map,
+                weight_map=weight_map,
             )
             epoch_summaries.append(asdict(last_valid_summary))
 
@@ -173,8 +188,10 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         epochs=epochs,
         train_loss=last_train_summary.loss,
         train_accuracy=last_train_summary.accuracy,
+        train_macro_accuracy=last_train_summary.macro_accuracy,
         valid_loss=None if last_valid_summary is None else last_valid_summary.loss,
         valid_accuracy=None if last_valid_summary is None else last_valid_summary.accuracy,
+        valid_macro_accuracy=None if last_valid_summary is None else last_valid_summary.macro_accuracy,
         train_samples=len(train_dataset),
         valid_samples=0 if valid_dataset is None else len(valid_dataset),
         best_checkpoint=str(best_checkpoint_path),
@@ -192,12 +209,18 @@ def _run_epoch(
     split: str,
     task_name: str,
     train: bool,
-    response_weight_map: dict[str, Any] | None,
+    weight_map: dict[str, float],
 ) -> EpochSummary:
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
     batches = 0
+    kind_totals: dict[str, int] = {}
+    kind_correct: dict[str, int] = {}
+    kind_loss_totals: dict[str, float] = {}
+    group_totals: dict[str, int] = {}
+    group_correct: dict[str, int] = {}
+    group_loss_totals: dict[str, float] = {}
 
     model.train(train)
     for batch in data_loader:
@@ -209,15 +232,11 @@ def _run_epoch(
 
         if task_name == "turn":
             logits = model.forward_turn(prepared_batch)
-            sample_weights = None
         else:
             logits = model.forward_response(prepared_batch)
-            sample_weights = _build_response_sample_weights(
-                prepared_batch["label_kinds"],
-                response_weight_map or {},
-                device,
-            )
+        sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
         loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
+        per_sample_losses = F.cross_entropy(logits, prepared_batch["labels"], reduction="none")
 
         if train:
             assert optimizer is not None
@@ -226,19 +245,38 @@ def _run_epoch(
             optimizer.step()
 
         batch_size = prepared_batch["labels"].shape[0]
+        predictions = logits.argmax(dim=1)
+        correct = predictions == prepared_batch["labels"]
         total_loss += float(loss.item()) * batch_size
-        total_correct += int((logits.argmax(dim=1) == prepared_batch["labels"]).sum().item())
+        total_correct += int(correct.sum().item())
         total_samples += batch_size
+
+        for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
+            is_correct = int(correct[batch_index].item())
+            sample_loss = float(per_sample_losses[batch_index].item())
+            kind_totals[label_kind] = kind_totals.get(label_kind, 0) + 1
+            kind_correct[label_kind] = kind_correct.get(label_kind, 0) + is_correct
+            kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + sample_loss
+
+            group_name = class_group_name(task_name, label_kind)
+            group_totals[group_name] = group_totals.get(group_name, 0) + 1
+            group_correct[group_name] = group_correct.get(group_name, 0) + is_correct
+            group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
 
     average_loss = 0.0 if total_samples == 0 else total_loss / total_samples
     accuracy = 0.0 if total_samples == 0 else total_correct / total_samples
+    per_kind = _build_label_metric_summary(kind_totals, kind_correct, kind_loss_totals)
+    class_groups = _build_label_metric_summary(group_totals, group_correct, group_loss_totals)
     return EpochSummary(
         epoch=epoch,
         split=split,
         loss=average_loss,
         accuracy=accuracy,
+        macro_accuracy=_macro_accuracy(per_kind),
         batches=batches,
         samples=total_samples,
+        per_kind=per_kind,
+        class_groups=class_groups,
     )
 
 
@@ -279,13 +317,22 @@ def _build_collate_fn(task_name: str, candidate_limit: int):
     return lambda rows: build_response_batch(rows, candidate_limit=candidate_limit)
 
 
-def _build_response_sample_weights(
-    label_kinds: list[str],
-    response_weight_map: dict[str, Any],
-    device: torch.device,
-) -> torch.Tensor:
-    return torch.tensor(
-        [float(response_weight_map.get(label_kind, 1.0)) for label_kind in label_kinds],
-        dtype=torch.float32,
-        device=device,
-    )
+def _build_label_metric_summary(
+    totals: dict[str, int],
+    correct: dict[str, int],
+    loss_totals: dict[str, float],
+) -> dict[str, LabelMetricSummary]:
+    return {
+        label: LabelMetricSummary(
+            samples=count,
+            loss=0.0 if count == 0 else loss_totals.get(label, 0.0) / count,
+            accuracy=0.0 if count == 0 else correct.get(label, 0) / count,
+        )
+        for label, count in sorted(totals.items())
+    }
+
+
+def _macro_accuracy(per_kind: dict[str, LabelMetricSummary]) -> float:
+    if not per_kind:
+        return 0.0
+    return sum(summary.accuracy for summary in per_kind.values()) / len(per_kind)

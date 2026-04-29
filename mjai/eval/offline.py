@@ -17,6 +17,7 @@ from mjai.data.datasets.parquet_dataset import (
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
 from mjai.models.policy_net import MahjongPolicyNet
+from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
 from mjai.utils.device import normalize_device_name
 from mjai.utils.paths import ensure_dir
@@ -25,6 +26,7 @@ from mjai.utils.paths import ensure_dir
 @dataclass(slots=True, frozen=True)
 class EvalKindSummary:
     samples: int
+    loss: float
     top1_accuracy: float
     top3_accuracy: float
     top5_accuracy: float
@@ -86,6 +88,9 @@ class EvalSummary:
     top1_accuracy: float
     top3_accuracy: float
     top5_accuracy: float
+    macro_top1_accuracy: float
+    macro_top3_accuracy: float
+    macro_top5_accuracy: float
     samples: int
     batches: int
     manifest_path: str
@@ -93,6 +98,7 @@ class EvalSummary:
     report_path: str
     used_device: str
     per_kind: dict[str, EvalKindSummary]
+    class_groups: dict[str, EvalKindSummary]
     candidate_buckets: dict[str, EvalBucketSummary]
     misclassified_examples: list[MisclassifiedExample]
 
@@ -143,13 +149,17 @@ def evaluate_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    response_weight_map = config.get("train", {}).get("response_class_weights", {})
+    weight_map = class_weight_map(task_name, config.get("train", {}))
     total_loss = 0.0
     total_samples = 0
     batches = 0
     topk_hits = {1: 0, 3: 0, 5: 0}
     kind_totals: dict[str, int] = {}
+    kind_loss_totals: dict[str, float] = {}
     kind_hits: dict[str, dict[int, int]] = {}
+    group_totals: dict[str, int] = {}
+    group_loss_totals: dict[str, float] = {}
+    group_hits: dict[str, dict[int, int]] = {}
     bucket_totals: dict[str, int] = {}
     bucket_hits: dict[str, dict[int, int]] = {}
     misclassified_examples: list[MisclassifiedExample] = []
@@ -164,16 +174,16 @@ def evaluate_checkpoint(
 
             if task_name == "turn":
                 logits = model.forward_turn(prepared_batch)
-                sample_weights = None
             else:
                 logits = model.forward_response(prepared_batch)
-                sample_weights = _build_response_sample_weights(
-                    prepared_batch["label_kinds"],
-                    response_weight_map,
-                    device,
-                )
+            sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
 
             loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
+            per_sample_losses = torch.nn.functional.cross_entropy(
+                logits,
+                prepared_batch["labels"],
+                reduction="none",
+            )
             batch_size_actual = int(prepared_batch["labels"].shape[0])
             total_loss += float(loss.item()) * batch_size_actual
             total_samples += batch_size_actual
@@ -183,8 +193,15 @@ def evaluate_checkpoint(
                 rank = int(ranks[batch_index].item())
                 candidate_count = int(prepared_batch["candidate_counts"][batch_index])
                 bucket_name = _candidate_bucket_name(candidate_count)
+                sample_loss = float(per_sample_losses[batch_index].item())
+                group_name = class_group_name(task_name, label_kind)
+
                 kind_totals[label_kind] = kind_totals.get(label_kind, 0) + 1
+                kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + sample_loss
                 kind_hits.setdefault(label_kind, {1: 0, 3: 0, 5: 0})
+                group_totals[group_name] = group_totals.get(group_name, 0) + 1
+                group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
+                group_hits.setdefault(group_name, {1: 0, 3: 0, 5: 0})
                 bucket_totals[bucket_name] = bucket_totals.get(bucket_name, 0) + 1
                 bucket_hits.setdefault(bucket_name, {1: 0, 3: 0, 5: 0})
 
@@ -192,6 +209,7 @@ def evaluate_checkpoint(
                     hit = int(rank <= k)
                     topk_hits[k] += hit
                     kind_hits[label_kind][k] += hit
+                    group_hits[group_name][k] += hit
                     bucket_hits[bucket_name][k] += hit
 
                 if rank > 1 and len(misclassified_examples) < max_misclassified_examples:
@@ -245,6 +263,8 @@ def evaluate_checkpoint(
     average_loss = total_loss / total_samples
     resolved_report_path = _resolve_report_path(checkpoint_path, split, report_path)
     ensure_dir(resolved_report_path.parent)
+    per_kind = _build_eval_kind_summaries(kind_totals, kind_hits, kind_loss_totals)
+    class_groups = _build_eval_kind_summaries(group_totals, group_hits, group_loss_totals)
 
     summary = EvalSummary(
         task=task_name,
@@ -253,21 +273,17 @@ def evaluate_checkpoint(
         top1_accuracy=topk_hits[1] / total_samples,
         top3_accuracy=topk_hits[3] / total_samples,
         top5_accuracy=topk_hits[5] / total_samples,
+        macro_top1_accuracy=_macro_topk_accuracy(per_kind, 1),
+        macro_top3_accuracy=_macro_topk_accuracy(per_kind, 3),
+        macro_top5_accuracy=_macro_topk_accuracy(per_kind, 5),
         samples=total_samples,
         batches=batches,
         manifest_path=str(manifest_path),
         checkpoint_path=str(checkpoint_path),
         report_path=str(resolved_report_path),
         used_device=str(device),
-        per_kind={
-            kind: EvalKindSummary(
-                samples=count,
-                top1_accuracy=kind_hits[kind][1] / count,
-                top3_accuracy=kind_hits[kind][3] / count,
-                top5_accuracy=kind_hits[kind][5] / count,
-            )
-            for kind, count in sorted(kind_totals.items())
-        },
+        per_kind=per_kind,
+        class_groups=class_groups,
         candidate_buckets={
             bucket: EvalBucketSummary(
                 samples=count,
@@ -391,16 +407,28 @@ def _build_collate_fn(task_name: str, candidate_limit: int):
     return lambda rows: build_response_batch(rows, candidate_limit=candidate_limit)
 
 
-def _build_response_sample_weights(
-    label_kinds: list[str],
-    response_weight_map: dict[str, Any],
-    device: torch.device,
-) -> torch.Tensor:
-    return torch.tensor(
-        [float(response_weight_map.get(label_kind, 1.0)) for label_kind in label_kinds],
-        dtype=torch.float32,
-        device=device,
-    )
+def _build_eval_kind_summaries(
+    totals: dict[str, int],
+    hits: dict[str, dict[int, int]],
+    loss_totals: dict[str, float],
+) -> dict[str, EvalKindSummary]:
+    return {
+        kind: EvalKindSummary(
+            samples=count,
+            loss=0.0 if count == 0 else loss_totals.get(kind, 0.0) / count,
+            top1_accuracy=hits[kind][1] / count,
+            top3_accuracy=hits[kind][3] / count,
+            top5_accuracy=hits[kind][5] / count,
+        )
+        for kind, count in sorted(totals.items())
+    }
+
+
+def _macro_topk_accuracy(per_kind: dict[str, EvalKindSummary], top_k: int) -> float:
+    if not per_kind:
+        return 0.0
+    metric_name = f"top{top_k}_accuracy"
+    return sum(float(getattr(summary, metric_name)) for summary in per_kind.values()) / len(per_kind)
 
 
 def _merge_dicts(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:

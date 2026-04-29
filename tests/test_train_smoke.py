@@ -51,6 +51,13 @@ def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
                 "  epochs: 1",
                 "  lr: 0.005",
                 "  weight_decay: 0.0",
+                "  turn_class_weights:",
+                "    discard: 1.0",
+                "    riichi_discard: 2.0",
+                "    tsumo: 3.0",
+                "    ankan: 4.0",
+                "    kakan: 4.0",
+                "    kyuushu_kyuuhai: 4.0",
                 "",
             ]
         ),
@@ -67,6 +74,10 @@ def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
     assert metrics["train_samples"] > 0
     assert metrics["valid_samples"] > 0
     assert metrics["epoch_summaries"]
+    first_epoch = metrics["epoch_summaries"][0]
+    assert "macro_accuracy" in first_epoch
+    assert first_epoch["per_kind"]
+    assert first_epoch["class_groups"]
 
 
 def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
@@ -134,6 +145,10 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
     assert metrics["train_samples"] > 0
     assert metrics["valid_samples"] > 0
     assert metrics["epoch_summaries"]
+    first_epoch = metrics["epoch_summaries"][0]
+    assert "macro_accuracy" in first_epoch
+    assert first_epoch["per_kind"]
+    assert first_epoch["class_groups"]
 
 
 def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
@@ -179,6 +194,13 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
                 "  epochs: 1",
                 "  lr: 0.005",
                 "  weight_decay: 0.0",
+                "  turn_class_weights:",
+                "    discard: 1.0",
+                "    riichi_discard: 2.0",
+                "    tsumo: 3.0",
+                "    ankan: 4.0",
+                "    kakan: 4.0",
+                "    kyuushu_kyuuhai: 4.0",
                 "",
             ]
         ),
@@ -205,7 +227,9 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
     assert 0.0 <= report["top1_accuracy"] <= 1.0
     assert 0.0 <= report["top3_accuracy"] <= 1.0
     assert 0.0 <= report["top5_accuracy"] <= 1.0
+    assert 0.0 <= report["macro_top1_accuracy"] <= 1.0
     assert report["per_kind"]
+    assert report["class_groups"]
     assert report["candidate_buckets"]
     assert "misclassified_examples" in report
     if report["misclassified_examples"]:
@@ -291,7 +315,9 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
     assert 0.0 <= report["top1_accuracy"] <= 1.0
     assert 0.0 <= report["top3_accuracy"] <= 1.0
     assert 0.0 <= report["top5_accuracy"] <= 1.0
+    assert 0.0 <= report["macro_top1_accuracy"] <= 1.0
     assert report["per_kind"]
+    assert report["class_groups"]
     assert report["candidate_buckets"]
     assert "misclassified_examples" in report
     if report["misclassified_examples"]:

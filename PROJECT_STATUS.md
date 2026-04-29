@@ -64,6 +64,15 @@
   - 同一局内的完整事件列表
   - 目标事件前后上下文
   - 来源 parquet 分片路径
+- 真实牌谱扩大批次已在当前 `data/` 目录下完成一次端到端数据主线验证，命令链路为 `preprocess -> validate-events -> build-dataset --workers N -> make-manifest`。这批结果有记录意义：它是当前规则、样本构建与 split 逻辑在 4000+ 局真实牌谱上的第一份质量基线，可用于后续训练结果和规则回补的对照。
+  - `preprocess_summary.json`：`4233` 局，`1322990` 条事件，无 warning。
+  - `validate.json`：`files_seen=4233`，`files_valid=4233`，`files_failed=0`，事件校验失败率 `0.00%`；总局数 `15275`，总弃牌 `625144`，总副露 `29935`。
+  - `build_summary.json`：`631016` 条 `turn` 样本，`1876854` 条 `response` 样本；`games_with_zero_turn_samples=0`，`games_with_zero_response_samples=0`，无 warning。
+  - 非法标签率复核：逐行比对 `label_action_json` 是否存在于 `legal_actions_json` 后，`turn` 为 `0 / 631016 = 0.00%`，`response` 为 `0 / 1876854 = 0.00%`。
+  - `turn` 标签分布：`discard=614528` (`97.3871%`)，`riichi_discard=10616` (`1.6824%`)，`tsumo=4636` (`0.7347%`)，`ankan=669` (`0.1060%`)，`kakan=474` (`0.0751%`)，`kyuushu_kyuuhai=93` (`0.0147%`)。
+  - `response` 标签分布：`pass=1838052` (`97.9326%`)，`pon=17489` (`0.9318%`)，`chi=11203` (`0.5969%`)，`ron=10003` (`0.5330%`)，`daiminkan=100` (`0.0053%`)，`chankan=7` (`0.0004%`)。
+  - split 规模：`train=3362` 局、`500969` 条 `turn`、`1490034` 条 `response`；`valid=426` 局、`64229` 条 `turn`、`191082` 条 `response`；`test=445` 局、`65818` 条 `turn`、`195738` 条 `response`。
+  - 结论：数据构建质量可以进入训练 smoke/小规模正式训练，但类别极度不均衡已经成为训练主线的主要风险之一，整体 accuracy 不能单独作为有效模型质量判断。
 
 ## 3. 按模块看当前状态
 
@@ -93,10 +102,10 @@
 - `mjai/models/`
   - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
-  - 已有最小训练循环、加权 loss、accuracy 指标与 checkpoint 落盘。
+  - 已有最小训练循环、`turn/response` 标签样本加权 loss、总体与宏平均 accuracy、按动作类别和主类/非主类分组的训练指标、checkpoint 落盘。
 - `mjai/eval/`
   - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
-  - 已支持候选规模分桶与首批错例导出。
+  - 已支持按动作类别、主类/非主类分组、候选规模分桶与首批错例导出。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
   - `turn/response` smoke train、offline eval、`inspect-sample` 与 `dump-case` 都有回归测试。
@@ -158,15 +167,23 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `turn/response` 候选动作编码
 - 最小共享编码器和 `turn/response` 候选排序头
 - `turn/response` 训练循环
-- `loss / accuracy`
-- `turn/response` 离线 `top-k` 评估与按类别聚合报告
+- `loss / accuracy / macro_accuracy`
+- `turn/response` 离线 `top-k`、`macro_top-k` 评估与按类别聚合报告
 - checkpoint 与训练指标落盘
+
+类别不均衡处理现状：
+
+- 当前代码已经对 `turn` 与 `response` 都做了第一版显式处理：`mjai/training/class_balance.py` 统一读取 `train.turn_class_weights` / `train.response_class_weights`，按 batch 内 `label_kinds` 构造 `sample_weights`，再传给 `policy_loss` 做样本级加权交叉熵。
+- `configs/turn_local_smoke.yaml` 已配置 `riichi_discard / tsumo / ankan / kakan / kyuushu_kyuuhai` 高于 `discard` 的权重；`configs/response_local_smoke.yaml` 已配置 `chi / pon / daiminkan / ron / chankan` 高于 `pass` 的权重。
+- 训练指标现在会在 `train_metrics.json` 与 `epoch_metrics.jsonl` 中记录 `macro_accuracy`、`per_kind` 和 `class_groups`；其中 `class_groups` 会输出 `discard/non_discard` 或 `pass/non_pass`。离线 `eval` 报告也会输出 `macro_top1/top3/top5`、按动作类别 loss/top-k、主类/非主类分组和候选规模分桶。
+- 仍未解决的部分：权重仍是手工常量，不会根据 manifest 或 `build_summary.json` 自动估计；训练 DataLoader 仍是普通 shuffle，没有 `WeightedRandomSampler` 或分层采样；下一轮训练需要根据 `non_discard`、`non_pass`、`ron / chi / pon / riichi_discard / tsumo` 等指标决定是否调权重或引入采样均衡。
 
 下一阶段优先补：
 
 - 更大数据量的正式训练配置
 - 更长训练轮数与更可靠的 eval report 留存
 - 训练过程中的动作分布、候选规模和非法标签质量闸门
+- 类别不均衡下的自动权重估计、采样均衡和少数类错例聚合
 - 根据错例聚合决定是否回补规则
 
 ## 5. 阶段结论
