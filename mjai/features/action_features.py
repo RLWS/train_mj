@@ -3,7 +3,7 @@ from __future__ import annotations
 from mjai.features.state_features import EXACT_TILE_INDEX, EXACT_TILE_VOCAB
 
 
-TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "unknown")
+TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "kyuushu_kyuuhai", "unknown")
 TURN_ACTION_DIM = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB)
 RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "unknown")
 RESPONSE_ACTION_DIM = len(RESPONSE_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + 4

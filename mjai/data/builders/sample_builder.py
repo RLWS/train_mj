@@ -21,11 +21,13 @@ class TurnSampleBuilder:
         state: GameState | None = None
         samples: list[TurnSample] = []
         pending_turn_labels: dict[int, str] = {}
+        last_draw_actor: int | None = None
 
         for event in events:
             if event.event_type == "init":
                 state = GameState.from_init_payload(event.kyoku_index, event.payload)
                 pending_turn_labels = {}
+                last_draw_actor = None
                 continue
 
             if state is None:
@@ -34,6 +36,7 @@ class TurnSampleBuilder:
             if event.event_type == "draw":
                 assert event.actor is not None
                 state.apply_draw(event.actor, event.payload["tile"])
+                last_draw_actor = event.actor
                 continue
 
             if event.event_type == "discard":
@@ -64,6 +67,7 @@ class TurnSampleBuilder:
                 )
                 samples.append(sample)
                 state.apply_discard(event.actor, event.payload["tile"])
+                last_draw_actor = None
                 continue
 
             if event.event_type == "meld":
@@ -91,6 +95,7 @@ class TurnSampleBuilder:
                     called_tile=payload["called_tile"],
                     consumed_tiles=payload["consumed_tiles"],
                 )
+                last_draw_actor = None
                 continue
 
             if event.event_type == "reach":
@@ -111,6 +116,19 @@ class TurnSampleBuilder:
                         label_action=asdict(Action(kind="tsumo")),
                     )
                     samples.append(sample)
+                continue
+
+            if event.event_type == "ryuukyoku" and event.payload.get("type") == "yao9":
+                actor = event.actor if event.actor is not None else last_draw_actor
+                if actor is None:
+                    continue
+                sample = _build_turn_sample(
+                    state=state,
+                    event=event,
+                    actor=actor,
+                    label_action=asdict(Action(kind="kyuushu_kyuuhai")),
+                )
+                samples.append(sample)
 
         return samples
 

@@ -76,7 +76,9 @@ def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, cap
     assert exit_code == 0
     assert "built manifests:" in captured.out
     assert "manifest samples:" in captured.out
-    assert "warning: split 'test' has 0 games" in captured.out
+    assert "train_games=" in captured.out
+    assert "valid_games=" in captured.out
+    assert "test_games=" in captured.out
 
 
 def test_cli_train_requires_real_inputs(tmp_path: Path):

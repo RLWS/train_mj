@@ -115,6 +115,18 @@ def test_legal_responses_include_chankan_when_enabled():
     assert ("chankan", "5z") in normalized
 
 
+def test_legal_responses_chankan_window_excludes_call_actions():
+    hand = HandState.from_tiles(["3m", "4m", "6m", "7m", "5z"] * 2 + ["1p", "2p", "3p"])
+
+    actions = legal_responses(hand=hand, actor=1, source=0, tile="5z", allow_chankan=True)
+    kinds = {action.kind for action in actions}
+
+    assert "pass" in kinds
+    assert "chi" not in kinds
+    assert "pon" not in kinds
+    assert "daiminkan" not in kinds
+
+
 def test_legal_turn_actions_include_tsumo_for_complete_hand():
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z", "5z"]
@@ -152,3 +164,26 @@ def test_legal_turn_actions_include_kakan_when_matching_pon_exists():
     normalized = {(action.kind, action.tile, action.consumed_tiles, action.source) for action in actions}
 
     assert ("kakan", "5m", ("0m", "5m", "5m"), 1) in normalized
+
+
+def test_legal_turn_actions_include_kyuushu_kyuuhai_on_first_draw_with_nine_terminals():
+    hand = HandState.from_tiles(
+        ["1m", "9m", "1p", "9p", "1s", "9s", "1z", "2z", "3z", "4z", "5z", "6z", "7z", "5m"]
+    )
+    state = GameState(hands=[hand, HandState(), HandState(), HandState()])
+
+    actions = legal_turn_actions(hand, state=state, actor=0)
+    normalized = {(action.kind, action.tile) for action in actions}
+
+    assert ("kyuushu_kyuuhai", None) in normalized
+
+
+def test_legal_turn_actions_exclude_kyuushu_kyuuhai_after_actor_has_discarded():
+    hand = HandState.from_tiles(
+        ["1m", "9m", "1p", "9p", "1s", "9s", "1z", "2z", "3z", "4z", "5z", "6z", "7z", "5m"]
+    )
+    state = GameState(hands=[hand, HandState(), HandState(), HandState()])
+    state.discards[0].append("5m")
+
+    actions = legal_turn_actions(hand, state=state, actor=0)
+    assert all(action.kind != "kyuushu_kyuuhai" for action in actions)

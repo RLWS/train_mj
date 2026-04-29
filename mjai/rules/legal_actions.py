@@ -7,6 +7,8 @@ from mjai.rules.hand_checker import is_agari, is_tenpai_after_discard, winning_t
 from mjai.rules.state import GameState, HandState
 from mjai.rules.tiles import AKA_BASE_INDICES, base_index_to_tile, tile_to_base_index
 
+YAOCHUU_BASE_INDICES = frozenset({0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33})
+
 
 @dataclass(frozen=True, slots=True)
 class Action:
@@ -50,7 +52,7 @@ def legal_discards(hand: HandState) -> list[Action]:
 def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: int | None = None) -> list[Action]:
     """Return current-turn actions.
 
-    This pass includes discard, optional riichi-discard, tsumo, ankan, and kakan.
+    This pass includes discard, optional riichi-discard, tsumo, ankan, kakan, and kyuushu_kyuuhai.
     """
     actions = legal_discards(hand)
     if state is not None and actor is not None and state.can_declare_riichi(actor):
@@ -65,6 +67,8 @@ def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: i
     if state is not None and actor is not None:
         actions.extend(_legal_ankan_actions(hand, actor))
         actions.extend(_legal_kakan_actions(hand, state, actor))
+        if _can_declare_kyuushu_kyuuhai(hand, state, actor):
+            actions.append(Action(kind="kyuushu_kyuuhai"))
     return actions
 
 
@@ -80,11 +84,12 @@ def legal_responses(
     actions: list[Action] = [Action(kind="pass")]
     target_base = tile_to_base_index(tile)
 
-    if source == (actor + 3) % 4:
-        actions.extend(_legal_chi_actions(hand, source, tile, target_base))
+    if not allow_chankan:
+        if source == (actor + 3) % 4:
+            actions.extend(_legal_chi_actions(hand, source, tile, target_base))
 
-    actions.extend(_legal_pon_actions(hand, source, tile, target_base))
-    actions.extend(_legal_daiminkan_actions(hand, source, tile, target_base))
+        actions.extend(_legal_pon_actions(hand, source, tile, target_base))
+        actions.extend(_legal_daiminkan_actions(hand, source, tile, target_base))
     can_agari = is_agari(hand, incoming_tile=tile) and not _is_ron_blocked_by_furiten(
         hand=hand,
         actor=actor,
@@ -204,6 +209,20 @@ def _legal_kakan_actions(hand: HandState, state: GameState, actor: int) -> list[
                 )
             )
     return _deduplicate_actions(actions)
+
+
+def _can_declare_kyuushu_kyuuhai(hand: HandState, state: GameState, actor: int) -> bool:
+    if hand.total_tiles() != 14:
+        return False
+
+    if state.discards[actor]:
+        return False
+
+    if any(player_melds for player_melds in state.melds):
+        return False
+
+    distinct_yaochuu = sum(1 for base_index in YAOCHUU_BASE_INDICES if hand.counts[base_index] > 0)
+    return distinct_yaochuu >= 9
 
 
 def _is_ron_blocked_by_furiten(hand: HandState, actor: int, tile: str, state: GameState | None) -> bool:

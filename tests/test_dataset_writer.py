@@ -54,6 +54,7 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert build_summary["turn_label_counts"]["discard"] > 0
     assert build_summary["turn_label_counts"]["tsumo"] > 0
     assert build_summary["turn_label_counts"]["ankan"] > 0
+    assert build_summary["turn_label_counts"]["kyuushu_kyuuhai"] > 0
     assert build_summary["response_label_counts"]["pass"] > 0
 
     turn_rows = pq.read_table(turn_files[0]).to_pylist()
@@ -90,4 +91,6 @@ def test_make_manifest_writes_jsonl_splits(tmp_path: Path):
     assert "turn_path" in record
     assert "response_path" in record
     assert summary_json["train_turn_samples"] > 0
-    assert any("split 'test' has 0 games" == warning for warning in summary_json["warnings"])
+    assert summary_json["train_games"] > 0
+    assert summary_json["valid_games"] > 0
+    assert summary_json["test_games"] > 0

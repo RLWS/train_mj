@@ -19,6 +19,12 @@ def test_encode_turn_action_supports_ankan_and_kakan():
     assert kakan_vector[TURN_ACTION_KINDS.index("kakan")] == 1.0
 
 
+def test_encode_turn_action_supports_kyuushu_kyuuhai():
+    vector = encode_turn_action({"kind": "kyuushu_kyuuhai"})
+
+    assert vector[TURN_ACTION_KINDS.index("kyuushu_kyuuhai")] == 1.0
+
+
 def test_encode_response_action_supports_chankan():
     vector = encode_response_action({"kind": "chankan", "tile": "5m", "source": 1})
 

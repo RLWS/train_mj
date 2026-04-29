@@ -15,27 +15,26 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `76 passed`。
+- `pytest` 全量通过，当前结果为 `81 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
-- 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成 `3253` 条事件并写入 `bronze_events`。
+- 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
 - 同一批事件分片实测回放结果为：
-  - `files=10`
-  - `valid=10`
+  - `files=20`
+  - `valid=20`
   - `failed=0`
-  - `total_events=3253`
+  - `total_events=6281`
   - 可输出事件分布、失败原因聚合、总局数/弃牌数/副露数摘要
 - `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行。
-- 对 `tests/fixtures/tenhou` 中的 `10` 个 XML 夹具实测，生成：
-  - `1556` 条 `turn` 样本
-  - `4626` 条 `response` 样本
-  - 可输出 `turn/response` 标签动作分布，其中当前真实夹具的 `turn` 已覆盖 `discard / riichi_discard / tsumo / ankan`，构建链路本身已支持 `kakan`
+- 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成：
+  - `2996` 条 `turn` 样本
+  - `8910` 条 `response` 样本
+  - 可输出 `turn/response` 标签动作分布，其中当前真实夹具的 `turn` 已覆盖 `discard / riichi_discard / tsumo / ankan / kyuushu_kyuuhai`，构建链路本身已支持 `kakan`
 - `python -m mjai.cli make-manifest --input <tmp> --output <tmp>` 可运行。
 - 同一批夹具可生成 manifest，实测分桶结果为：
-  - `train_games=9`
+  - `train_games=18`
   - `valid_games=1`
-  - `test_games=0`
-  - 当前会对空 split 输出 warning
+  - `test_games=1`
 - `python -m mjai.cli train --config <tmp>` 可运行。
 - 以单局清单裁剪出的最小训练集实测，`turn` 与 `response` 任务都可完成 `1` 个 epoch 的 smoke train，并落盘：
   - `config.resolved.yaml`
@@ -74,15 +73,15 @@
   - 副露解码已实现，覆盖 `chi / pon / daiminkan / ankan / kakan`。
 - `mjai/rules/`
   - 手牌状态、回放状态、弃牌/吃碰杠/荣和的第一版合法动作生成已实现。
-  - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan`。
+  - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan / kyuushu_kyuuhai`。
   - `response` 的 `ron` 已补上自家舍牌振听、同巡振听与立直后振听过滤。
-  - `response` 已补上第一版 `chankan`。
+  - `response` 已补上第一版 `chankan`，且 `kakan` 响应窗口不再暴露 `chi / pon / daiminkan`。
   - 基础胡牌判断与立直前听牌检查已实现。
   - 回放校验器已实现，可验证弃牌合法性和副露消耗牌一致性。
 - `mjai/data/builders/`
   - `bronze_events` 预处理器已实现。
   - 事件分片回放校验器已实现。
-  - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo` 与 `ankan` 的 `turn` 样本，`kakan` 与 `chankan` 也已进入合法动作与样本构建链路。
+  - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo`、`ankan` 与 `kyuushu_kyuuhai` 的 `turn` 样本，`kakan` 与 `chankan` 也已进入合法动作与样本构建链路。
   - Parquet 写出与 manifest 生成已实现。
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `configs/`
@@ -211,7 +210,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 建议范围：
 
 1. 更完整的和牌机会放弃语义与残余振听边界
-2. `kyuushu_kyuuhai` 与途中流局边界
+2. 其他途中流局边界
 3. 更严格的立直限制
 4. 多家荣和等边界情况
 

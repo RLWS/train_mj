@@ -62,21 +62,25 @@ def test_turn_samples_include_tsumo_and_ankan_labels_on_real_fixtures():
 
     tsumo_count = 0
     ankan_count = 0
+    kyuushu_count = 0
     for path in sorted(FIXTURE_DIR.glob("*.xml")):
         samples = builder.build_samples(parser.parse_file(path))
         tsumo_count += sum(1 for sample in samples if sample.label_action["kind"] == "tsumo")
         ankan_count += sum(1 for sample in samples if sample.label_action["kind"] == "ankan")
+        kyuushu_count += sum(1 for sample in samples if sample.label_action["kind"] == "kyuushu_kyuuhai")
 
     assert tsumo_count > 0
     assert ankan_count > 0
+    assert kyuushu_count > 0
 
 
-def test_turn_samples_keep_tsumo_and_ankan_labels_in_legal_actions():
+def test_turn_samples_keep_special_turn_labels_in_legal_actions():
     parser = TenhouParser()
     builder = TurnSampleBuilder()
 
     found_tsumo = False
     found_ankan = False
+    found_kyuushu = False
     for path in sorted(FIXTURE_DIR.glob("*.xml")):
         samples = builder.build_samples(parser.parse_file(path))
         for sample in samples:
@@ -86,6 +90,23 @@ def test_turn_samples_keep_tsumo_and_ankan_labels_in_legal_actions():
             if sample.label_action["kind"] == "ankan":
                 found_ankan = True
                 assert sample.label_action in sample.legal_actions
+            if sample.label_action["kind"] == "kyuushu_kyuuhai":
+                found_kyuushu = True
+                assert sample.label_action in sample.legal_actions
 
     assert found_tsumo
     assert found_ankan
+    assert found_kyuushu
+
+
+def test_turn_samples_include_kyuushu_kyuuhai_on_real_fixture():
+    parser = TenhouParser()
+    builder = TurnSampleBuilder()
+    path = FIXTURE_DIR / "2023010200gm-00a9-0000-1c334444.xml"
+
+    samples = builder.build_samples(parser.parse_file(path))
+    target_sample = next(sample for sample in samples if sample.label_action["kind"] == "kyuushu_kyuuhai")
+
+    assert target_sample.actor == 0
+    assert target_sample.sample_id == "2023010200gm-00a9-0000-1c334444:0:2:0:turn"
+    assert target_sample.label_action in target_sample.legal_actions
