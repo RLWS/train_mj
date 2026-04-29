@@ -46,7 +46,7 @@ def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
     preprocess_output = capsys.readouterr().out
 
     build_exit_code = main(
-        ["build-dataset", "--input", str(bronze_dir), "--output", str(silver_dir)]
+        ["build-dataset", "--input", str(bronze_dir), "--output", str(silver_dir), "--workers", "1"]
     )
     build_output = capsys.readouterr().out
 

@@ -66,7 +66,7 @@ def _run_validate_events(args: argparse.Namespace) -> int:
 def _run_build_dataset(args: argparse.Namespace) -> int:
     _load_optional_config(getattr(args, "config", None))
     builder = DatasetBuilder()
-    summary = builder.build_from_event_dir(args.input, args.output)
+    summary = builder.build_from_event_dir(args.input, args.output, workers=max(1, int(args.workers)))
     print(
         f"built dataset: games={summary.games} turn_samples={summary.turn_samples} "
         f"response_samples={summary.response_samples}"
@@ -189,6 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build_dataset.add_argument("--input", required=True, help="Input event directory.")
     build_dataset.add_argument("--output", required=True, help="Output sample directory.")
+    build_dataset.add_argument("--workers", type=int, default=1, help="Parallel shard workers for dataset building.")
     _add_config_arg(build_dataset)
 
     make_manifest = subparsers.add_parser(

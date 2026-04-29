@@ -17,7 +17,9 @@
 - 已补上第一版自家高价值回合动作：`turn` 合法动作与样本链路已支持 `tsumo`、`ankan`、`kakan` 和 `kyuushu_kyuuhai`，其中当前真实夹具已覆盖 `tsumo`、`ankan` 与 `kyuushu_kyuuhai` 样本。
 - 已补上第一版 `ron` 正确性过滤：当前 `response` 合法动作与样本链路已支持自家舍牌振听、同巡振听和立直后振听。
 - 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠，且 `kakan` 响应窗口已收紧为只暴露 `pass / ron / chankan`。
-- 当前测试基线为 `pytest` 全量通过，结果是 `81 passed`。
+- 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
+- `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
+- 当前测试基线为 `pytest` 全量通过，结果是 `84 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
   - `6281` 条事件写入 `bronze_events`
@@ -34,7 +36,7 @@
 ```bash
 python -m mjai.cli preprocess --input <raw_xml_dir> --output <bronze_events_dir>
 python -m mjai.cli validate-events --input <bronze_events_dir> --report <report_json>
-python -m mjai.cli build-dataset --input <bronze_events_dir> --output <samples_dir>
+python -m mjai.cli build-dataset --input <bronze_events_dir> --output <samples_dir> --workers 8
 python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
 python -m mjai.cli train --config <train_config_yaml>
 python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
@@ -48,7 +50,7 @@ pytest
 
 - `preprocess` 会把天凤 XML 转成事件分片 Parquet，并输出 `preprocess_summary.json`。
 - `validate-events` 会回放校验事件分片，并输出包含事件分布、失败原因和回放摘要的 JSON 报告。
-- `build-dataset` 当前从 `bronze_events` 构建 `turn/response` Parquet 样本，并输出标签分布摘要；当前真实夹具的 `turn` 标签已覆盖 `discard / riichi_discard / tsumo / ankan / kyuushu_kyuuhai`，构建链路本身已支持 `kakan`。
+- `build-dataset` 当前从 `bronze_events` 构建 `turn/response` Parquet 样本，并输出标签分布摘要；`--workers N` 会按事件分片并行构建，Windows 本机建议先从 `6` 或 `8` 起步；当前真实夹具的 `turn` 标签已覆盖 `discard / riichi_discard / tsumo / ankan / kyuushu_kyuuhai`，构建链路本身已支持 `kakan`。
 - `make-manifest` 会按 `game_id` 生成 `train/valid/test` 清单，并输出 split 样本统计与 warning。
 - `train` 当前支持最小 `turn/response` baseline，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
 - `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、按动作类别聚合指标、候选规模分桶和错例导出，并生成 JSON 报告。
@@ -71,6 +73,6 @@ pytest
 
 ## 建议的下一步
 
-1. 先切到训练主线：用更大的真实牌谱跑 `preprocess -> validate-events -> build-dataset -> make-manifest`，确认失败率、非法标签率、动作分布和 split 规模。
+1. 先切到训练主线：用更大的真实牌谱跑 `preprocess -> validate-events -> build-dataset --workers N -> make-manifest`，确认失败率、非法标签率、动作分布和 split 规模。
 2. 在当前规则集上做更深入的 `turn/response` 监督训练，扩大数据量、训练轮数和模型配置，并稳定保存 eval report。
 3. 规则边界改为训练反馈驱动：只有当大规模数据构建或错例聚合显示某类规则缺口高频污染标签时，再优先回补。

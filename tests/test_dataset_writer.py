@@ -63,6 +63,27 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert "label_action_json" in turn_rows[0]
 
 
+def test_build_dataset_supports_parallel_workers(tmp_path: Path):
+    event_builder = EventBuilder()
+    event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
+
+    builder = DatasetBuilder()
+    summary = builder.build_from_event_dir(
+        tmp_path / "bronze_events",
+        tmp_path / "silver_samples",
+        workers=2,
+    )
+
+    turn_files = sorted((tmp_path / "silver_samples" / "turn").glob("*.parquet"))
+    response_files = sorted((tmp_path / "silver_samples" / "response").glob("*.parquet"))
+
+    assert summary.games == len(list(FIXTURE_DIR.glob("*.xml")))
+    assert summary.turn_samples > 0
+    assert summary.response_samples > 0
+    assert len(turn_files) == summary.games
+    assert len(response_files) == summary.games
+
+
 def test_make_manifest_writes_jsonl_splits(tmp_path: Path):
     event_builder = EventBuilder()
     event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")

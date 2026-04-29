@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-04-27`
+更新时间：`2026-04-29`
 
 ## 1. 总体判断
 
@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `81 passed`。
+- `pytest` 全量通过，当前结果为 `84 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -25,7 +25,8 @@
   - `failed=0`
   - `total_events=6281`
   - 可输出事件分布、失败原因聚合、总局数/弃牌数/副露数摘要
-- `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行。
+- `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行，且支持 `--workers N` 按事件分片并行构建。
+- `python -m mjai.cli build-dataset --input <tmp> --output <tmp> --workers 2` 已在 Windows fixture smoke 中验证通过。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成：
   - `2996` 条 `turn` 样本
   - `8910` 条 `response` 样本
@@ -70,7 +71,7 @@
 
 - `mjai/data/tenhou/`
   - 天凤 XML 流式解析已实现。
-  - 副露解码已实现，覆盖 `chi / pon / daiminkan / ankan / kakan`。
+  - 副露解码已实现，覆盖 `chi / pon / daiminkan / ankan / kakan`；`daiminkan` 已按 Tenhou anchor tile 判定被鸣牌，避免赤牌明杠误消耗手牌。
 - `mjai/rules/`
   - 手牌状态、回放状态、弃牌/吃碰杠/荣和的第一版合法动作生成已实现。
   - `turn` 合法动作已支持 `discard / riichi_discard / tsumo / ankan / kakan / kyuushu_kyuuhai`。
@@ -82,6 +83,7 @@
   - `bronze_events` 预处理器已实现。
   - 事件分片回放校验器已实现。
   - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo`、`ankan` 与 `kyuushu_kyuuhai` 的 `turn` 样本，`kakan` 与 `chankan` 也已进入合法动作与样本构建链路。
+  - `build-dataset` 已支持 `--workers N` 并行处理事件分片，当前实现使用线程池以避开 Windows 进程池启动和权限问题。
   - Parquet 写出与 manifest 生成已实现。
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `configs/`
@@ -194,7 +196,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. 扩大输入牌谱规模，跑通 `preprocess / validate-events / build-dataset / make-manifest`
+1. 扩大输入牌谱规模，跑通 `preprocess / validate-events / build-dataset --workers N / make-manifest`
 2. 汇总构建失败率、非法标签率、动作分布、候选规模分布和 split 样本数
 3. 对失败样本只保留轻量定位信息，依赖 `inspect-sample` 和 `dump-case` 回溯上下文
 

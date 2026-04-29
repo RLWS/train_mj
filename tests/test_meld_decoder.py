@@ -53,3 +53,22 @@ def test_decode_ankan_values_from_real_logs():
     assert meld_b.kind == "ankan"
     assert meld_b.called_tile == "9p"
     assert meld_b.consumed_tiles == ("9p", "9p", "9p", "9p")
+
+
+def test_decode_daiminkan_uses_anchor_tile_as_called_tile():
+    value = (88 << 8) | 1
+    meld = decode_meld(actor=2, value=value)
+
+    assert meld.kind == "daiminkan"
+    assert meld.source == 3
+    assert meld.called_tile == "0s"
+    assert meld.consumed_tiles == ("5s", "5s", "5s")
+
+
+def test_decode_daiminkan_preserves_red_tile_when_it_is_consumed():
+    value = (89 << 8) | 1
+    meld = decode_meld(actor=2, value=value)
+
+    assert meld.kind == "daiminkan"
+    assert meld.called_tile == "5s"
+    assert meld.consumed_tiles == ("0s", "5s", "5s")

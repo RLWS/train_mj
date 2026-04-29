@@ -1,6 +1,6 @@
 # 雀魂四麻 AI 工程落地方案
 
-## 0. 当前实现状态（2026-04-24）
+## 0. 当前实现状态（2026-04-29）
 
 本仓库已经从“纯规划阶段”进入“规则与数据链路已落地、最小训练链路已打通”的阶段。当前实际情况如下：
 
@@ -14,16 +14,15 @@
   - 最小 `turn/response` baseline 训练链路
   - 规则与数据链路相关测试
 - 部分完成：
-  - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train` 已可用
+  - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval` 已可用
   - 数据统计、失败归因和 split warning 已有第一版，但调试视图仍比较基础
 - 尚未开始：
-  - `eval/`
   - `serving/`
 
 当前已验证结果：
 
-- `pytest` 结果为 `47 passed`
-- 使用 `tests/fixtures/tenhou` 实测可完成 `10` 局 XML 预处理、`3253` 条事件写入、`10/10` 个事件分片校验通过，并生成 `1556` 条 `turn` 样本、`4626` 条 `response` 样本
+- `pytest` 结果为 `84 passed`
+- 使用 `tests/fixtures/tenhou` 实测可完成 `20` 局 XML 预处理、`6281` 条事件写入、`20/20` 个事件分片校验通过，并生成 `2996` 条 `turn` 样本、`8910` 条 `response` 样本
 - `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 
 更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。
@@ -335,7 +334,7 @@ python -m mjai.cli <subcommand> [args]
 ```bash
 python -m mjai.cli preprocess --input data/raw_xml --output data/bronze_events --config configs/data/tenhou_4p_red.yaml
 python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/event_validation.json
-python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --config configs/data/tenhou_4p_red.yaml
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 8 --config configs/data/tenhou_4p_red.yaml
 python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
 ```
 
@@ -343,7 +342,7 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 
 - `preprocess`：XML 转事件流
 - `validate-events`：回放校验和规则一致性检查
-- `build-dataset`：生成训练样本
+- `build-dataset`：生成训练样本，`--workers N` 可按事件分片并行构建，Windows 本机建议先从 `6` 或 `8` 起步
 - `make-manifest`：生成 train/valid/test 清单和统计
 
 ## 5.2 训练与评估

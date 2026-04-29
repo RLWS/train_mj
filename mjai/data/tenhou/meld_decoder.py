@@ -118,9 +118,12 @@ def _decode_kan(actor: int, source: int, value: int) -> Meld:
         called_tile = tiles[0]
         consumed_tiles = tiles
     else:
-        called_index = value & 0x3
-        called_tile = tiles[called_index]
-        consumed_tiles = tuple(tile for idx, tile in enumerate(tiles) if idx != called_index)
+        called_tile = tile136_to_string(anchor_tile136)
+        consumed_tiles = tuple(
+            tile136_to_string(tile_id)
+            for tile_id in tile_ids
+            if tile_id != anchor_tile136
+        )
 
     return Meld(
         kind=kind,

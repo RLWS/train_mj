@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -34,25 +35,43 @@ class DatasetBuilder:
         self.turn_builder = TurnSampleBuilder()
         self.response_builder = ResponseSampleBuilder()
 
-    def build_from_xml_dir(self, input_dir: str | Path, output_dir: str | Path) -> BuildSummary:
+    def build_from_xml_dir(
+        self,
+        input_dir: str | Path,
+        output_dir: str | Path,
+        workers: int = 1,
+    ) -> BuildSummary:
         input_root = Path(input_dir)
-        event_lists = []
-        for xml_path in sorted(input_root.glob("*.xml")):
-            events = self.parser.parse_file(xml_path)
-            event_lists.append((xml_path.stem, events))
-        return self._build_from_events(output_dir=output_dir, event_lists=event_lists)
+        return self._build_from_sources(
+            output_dir=output_dir,
+            source_paths=sorted(input_root.glob("*.xml")),
+            build_func=_build_one_xml_file,
+            workers=workers,
+            empty_warning="no xml files found in input directory",
+        )
 
-    def build_from_event_dir(self, input_dir: str | Path, output_dir: str | Path) -> BuildSummary:
+    def build_from_event_dir(
+        self,
+        input_dir: str | Path,
+        output_dir: str | Path,
+        workers: int = 1,
+    ) -> BuildSummary:
         input_root = Path(input_dir)
-        event_lists = []
-        for shard_path in sorted(input_root.glob("*.parquet")):
-            event_lists.append((shard_path.stem, read_events_from_parquet(shard_path)))
-        return self._build_from_events(output_dir=output_dir, event_lists=event_lists)
+        return self._build_from_sources(
+            output_dir=output_dir,
+            source_paths=sorted(input_root.glob("*.parquet")),
+            build_func=_build_one_event_shard,
+            workers=workers,
+            empty_warning="no event shards found in input directory",
+        )
 
-    def _build_from_events(
+    def _build_from_sources(
         self,
         output_dir: str | Path,
-        event_lists: list[tuple[str, list]],
+        source_paths: list[Path],
+        build_func,
+        workers: int,
+        empty_warning: str,
     ) -> BuildSummary:
         output_root = Path(output_dir)
         ensure_dir(output_root / "turn")
@@ -66,34 +85,27 @@ class DatasetBuilder:
         games_with_zero_turn_samples = 0
         games_with_zero_response_samples = 0
 
-        for game_id, events in event_lists:
-            self.validator.validate_events(events)
+        results = _run_build_workers(
+            source_paths=source_paths,
+            output_root=output_root,
+            build_func=build_func,
+            workers=workers,
+        )
 
-            turn_rows = self.turn_builder.build_samples(events)
-            response_rows = self.response_builder.build_samples(events)
-            turn_label_counts.update(str(sample.label_action["kind"]) for sample in turn_rows)
-            response_label_counts.update(str(sample.label_action["kind"]) for sample in response_rows)
-
-            turn_count = write_samples_to_parquet(
-                turn_rows,
-                output_root / "turn" / f"{game_id}.parquet",
-            )
-            response_count = write_samples_to_parquet(
-                response_rows,
-                output_root / "response" / f"{game_id}.parquet",
-            )
-
-            turn_samples += turn_count
-            response_samples += response_count
+        for result in results:
+            turn_label_counts.update(result.turn_label_counts)
+            response_label_counts.update(result.response_label_counts)
+            turn_samples += result.turn_samples
+            response_samples += result.response_samples
             games += 1
-            if turn_count == 0:
+            if result.turn_samples == 0:
                 games_with_zero_turn_samples += 1
-            if response_count == 0:
+            if result.response_samples == 0:
                 games_with_zero_response_samples += 1
 
         warnings: list[str] = []
         if games == 0:
-            warnings.append("no event shards found in input directory")
+            warnings.append(empty_warning)
         if games_with_zero_turn_samples > 0:
             warnings.append(f"{games_with_zero_turn_samples} games produced 0 turn samples")
         if games_with_zero_response_samples > 0:
@@ -115,3 +127,70 @@ class DatasetBuilder:
             encoding="utf-8",
         )
         return summary
+
+
+@dataclass(slots=True, frozen=True)
+class _ShardBuildResult:
+    game_id: str
+    turn_samples: int
+    response_samples: int
+    turn_label_counts: dict[str, int]
+    response_label_counts: dict[str, int]
+
+
+def _run_build_workers(
+    source_paths: list[Path],
+    output_root: Path,
+    build_func,
+    workers: int,
+) -> list[_ShardBuildResult]:
+    if workers <= 1:
+        return [build_func(str(path), str(output_root)) for path in source_paths]
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(
+            executor.map(
+                build_func,
+                [str(path) for path in source_paths],
+                [str(output_root)] * len(source_paths),
+            )
+        )
+
+
+def _build_one_xml_file(xml_path: str, output_root: str) -> _ShardBuildResult:
+    parser = TenhouParser()
+    path = Path(xml_path)
+    events = parser.parse_file(path)
+    return _build_one_game(path.stem, events, Path(output_root))
+
+
+def _build_one_event_shard(shard_path: str, output_root: str) -> _ShardBuildResult:
+    path = Path(shard_path)
+    events = read_events_from_parquet(path)
+    return _build_one_game(path.stem, events, Path(output_root))
+
+
+def _build_one_game(game_id: str, events: list, output_root: Path) -> _ShardBuildResult:
+    ReplayValidator().validate_events(events)
+
+    turn_rows = TurnSampleBuilder().build_samples(events)
+    response_rows = ResponseSampleBuilder().build_samples(events)
+    turn_label_counts = Counter(str(sample.label_action["kind"]) for sample in turn_rows)
+    response_label_counts = Counter(str(sample.label_action["kind"]) for sample in response_rows)
+
+    turn_count = write_samples_to_parquet(
+        turn_rows,
+        output_root / "turn" / f"{game_id}.parquet",
+    )
+    response_count = write_samples_to_parquet(
+        response_rows,
+        output_root / "response" / f"{game_id}.parquet",
+    )
+
+    return _ShardBuildResult(
+        game_id=game_id,
+        turn_samples=turn_count,
+        response_samples=response_count,
+        turn_label_counts=dict(turn_label_counts),
+        response_label_counts=dict(response_label_counts),
+    )
