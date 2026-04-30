@@ -12,15 +12,7 @@ def is_agari(hand: HandState, incoming_tile: str | None = None) -> bool:
     if incoming_tile is not None:
         counts[tile_to_base_index(incoming_tile)] += 1
 
-    total_tiles = sum(counts)
-    if total_tiles % 3 != 2:
-        return False
-
-    if _is_chiitoitsu(tuple(counts)):
-        return True
-    if _is_kokushi(tuple(counts)):
-        return True
-    return _is_standard_agari(tuple(counts))
+    return _is_agari_counts(tuple(counts))
 
 
 def is_tenpai_after_discard(hand: HandState, discard_tile: str) -> bool:
@@ -45,6 +37,19 @@ def winning_tile_base_indices(hand: HandState) -> set[int]:
     return winning_tiles
 
 
+@lru_cache(maxsize=1_000_000)
+def _is_agari_counts(counts: tuple[int, ...]) -> bool:
+    total_tiles = sum(counts)
+    if total_tiles % 3 != 2:
+        return False
+
+    if _is_chiitoitsu(counts):
+        return True
+    if _is_kokushi(counts):
+        return True
+    return _is_standard_agari(counts)
+
+
 def _is_chiitoitsu(counts: tuple[int, ...]) -> bool:
     return sum(1 for count in counts if count == 2) == 7 and all(count in {0, 2} for count in counts)
 
@@ -63,15 +68,54 @@ def _is_kokushi(counts: tuple[int, ...]) -> bool:
     return pair_found
 
 
+@lru_cache(maxsize=1_000_000)
 def _is_standard_agari(counts: tuple[int, ...]) -> bool:
     for index, count in enumerate(counts):
         if count < 2:
             continue
         reduced = list(counts)
         reduced[index] -= 2
-        if _can_form_all_sets(tuple(reduced)):
+        if _can_form_all_sets_by_group(tuple(reduced)):
             return True
     return False
+
+
+def _can_form_all_sets_by_group(counts: tuple[int, ...]) -> bool:
+    return (
+        _can_form_suit_sets(counts[0:9])
+        and _can_form_suit_sets(counts[9:18])
+        and _can_form_suit_sets(counts[18:27])
+        and _can_form_honor_sets(counts[27:34])
+    )
+
+
+@lru_cache(maxsize=250_000)
+def _can_form_suit_sets(counts: tuple[int, ...]) -> bool:
+    try:
+        first = next(index for index, count in enumerate(counts) if count > 0)
+    except StopIteration:
+        return True
+
+    current = list(counts)
+
+    if current[first] >= 3:
+        current[first] -= 3
+        if _can_form_suit_sets(tuple(current)):
+            return True
+        current[first] += 3
+
+    if first <= 6 and current[first + 1] > 0 and current[first + 2] > 0:
+        current[first] -= 1
+        current[first + 1] -= 1
+        current[first + 2] -= 1
+        if _can_form_suit_sets(tuple(current)):
+            return True
+
+    return False
+
+
+def _can_form_honor_sets(counts: tuple[int, ...]) -> bool:
+    return all(count in {0, 3} for count in counts)
 
 
 @lru_cache(maxsize=500_000)

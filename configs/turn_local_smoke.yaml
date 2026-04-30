@@ -9,7 +9,7 @@ data:
 task:
   task: turn
 model:
-  hidden_size: 128
+  hidden_size: 256
   dropout: 0.1
 train:
   device: auto
@@ -20,7 +20,7 @@ train:
   persistent_workers: true
   prefetch_factor: 2
   log_every_n_steps: 20
-  epochs: 10
+  epochs: 40
   lr: 0.001
   weight_decay: 0.0
   turn_class_weights:

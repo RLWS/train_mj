@@ -54,8 +54,35 @@ def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
     assert build_exit_code == 0
     assert "preprocessed events:" in preprocess_output
     assert "built dataset:" in build_output
+    assert "samples_per_s=" in build_output
     assert "turn labels:" in build_output
     assert "response labels:" in build_output
+    assert (silver_dir / "turn").exists()
+    assert (silver_dir / "response").exists()
+
+
+def test_cli_build_dataset_can_skip_replay_validation(tmp_path: Path, capsys):
+    bronze_dir = tmp_path / "bronze_events"
+    silver_dir = tmp_path / "silver_samples"
+
+    assert main(["preprocess", "--input", str(FIXTURE_DIR), "--output", str(bronze_dir)]) == 0
+    capsys.readouterr()
+
+    build_exit_code = main(
+        [
+            "build-dataset",
+            "--input",
+            str(bronze_dir),
+            "--output",
+            str(silver_dir),
+            "--skip-validation",
+        ]
+    )
+    build_output = capsys.readouterr().out
+
+    assert build_exit_code == 0
+    assert "built dataset:" in build_output
+    assert "warning: replay validation skipped during dataset build" in build_output
     assert (silver_dir / "turn").exists()
     assert (silver_dir / "response").exists()
 

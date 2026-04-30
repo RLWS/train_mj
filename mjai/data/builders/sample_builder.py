@@ -10,7 +10,6 @@ from mjai.rules.legal_actions import (
     legal_responses,
     legal_turn_actions,
 )
-from mjai.rules.hand_checker import winning_tile_base_indices
 from mjai.rules.state import GameState
 
 
@@ -165,17 +164,14 @@ class ResponseSampleBuilder:
                     if responder == event.actor:
                         continue
 
-                    # 其它三家对于此次弃牌，统计合法动作
-                    legal_actions = [
-                        asdict(action)
-                        for action in legal_responses(
-                            hand=state.hands[responder],
-                            actor=responder,
-                            source=event.actor,
-                            tile=event.payload["tile"],
-                            state=state,
-                        )
-                    ]
+                    legal_action_objects = legal_responses(
+                        hand=state.hands[responder],
+                        actor=responder,
+                        source=event.actor,
+                        tile=event.payload["tile"],
+                        state=state,
+                    )
+                    legal_actions = [asdict(action) for action in legal_action_objects]
                     label_action = _response_label_for_actor(responder, event, resolution)
                     sample = TurnSample(
                         sample_id=(
@@ -198,6 +194,7 @@ class ResponseSampleBuilder:
                         source=event.actor,
                         tile=event.payload["tile"],
                         label_action=label_action,
+                        legal_actions=legal_action_objects,
                     )
                 continue
 
@@ -210,17 +207,15 @@ class ResponseSampleBuilder:
                         if responder == event.actor:
                             continue
 
-                        legal_actions = [
-                            asdict(action)
-                            for action in legal_responses(
-                                hand=state.hands[responder],
-                                actor=responder,
-                                source=event.actor,
-                                tile=payload["called_tile"],
-                                state=state,
-                                allow_chankan=True,
-                            )
-                        ]
+                        legal_action_objects = legal_responses(
+                            hand=state.hands[responder],
+                            actor=responder,
+                            source=event.actor,
+                            tile=payload["called_tile"],
+                            state=state,
+                            allow_chankan=True,
+                        )
+                        legal_actions = [asdict(action) for action in legal_action_objects]
                         label_action = _kakan_response_label_for_actor(
                             responder=responder,
                             actor=event.actor,
@@ -248,6 +243,7 @@ class ResponseSampleBuilder:
                             source=event.actor,
                             tile=payload["called_tile"],
                             label_action=label_action,
+                            legal_actions=legal_action_objects,
                         )
                     if resolution["kind"] == "chankan":
                         continue
@@ -401,6 +397,7 @@ def _mark_missed_ron_if_needed(
     source: int,
     tile: str,
     label_action: dict,
+    legal_actions: list[Action],
 ) -> None:
     if label_action["kind"] != "pass":
         return
@@ -408,16 +405,6 @@ def _mark_missed_ron_if_needed(
     if responder == source:
         return
 
-    if not winning_tile_base_indices(state.hands[responder]):
-        return
-
-    legal_actions = legal_responses(
-        hand=state.hands[responder],
-        actor=responder,
-        source=source,
-        tile=tile,
-        state=state,
-    )
     if any(action.kind == "ron" for action in legal_actions):
         state.mark_missed_ron(responder)
 
@@ -428,17 +415,10 @@ def _mark_missed_chankan_if_needed(
     source: int,
     tile: str,
     label_action: dict,
+    legal_actions: list[Action],
 ) -> None:
     if label_action["kind"] != "pass":
         return
 
-    legal_actions = legal_responses(
-        hand=state.hands[responder],
-        actor=responder,
-        source=source,
-        tile=tile,
-        state=state,
-        allow_chankan=True,
-    )
     if any(action.kind == "chankan" for action in legal_actions):
         state.mark_missed_ron(responder)

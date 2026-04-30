@@ -56,6 +56,8 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert build_summary["turn_label_counts"]["ankan"] > 0
     assert build_summary["turn_label_counts"]["kyuushu_kyuuhai"] > 0
     assert build_summary["response_label_counts"]["pass"] > 0
+    assert build_summary["elapsed_seconds"] >= 0
+    assert build_summary["samples_per_second"] > 0
 
     turn_rows = pq.read_table(turn_files[0]).to_pylist()
     assert turn_rows

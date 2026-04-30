@@ -66,10 +66,17 @@ def _run_validate_events(args: argparse.Namespace) -> int:
 def _run_build_dataset(args: argparse.Namespace) -> int:
     _load_optional_config(getattr(args, "config", None))
     builder = DatasetBuilder()
-    summary = builder.build_from_event_dir(args.input, args.output, workers=max(1, int(args.workers)))
+    summary = builder.build_from_event_dir(
+        args.input,
+        args.output,
+        workers=max(1, int(args.workers)),
+        validate=not bool(args.skip_validation),
+    )
     print(
         f"built dataset: games={summary.games} turn_samples={summary.turn_samples} "
-        f"response_samples={summary.response_samples}"
+        f"response_samples={summary.response_samples} elapsed_s={summary.elapsed_seconds:.2f} "
+        f"games_per_s={summary.games_per_second:.2f} "
+        f"samples_per_s={summary.samples_per_second:.1f}"
     )
     print(f"turn labels: {summary.turn_label_counts}")
     print(f"response labels: {summary.response_label_counts}")
@@ -199,6 +206,11 @@ def build_parser() -> argparse.ArgumentParser:
     build_dataset.add_argument("--input", required=True, help="Input event directory.")
     build_dataset.add_argument("--output", required=True, help="Output sample directory.")
     build_dataset.add_argument("--workers", type=int, default=1, help="Parallel shard workers for dataset building.")
+    build_dataset.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip replay validation during sample building after validate-events has already passed.",
+    )
     _add_config_arg(build_dataset)
 
     make_manifest = subparsers.add_parser(
