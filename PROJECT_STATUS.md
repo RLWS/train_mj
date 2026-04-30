@@ -95,6 +95,9 @@
   - `build-dataset` 已支持 `--workers N` 并行处理事件分片，当前实现使用线程池以避开 Windows 进程池启动和权限问题。
   - Parquet 写出与 manifest 生成已实现。
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
+- `mjai/data/datasets/`
+  - manifest 数据集会在初始化时预反序列化样本 JSON，并预计算 `label_index / label_kind`，避免训练 batch 阶段重复做 JSON 解析和合法动作字符串比对。
+  - `turn/response` batch collator 已改为可 pickle 的类，支持 Windows DataLoader 多 worker；collate 阶段直接填充 tensor，减少大量小 tensor 构造。
 - `configs/`
   - 数据、任务、模型、训练配置目录已建立。
 - `mjai/features/`
@@ -103,6 +106,8 @@
   - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
   - 已有最小训练循环、`turn/response` 标签样本加权 loss、总体与宏平均 accuracy、按动作类别和主类/非主类分组的训练指标、checkpoint 落盘。
+  - 已支持 `pin_memory`、`persistent_workers`、`prefetch_factor` 和 CUDA `non_blocking` 传输；本地 smoke 配置已从串行小 batch 调整为更适合 GPU 试跑的起点。
+  - 已支持由 `train.log_every_n_steps` 控制的 batch 进度日志，输出 batch 进度、单 batch 耗时、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA。
 - `mjai/eval/`
   - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
   - 已支持按动作类别、主类/非主类分组、候选规模分桶与首批错例导出。
@@ -184,6 +189,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 更长训练轮数与更可靠的 eval report 留存
 - 训练过程中的动作分布、候选规模和非法标签质量闸门
 - 类别不均衡下的自动权重估计、采样均衡和少数类错例聚合
+- 更高吞吐的数据格式：当前仍需从 JSON 样本构造特征，若 4000+ 局训练时 GPU 仍长期低利用率，应优先考虑离线预编码 state/action 特征或更大模型/batch，而不是继续只调 DataLoader 参数。
 - 根据错例聚合决定是否回补规则
 
 ## 5. 阶段结论

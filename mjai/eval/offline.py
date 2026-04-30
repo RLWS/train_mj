@@ -11,8 +11,8 @@ from torch.utils.data import DataLoader
 from mjai.data.datasets.parquet_dataset import (
     ManifestResponseDataset,
     ManifestTurnDataset,
-    build_response_batch,
-    build_turn_batch,
+    ResponseBatchCollator,
+    TurnBatchCollator,
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
@@ -403,8 +403,8 @@ def _build_dataset(task_name: str, manifest_path: Path):
 
 def _build_collate_fn(task_name: str, candidate_limit: int):
     if task_name == "turn":
-        return lambda rows: build_turn_batch(rows, candidate_limit=candidate_limit)
-    return lambda rows: build_response_batch(rows, candidate_limit=candidate_limit)
+        return TurnBatchCollator(candidate_limit=candidate_limit)
+    return ResponseBatchCollator(candidate_limit=candidate_limit)
 
 
 def _build_eval_kind_summaries(

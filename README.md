@@ -58,6 +58,13 @@ pytest
 - `dump-case` 当前支持从 `bronze_events` 中定位目标决策点的原始事件上下文。
 - `replay-eval`、`infer-on-state` 仍未实装。
 
+训练性能说明：
+
+- `turn_local_smoke.yaml` 和 `response_local_smoke.yaml` 已针对本机 GPU 训练启用较大的 `batch_size`、`pin_memory`、少量 `num_workers` 和 worker prefetch，避免 CPU 数据管线持续饿住 GPU。
+- 训练样本仍以 JSON 字段保存在 parquet 中，Dataset 会在加载 manifest 时预反序列化，batch collator 再做特征编码；这比逐 batch 重复 JSON 解析更快，但还不是最终高吞吐方案。
+- 训练过程会按 `train.log_every_n_steps` 输出 batch 进度日志，包含 `batch/total`、当前 batch 耗时、窗口平均 batch 耗时、samples/s、窗口 loss/accuracy 和 ETA。
+- 如果 Windows 本机内存压力明显或 worker 启动异常，可临时把 `train.num_workers` 改回 `0`；如果 GPU 利用率仍很低，下一步应考虑离线预编码特征或更大的模型/batch。
+
 ## 当前缺口
 
 - 规则引擎还不是完整日麻规则实现；虽然已补上自家舍牌振听、同巡振听、立直后振听、`kyuushu_kyuuhai` 和第一版 `chankan`，但仍缺少更完整的和牌机会放弃语义、其他途中流局边界与完整计分结算等能力。

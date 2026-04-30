@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,8 @@ from torch.utils.data import DataLoader
 from mjai.data.datasets.parquet_dataset import (
     ManifestResponseDataset,
     ManifestTurnDataset,
-    build_response_batch,
-    build_turn_batch,
+    ResponseBatchCollator,
+    TurnBatchCollator,
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
@@ -86,25 +87,33 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     )
     candidate_limit = int(config.get("data", {}).get("candidate_limit", 64))
     collate_fn = _build_collate_fn(task_name, candidate_limit)
+    train_config = config.get("train", {})
+    device = _resolve_training_device(train_config.get("device"))
+    train_num_workers = int(train_config.get("num_workers", 0))
+    valid_num_workers = int(train_config.get("valid_num_workers", 0))
+    pin_memory = bool(train_config.get("pin_memory", device.type == "cuda"))
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=int(config.get("train", {}).get("batch_size", 32)),
+        batch_size=int(train_config.get("batch_size", 32)),
         shuffle=True,
-        num_workers=int(config.get("train", {}).get("num_workers", 0)),
+        num_workers=train_num_workers,
         collate_fn=collate_fn,
+        pin_memory=pin_memory,
+        **_worker_loader_kwargs(train_config, train_num_workers),
     )
     valid_loader = None
     if valid_dataset is not None and len(valid_dataset) > 0:
         valid_loader = DataLoader(
             valid_dataset,
-            batch_size=int(config.get("train", {}).get("batch_size", 32)),
+            batch_size=int(train_config.get("batch_size", 32)),
             shuffle=False,
-            num_workers=0,
+            num_workers=valid_num_workers,
             collate_fn=collate_fn,
+            pin_memory=pin_memory,
+            **_worker_loader_kwargs(train_config, valid_num_workers),
         )
 
-    device = _resolve_training_device(config.get("train", {}).get("device"))
     model = MahjongPolicyNet(
         state_dim=TURN_STATE_DIM if task_name == "turn" else RESPONSE_STATE_DIM,
         action_dim=TURN_ACTION_DIM if task_name == "turn" else RESPONSE_ACTION_DIM,
@@ -116,8 +125,8 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         lr=float(config.get("train", {}).get("lr", 1e-3)),
         weight_decay=float(config.get("train", {}).get("weight_decay", 0.0)),
     )
-    train_config = config.get("train", {})
     weight_map = class_weight_map(task_name, train_config)
+    log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
 
     epochs = int(config.get("train", {}).get("epochs", 1))
     epoch_summaries: list[dict[str, Any]] = []
@@ -139,6 +148,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
             task_name=task_name,
             train=True,
             weight_map=weight_map,
+            log_every_n_steps=log_every_n_steps,
         )
         epoch_summaries.append(asdict(last_train_summary))
 
@@ -153,6 +163,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
                 task_name=task_name,
                 train=False,
                 weight_map=weight_map,
+                log_every_n_steps=0,
             )
             epoch_summaries.append(asdict(last_valid_summary))
 
@@ -210,11 +221,16 @@ def _run_epoch(
     task_name: str,
     train: bool,
     weight_map: dict[str, float],
+    log_every_n_steps: int,
 ) -> EpochSummary:
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
     batches = 0
+    running_loss = 0.0
+    running_correct = 0
+    running_samples = 0
+    running_time = 0.0
     kind_totals: dict[str, int] = {}
     kind_correct: dict[str, int] = {}
     kind_loss_totals: dict[str, float] = {}
@@ -223,10 +239,15 @@ def _run_epoch(
     group_loss_totals: dict[str, float] = {}
 
     model.train(train)
+    total_batches = len(data_loader)
+    epoch_start = time.perf_counter()
     for batch in data_loader:
+        batch_start = time.perf_counter()
         batches += 1
         prepared_batch = {
-            key: value.to(device) if isinstance(value, torch.Tensor) else value
+            key: value.to(device, non_blocking=device.type == "cuda")
+            if isinstance(value, torch.Tensor)
+            else value
             for key, value in batch.items()
         }
 
@@ -250,6 +271,11 @@ def _run_epoch(
         total_loss += float(loss.item()) * batch_size
         total_correct += int(correct.sum().item())
         total_samples += batch_size
+        batch_elapsed = time.perf_counter() - batch_start
+        running_loss += float(loss.item()) * batch_size
+        running_correct += int(correct.sum().item())
+        running_samples += batch_size
+        running_time += batch_elapsed
 
         for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
             is_correct = int(correct[batch_index].item())
@@ -262,6 +288,30 @@ def _run_epoch(
             group_totals[group_name] = group_totals.get(group_name, 0) + 1
             group_correct[group_name] = group_correct.get(group_name, 0) + is_correct
             group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
+
+        if (
+            train
+            and log_every_n_steps > 0
+            and (batches == 1 or batches % log_every_n_steps == 0 or batches == total_batches)
+        ):
+            _print_batch_progress(
+                epoch=epoch,
+                split=split,
+                batch_index=batches,
+                total_batches=total_batches,
+                total_samples=total_samples,
+                batch_samples=batch_size,
+                batch_elapsed=batch_elapsed,
+                running_time=running_time,
+                running_loss=running_loss,
+                running_correct=running_correct,
+                running_samples=running_samples,
+                epoch_start=epoch_start,
+            )
+            running_loss = 0.0
+            running_correct = 0
+            running_samples = 0
+            running_time = 0.0
 
     average_loss = 0.0 if total_samples == 0 else total_loss / total_samples
     accuracy = 0.0 if total_samples == 0 else total_correct / total_samples
@@ -313,8 +363,68 @@ def _build_dataset(task_name: str, manifest_path: str | Path):
 
 def _build_collate_fn(task_name: str, candidate_limit: int):
     if task_name == "turn":
-        return lambda rows: build_turn_batch(rows, candidate_limit=candidate_limit)
-    return lambda rows: build_response_batch(rows, candidate_limit=candidate_limit)
+        return TurnBatchCollator(candidate_limit=candidate_limit)
+    return ResponseBatchCollator(candidate_limit=candidate_limit)
+
+
+def _worker_loader_kwargs(train_config: dict[str, Any], num_workers: int) -> dict[str, Any]:
+    if num_workers <= 0:
+        return {}
+    return {
+        "persistent_workers": bool(train_config.get("persistent_workers", True)),
+        "prefetch_factor": int(train_config.get("prefetch_factor", 2)),
+    }
+
+
+def _print_batch_progress(
+    epoch: int,
+    split: str,
+    batch_index: int,
+    total_batches: int,
+    total_samples: int,
+    batch_samples: int,
+    batch_elapsed: float,
+    running_time: float,
+    running_loss: float,
+    running_correct: int,
+    running_samples: int,
+    epoch_start: float,
+) -> None:
+    batches_in_window = max(1.0, running_samples / max(1, batch_samples))
+    average_batch_time = running_time / batches_in_window
+    samples_per_second = running_samples / running_time if running_time > 0 else 0.0
+    window_loss = running_loss / running_samples if running_samples > 0 else 0.0
+    window_accuracy = running_correct / running_samples if running_samples > 0 else 0.0
+    elapsed = time.perf_counter() - epoch_start
+    batches_per_second = batch_index / elapsed if elapsed > 0 else 0.0
+    remaining_batches = max(0, total_batches - batch_index)
+    eta_seconds = remaining_batches / batches_per_second if batches_per_second > 0 else 0.0
+    progress = batch_index / total_batches if total_batches > 0 else 0.0
+
+    print(
+        "[train] "
+        f"epoch={epoch} split={split} "
+        f"batch={batch_index}/{total_batches} ({progress:.1%}) "
+        f"samples={total_samples} "
+        f"batch_time={batch_elapsed:.3f}s "
+        f"avg_batch_time={average_batch_time:.3f}s "
+        f"samples_per_s={samples_per_second:.1f} "
+        f"loss={window_loss:.4f} "
+        f"accuracy={window_accuracy:.4f} "
+        f"eta={_format_duration(eta_seconds)}",
+        flush=True,
+    )
+
+
+def _format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    if minutes > 0:
+        return f"{minutes:d}m{secs:02d}s"
+    return f"{secs:d}s"
 
 
 def _build_label_metric_summary(
