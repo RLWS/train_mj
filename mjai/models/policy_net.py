@@ -24,8 +24,8 @@ class MahjongPolicyNet(nn.Module):
             hidden_size=hidden_size,
             dropout=dropout,
         )
-        self.turn_head = TurnHead(hidden_size=hidden_size)
-        self.response_head = TurnHead(hidden_size=hidden_size)
+        self.turn_head = TurnHead(hidden_size=hidden_size, dropout=dropout)
+        self.response_head = TurnHead(hidden_size=hidden_size, dropout=dropout)
 
     def forward_turn(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         state_hidden, candidate_hidden = self.encoder(

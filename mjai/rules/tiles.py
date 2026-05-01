@@ -74,6 +74,20 @@ def normalize_tile(tile: str) -> str:
     return base_index_to_tile(tile_to_base_index(tile))
 
 
+def dora_from_indicator(indicator: str) -> str:
+    """Return the non-red dora tile for a Tenhou dora indicator."""
+    base_index = tile_to_base_index(indicator)
+    if base_index < 27:
+        suit_offset = (base_index // 9) * 9
+        rank = base_index % 9
+        return base_index_to_tile(suit_offset + ((rank + 1) % 9))
+
+    honor_index = base_index - 27
+    if honor_index < 4:
+        return base_index_to_tile(27 + ((honor_index + 1) % 4))
+    return base_index_to_tile(31 + ((honor_index - 4 + 1) % 3))
+
+
 def tile136_to_base_index(tile136: int) -> int:
     """Convert a Tenhou 136-tile identifier to a 34-tile base index."""
     if not 0 <= tile136 < 136:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from mjai.rules.state import GameState, HandState, MeldState
+from mjai.rules.tiles import tile_to_base_index
 
 
 def test_hand_state_counts_red_and_normal_five_separately():
@@ -78,6 +79,27 @@ def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
 
     assert state.temporary_furiten[0] is True
     assert state.riichi_furiten[0] is True
+
+
+def test_game_state_tracks_round_context_and_dora():
+    state = GameState.from_init_payload(
+        0,
+        {
+            "seed": "0,2,1,0,0,16",
+            "ten": "250,260,240,250",
+            "oya": 2,
+            "dora_indicator": "5m",
+            "hai0": ["1m"] * 13,
+            "hai1": ["1p"] * 13,
+            "hai2": ["1s"] * 13,
+            "hai3": ["1z"] * 13,
+        },
+    )
+
+    assert state.dealer == 2
+    assert state.honba == 2
+    assert state.riichi_sticks == 1
+    assert tile_to_base_index("6m") in state.dora_base_indices()
 
 
 def test_kakan_upgrades_existing_pon_and_consumes_added_tile():

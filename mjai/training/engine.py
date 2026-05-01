@@ -62,6 +62,8 @@ class TrainSummary:
     train_samples: int
     valid_samples: int
     best_checkpoint: str
+    best_loss_checkpoint: str
+    best_macro_checkpoint: str
     final_checkpoint: str
     used_device: str
 
@@ -131,7 +133,12 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     epochs = int(config.get("train", {}).get("epochs", 1))
     epoch_summaries: list[dict[str, Any]] = []
     best_valid_accuracy = float("-inf")
+    best_valid_loss = float("inf")
+    best_valid_macro_accuracy = float("-inf")
     best_checkpoint_path = output_dir / "best.pt"
+    best_accuracy_checkpoint_path = output_dir / "best_accuracy.pt"
+    best_loss_checkpoint_path = output_dir / "best_loss.pt"
+    best_macro_checkpoint_path = output_dir / "best_macro.pt"
     final_checkpoint_path = output_dir / "final.pt"
 
     last_train_summary: EpochSummary | None = None
@@ -170,8 +177,18 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
             if last_valid_summary.accuracy >= best_valid_accuracy:
                 best_valid_accuracy = last_valid_summary.accuracy
                 _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_valid_summary)
+                _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_valid_summary)
+            if last_valid_summary.loss <= best_valid_loss:
+                best_valid_loss = last_valid_summary.loss
+                _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
+            if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
+                best_valid_macro_accuracy = last_valid_summary.macro_accuracy
+                _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
         else:
             _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
+            _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
+            _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
+            _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
 
     assert last_train_summary is not None
     _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
@@ -206,6 +223,8 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         train_samples=len(train_dataset),
         valid_samples=0 if valid_dataset is None else len(valid_dataset),
         best_checkpoint=str(best_checkpoint_path),
+        best_loss_checkpoint=str(best_loss_checkpoint_path),
+        best_macro_checkpoint=str(best_macro_checkpoint_path),
         final_checkpoint=str(final_checkpoint_path),
         used_device=str(device),
     )

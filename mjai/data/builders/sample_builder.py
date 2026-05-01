@@ -97,6 +97,10 @@ class TurnSampleBuilder:
                 last_draw_actor = None
                 continue
 
+            if event.event_type == "dora":
+                state.add_dora_indicator(event.payload["tile"])
+                continue
+
             if event.event_type == "reach":
                 assert event.actor is not None
                 if event.payload["step"] == 1:
@@ -256,6 +260,10 @@ class ResponseSampleBuilder:
                 )
                 continue
 
+            if event.event_type == "dora":
+                state.add_dora_indicator(event.payload["tile"])
+                continue
+
             if event.event_type == "reach":
                 assert event.actor is not None
                 state.apply_reach(event.actor, event.payload["step"])
@@ -264,9 +272,19 @@ class ResponseSampleBuilder:
 
 
 def _player_view_snapshot(state: GameState, actor: int) -> dict:
+    own_draws = len(state.discards[actor]) + (1 if state.hands[actor].total_tiles() % 3 == 2 else 0)
     return {
         "actor": actor,
         "hand": state.hands[actor].snapshot(),
+        "scores": list(state.scores),
+        "dealer": state.dealer,
+        "seat_wind": (actor - state.dealer) % 4,
+        "honba": state.honba,
+        "riichi_sticks": state.riichi_sticks,
+        "dora_indicators": list(state.dora_indicators),
+        "dora_base_indices": sorted(state.dora_base_indices()),
+        "turn_number": own_draws,
+        "remaining_draws_estimate": max(0, 18 - own_draws),
         "own_discards": list(state.discards[actor]),
         "own_melds": [
             {

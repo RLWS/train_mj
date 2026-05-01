@@ -117,6 +117,8 @@ def _run_train(args: argparse.Namespace) -> int:
         )
     print(f"device={summary.used_device}")
     print(f"best_checkpoint={summary.best_checkpoint}")
+    print(f"best_loss_checkpoint={summary.best_loss_checkpoint}")
+    print(f"best_macro_checkpoint={summary.best_macro_checkpoint}")
     print(f"final_checkpoint={summary.final_checkpoint}")
     return 0
 

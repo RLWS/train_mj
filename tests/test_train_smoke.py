@@ -69,6 +69,9 @@ def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
     metrics = json.loads((output_dir / "train_metrics.json").read_text(encoding="utf-8"))
     assert (output_dir / "config.resolved.yaml").exists()
     assert (output_dir / "best.pt").exists()
+    assert (output_dir / "best_accuracy.pt").exists()
+    assert (output_dir / "best_loss.pt").exists()
+    assert (output_dir / "best_macro.pt").exists()
     assert (output_dir / "final.pt").exists()
     assert (log_dir / "epoch_metrics.jsonl").exists()
     assert metrics["train_samples"] > 0
@@ -199,6 +202,9 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
     metrics = json.loads((output_dir / "train_metrics.json").read_text(encoding="utf-8"))
     assert (output_dir / "config.resolved.yaml").exists()
     assert (output_dir / "best.pt").exists()
+    assert (output_dir / "best_accuracy.pt").exists()
+    assert (output_dir / "best_loss.pt").exists()
+    assert (output_dir / "best_macro.pt").exists()
     assert (output_dir / "final.pt").exists()
     assert (log_dir / "epoch_metrics.jsonl").exists()
     assert metrics["train_samples"] > 0

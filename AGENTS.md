@@ -2,12 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This repository is in planning stage. Primary documents are:
+This repository has moved past the planning stage. Primary documents are:
 
 - `MAHJONG_AI_PLAN.md`: overall AI, data, model, and training strategy.
-- `MAHJONG_AI_ENGINEERING.md`: proposed implementation layout, CLI design, configuration, and first tasks.
+- `MAHJONG_AI_ENGINEERING.md`: implementation layout, CLI design, configuration, and task plan.
+- `PROJECT_STATUS.md`: current implementation status, validated results, and next priorities.
+- `SMOKE_TRAIN_TUTORIAL.md`: hands-on smoke data, training, eval, and debugging workflow.
 
-When implementation starts, follow the planned layout:
+Current layout:
 
 - `mjai/`: Python source package.
 - `mjai/data/`: Tenhou XML parsing, event schemas, and dataset builders.
@@ -21,18 +23,25 @@ When implementation starts, follow the planned layout:
 
 ## Build, Test, and Development Commands
 
-Planned commands:
+Common commands:
 
 ```bash
 python -m mjai.cli --help
 python -m mjai.cli preprocess --input data/raw_xml --output data/bronze_events
-python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples
-python -m mjai.cli train --config configs/turn_small.yaml
-python -m mjai.cli eval --ckpt outputs/checkpoints/turn_small/best.pt --split valid
+python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/event_validation.json
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 32 --skip-validation
+python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
+python -m mjai.cli train --config configs/turn_local_smoke.yaml
+python -m mjai.cli train --config configs/response_local_smoke.yaml
+python -m mjai.cli eval --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --report outputs/checkpoints/turn_local_smoke/eval_valid.json
+python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
+python -m mjai.cli dump-case --game-id <game_id> --kyoku-id <kyoku_index> --step-id <step_index>
 pytest
 ```
 
-Run local smoke tests on the RTX 4070 before moving jobs to the P800 training machine.
+For local smoke data, use `tests/fixtures/tenhou` as the raw XML input. Run local smoke tests on the RTX 4070 before moving jobs to the P800 training machine.
+
+`build-dataset` is CPU-heavy and now uses process workers when available. Run `validate-events` first; after it reports `files_failed=0`, use `build-dataset --skip-validation` to avoid repeating replay validation. On P800, tune `--workers` by watching the CLI `samples_per_s` output; start around `32` and try `48` or `64` if CPU and NVMe utilization are healthy.
 
 ## Coding Style & Naming Conventions
 

@@ -88,6 +88,7 @@ class TenhouParser:
                             "seed": elem.get("seed"),
                             "ten": elem.get("ten"),
                             "oya": int(elem.get("oya", "0")),
+                            "dora_indicator": tile136_to_string(_parse_seed_dora_indicator(elem.get("seed"))),
                             "hai0": _parse_tiles_attr(elem.get("hai0")),
                             "hai1": _parse_tiles_attr(elem.get("hai1")),
                             "hai2": _parse_tiles_attr(elem.get("hai2")),
@@ -209,6 +210,15 @@ def _parse_tiles_attr(value: str | None) -> list[str]:
     if not value:
         return []
     return [tile136_to_string(int(tile_id)) for tile_id in value.split(",") if tile_id]
+
+
+def _parse_seed_dora_indicator(value: str | None) -> int:
+    if not value:
+        return 0
+    parts = [part for part in value.split(",") if part]
+    if len(parts) < 6:
+        return 0
+    return int(parts[5])
 
 
 def _parse_actor(tag: str, elem) -> int | None:

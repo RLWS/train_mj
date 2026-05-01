@@ -16,13 +16,18 @@ from mjai.features.action_features import (
     RESPONSE_ACTION_KINDS,
     TURN_ACTION_DIM,
     TURN_ACTION_KINDS,
+    build_turn_discard_feature_context,
+    encode_turn_discard_features,
 )
 from mjai.features.state_features import (
     ACTOR_DIM,
+    DORA_COUNTS_DIM,
     EXACT_TILE_INDEX,
     EXACT_TILE_VOCAB,
     OPTIONAL_ACTOR_DIM,
     OPTIONAL_TILE_DIM,
+    ROUND_NUMERIC_DIM,
+    SCORE_DIM,
     RESPONSE_STATE_DIM,
     TURN_STATE_DIM,
 )
@@ -184,9 +189,15 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
     for batch_index, row in enumerate(rows):
         _fill_turn_state_features(state_feats[batch_index], row["state"])
         labels[batch_index] = _row_label_index(row)
+        feature_context = build_turn_discard_feature_context(row["state"])
 
         for candidate_index, action in enumerate(row["legal_actions"]):
-            _fill_turn_action_features(candidate_feats[batch_index, candidate_index], action)
+            _fill_turn_action_features(
+                candidate_feats[batch_index, candidate_index],
+                action,
+                row["state"],
+                feature_context,
+            )
             candidate_mask[batch_index, candidate_index] = True
         label_kinds.append(str(row["label_kind"]))
         sample_ids.append(str(row["sample_id"]))
@@ -326,6 +337,12 @@ def _fill_turn_state_features(target: torch.Tensor, state: dict) -> None:
     target[offset] = 1.0 if state.get("riichi_furiten", False) else 0.0
     offset += 1
     _fill_own_meld_counts(target, offset, state.get("own_melds", []))
+    offset += 5
+    offset = _fill_actor_onehot(target, offset, int(state.get("dealer", 0)))
+    offset = _fill_actor_onehot(target, offset, int(state.get("seat_wind", 0)))
+    offset = _fill_dora_counts(target, offset, state)
+    offset = _fill_scores(target, offset, state.get("scores", []))
+    _fill_round_numeric(target, offset, state)
 
 
 def _fill_response_state_features(target: torch.Tensor, state: dict) -> None:
@@ -336,7 +353,12 @@ def _fill_response_state_features(target: torch.Tensor, state: dict) -> None:
     _fill_optional_tile(target, offset, response_target.get("tile"))
 
 
-def _fill_turn_action_features(target: torch.Tensor, action: dict) -> None:
+def _fill_turn_action_features(
+    target: torch.Tensor,
+    action: dict,
+    state: dict | None = None,
+    feature_context: dict | None = None,
+) -> None:
     kind = str(action.get("kind", "unknown"))
     try:
         target[TURN_ACTION_KINDS.index(kind)] = 1.0
@@ -346,6 +368,11 @@ def _fill_turn_action_features(target: torch.Tensor, action: dict) -> None:
     tile = action.get("tile")
     if tile is not None:
         target[len(TURN_ACTION_KINDS) + EXACT_TILE_INDEX[str(tile)]] = 1.0
+
+    feature_offset = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB)
+    target[feature_offset:] = target.new_tensor(
+        encode_turn_discard_features(action, state, feature_context)
+    )
 
 
 def _fill_response_action_features(target: torch.Tensor, action: dict) -> None:
@@ -403,6 +430,41 @@ def _fill_own_meld_counts(target: torch.Tensor, offset: int, melds: list[dict]) 
             counts[kind] += 1.0
     for index, kind in enumerate(kinds):
         target[offset + index] = counts[kind]
+
+
+def _fill_dora_counts(target: torch.Tensor, offset: int, state: dict) -> int:
+    for base_index in state.get("dora_base_indices", []):
+        target[offset + _base_index_to_exact_tile_index(int(base_index))] += 1.0
+    return offset + DORA_COUNTS_DIM
+
+
+def _fill_scores(target: torch.Tensor, offset: int, scores: list[int]) -> int:
+    for index, score in enumerate(scores[:SCORE_DIM]):
+        target[offset + index] = float(score) / 1000.0
+    return offset + SCORE_DIM
+
+
+def _fill_round_numeric(target: torch.Tensor, offset: int, state: dict) -> None:
+    values = [
+        min(1.0, float(state.get("turn_number", 0)) / 18.0),
+        min(1.0, float(state.get("remaining_draws_estimate", 0)) / 18.0),
+        min(1.0, float(state.get("honba", 0)) / 8.0),
+        min(1.0, float(state.get("riichi_sticks", 0)) / 8.0),
+    ]
+    for index, value in enumerate(values[:ROUND_NUMERIC_DIM]):
+        target[offset + index] = value
+
+
+def _base_index_to_exact_tile_index(base_index: int) -> int:
+    if base_index < 9:
+        tile = f"{base_index + 1}m"
+    elif base_index < 18:
+        tile = f"{base_index - 8}p"
+    elif base_index < 27:
+        tile = f"{base_index - 17}s"
+    else:
+        tile = f"{base_index - 26}z"
+    return EXACT_TILE_INDEX[tile]
 
 
 def _resolve_sample_parquet_files(dataset_path: Path) -> list[Path]:

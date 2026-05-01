@@ -41,6 +41,9 @@
   - `config.resolved.yaml`
   - `train_metrics.json`
   - `best.pt`
+  - `best_accuracy.pt`
+  - `best_loss.pt`
+  - `best_macro.pt`
   - `final.pt`
 - `python -m mjai.cli eval --ckpt <tmp> --split valid --report <tmp>` 可运行。
 - 对最小 `turn` 与 `response` smoke checkpoint 实测，可输出：

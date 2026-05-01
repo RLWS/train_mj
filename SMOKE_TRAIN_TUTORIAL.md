@@ -18,10 +18,11 @@
 跑完这篇之后，你应该能做到：
 
 1. 用仓库自带夹具生成一套最小 smoke 数据。
-2. 分别训练 `turn` 和 `response` 两个最小 baseline。
-3. 找到训练输出和评估输入的位置。
-4. 用 `inspect-sample` 抽查一条样本，读懂 `sample_id`。
-5. 用 `dump-case` 从 `sample_id` 反查到原始事件上下文。
+2. 先校验 `bronze_events`，再构建 `turn/response` 样本。
+3. 分别训练 `turn` 和 `response` 两个最小 baseline。
+4. 找到训练输出和评估输入的位置。
+5. 用 `inspect-sample` 抽查一条样本，读懂 `sample_id`。
+6. 用 `dump-case` 从 `sample_id` 反查到原始事件上下文。
 
 ## 2. 前置条件
 
@@ -39,13 +40,17 @@ cd F:\Code\AI\train_study\train_mj
 
 ```powershell
 python -m mjai.cli preprocess --input tests/fixtures/tenhou --output data/bronze_events
-python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples
+python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/smoke_event_validation.json
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 1 --skip-validation
 python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
 ```
+
+这里推荐先单独跑 `validate-events`，确认 `files_failed=0` 后，再在 `build-dataset` 使用 `--skip-validation`，避免同一批事件在构建样本时重复回放校验。`build-dataset` 现在会输出 `elapsed_s`、`games_per_s` 和 `samples_per_s`，可以直接用来判断构建吞吐。
 
 执行完成后会得到：
 
 - 事件分片目录：[data/bronze_events](F:\Code\AI\train_study\train_mj\data\bronze_events)
+- 事件校验报告：[smoke_event_validation.json](F:\Code\AI\train_study\train_mj\outputs\reports\smoke_event_validation.json)
 - 样本分片目录：[data/silver_samples](F:\Code\AI\train_study\train_mj\data\silver_samples)
 - manifest 目录：[data/manifests](F:\Code\AI\train_study\train_mj\data\manifests)
 
@@ -58,8 +63,24 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 这一步对应的含义是：
 
 - `preprocess`：XML -> 标准化事件
+- `validate-events`：回放校验事件分片
 - `build-dataset`：事件 -> `turn/response` 样本
 - `make-manifest`：样本分片 -> 训练/验证/测试切分
+
+如果你没有先跑 `validate-events`，不要加 `--skip-validation`：
+
+```powershell
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 1
+```
+
+在 P800 上构建大规模真实牌谱时，建议从下面这种命令起步，再根据 `samples_per_s` 调整 worker 数：
+
+```bash
+python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/event_validation.json
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 32 --skip-validation
+```
+
+`build-dataset` 现在优先使用进程池并行，适合 CPU 密集的规则回放和合法动作生成。可以试 `--workers 32`、`48`、`64`，取 `samples_per_s` 最高且机器负载稳定的值。
 
 ## 4. 第二步：跑 turn smoke train
 
@@ -88,6 +109,9 @@ python -m mjai.cli train --config configs/turn_local_smoke.yaml
 - `config.resolved.yaml`
 - `train_metrics.json`
 - `best.pt`
+- `best_accuracy.pt`
+- `best_loss.pt`
+- `best_macro.pt`
 - `final.pt`
 - `epoch_metrics.jsonl`
 
@@ -113,6 +137,9 @@ python -m mjai.cli train --config configs/response_local_smoke.yaml
 - `config.resolved.yaml`
 - `train_metrics.json`
 - `best.pt`
+- `best_accuracy.pt`
+- `best_loss.pt`
+- `best_macro.pt`
 - `final.pt`
 - `epoch_metrics.jsonl`
 
@@ -238,7 +265,7 @@ silver sample -> sample_id -> game_id / kyoku_index / step_index -> bronze event
 ### turn eval
 
 ```powershell
-python -m mjai.cli eval --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --report outputs/checkpoints/turn_local_smoke/eval_valid.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/turn_local_smoke/best_accuracy.pt --split valid --report outputs/checkpoints/turn_local_smoke/eval_valid_accuracy.json
 ```
 
 ### response eval
@@ -269,7 +296,8 @@ python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt 
 
 ```powershell
 python -m mjai.cli preprocess --input tests/fixtures/tenhou --output data/bronze_events
-python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples
+python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/smoke_event_validation.json
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 1 --skip-validation
 python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
 
 python -m mjai.cli train --config configs/turn_local_smoke.yaml
@@ -282,7 +310,7 @@ python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-i
 如果你再多走一步，把评估也跑上：
 
 ```powershell
-python -m mjai.cli eval --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --report outputs/checkpoints/turn_local_smoke/eval_valid.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/turn_local_smoke/best_accuracy.pt --split valid --report outputs/checkpoints/turn_local_smoke/eval_valid_accuracy.json
 python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --report outputs/checkpoints/response_local_smoke/eval_valid.json
 ```
 
@@ -295,6 +323,7 @@ python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt 
 ```text
 Tenhou XML
 -> bronze_events
+-> validate-events
 -> silver_samples
 -> manifest
 -> train turn/response

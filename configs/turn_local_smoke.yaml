@@ -20,9 +20,9 @@ train:
   persistent_workers: true
   prefetch_factor: 2
   log_every_n_steps: 20
-  epochs: 40
+  epochs: 28
   lr: 0.001
-  weight_decay: 0.0
+  weight_decay: 0.0001
   turn_class_weights:
     discard: 1.0
     riichi_discard: 4.0

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mjai.rules.tiles import AKA_BASE_INDICES, base_index_to_tile, parse_tile, tile_to_base_index
+from mjai.rules.tiles import AKA_BASE_INDICES, base_index_to_tile, dora_from_indicator, parse_tile, tile_to_base_index
 
 AKA_TILES_BY_INDEX = {
     4: "0m",
@@ -119,6 +119,10 @@ class GameState:
     temporary_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
     riichi_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
     scores: list[int] = field(default_factory=lambda: [250] * 4)
+    dealer: int = 0
+    honba: int = 0
+    riichi_sticks: int = 0
+    dora_indicators: list[str] = field(default_factory=list)
     furiten_discard_bases: list[set[int]] = field(default_factory=lambda: [set() for _ in range(4)])
     last_discard_actor: int | None = None
     last_discard_tile: str | None = None
@@ -133,7 +137,20 @@ class GameState:
             HandState.from_tiles(payload["hai3"]),
         ]
         scores = [int(score) for score in str(payload.get("ten", "250,250,250,250")).split(",")]
-        return cls(hands=hands, kyoku_index=kyoku_index, scores=scores)
+        seed_parts = [int(part) for part in str(payload.get("seed", "")).split(",") if part]
+        honba = seed_parts[1] if len(seed_parts) > 1 else 0
+        riichi_sticks = seed_parts[2] if len(seed_parts) > 2 else 0
+        dora_indicator = payload.get("dora_indicator")
+        dora_indicators = [str(dora_indicator)] if dora_indicator is not None else []
+        return cls(
+            hands=hands,
+            kyoku_index=kyoku_index,
+            scores=scores,
+            dealer=int(payload.get("oya", 0)),
+            honba=honba,
+            riichi_sticks=riichi_sticks,
+            dora_indicators=dora_indicators,
+        )
 
     def apply_draw(self, actor: int, tile: str) -> None:
         self.temporary_furiten[actor] = False
@@ -255,3 +272,9 @@ class GameState:
         self.temporary_furiten[actor] = True
         if self.riichi_declared[actor]:
             self.riichi_furiten[actor] = True
+
+    def add_dora_indicator(self, tile: str) -> None:
+        self.dora_indicators.append(tile)
+
+    def dora_base_indices(self) -> set[int]:
+        return {tile_to_base_index(dora_from_indicator(tile)) for tile in self.dora_indicators}
