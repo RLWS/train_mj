@@ -12,7 +12,11 @@ RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "u
 RESPONSE_ACTION_DIM = len(RESPONSE_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + 4
 
 
-def encode_turn_action(action: dict, state: dict | None = None) -> list[float]:
+def encode_turn_action(
+    action: dict,
+    state: dict | None = None,
+    context: dict | None = None,
+) -> list[float]:
     vector = [0.0] * TURN_ACTION_DIM
 
     kind = str(action.get("kind", "unknown"))
@@ -25,9 +29,15 @@ def encode_turn_action(action: dict, state: dict | None = None) -> list[float]:
     if tile is not None:
         vector[len(TURN_ACTION_KINDS) + EXACT_TILE_INDEX[str(tile)]] = 1.0
     feature_offset = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB)
-    discard_features = encode_turn_discard_features(action, state)
+    discard_features = encode_turn_discard_features(action, state, context)
     vector[feature_offset : feature_offset + TURN_DISCARD_FEATURE_DIM] = discard_features
     return vector
+
+
+def encode_turn_candidate_actions(actions: list[dict], state: dict) -> list[list[float]]:
+    """Encode all turn candidates for one sample, sharing shanten context once."""
+    context = build_turn_discard_feature_context(state)
+    return [encode_turn_action(action, state, context) for action in actions]
 
 
 def encode_response_action(action: dict) -> list[float]:

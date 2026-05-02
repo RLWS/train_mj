@@ -19,7 +19,7 @@
 - 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠，且 `kakan` 响应窗口已收紧为只暴露 `pass / ron / chankan`。
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
-- 当前测试基线为 `pytest` 全量通过，结果是 `84 passed`。
+- 当前测试基线为 `pytest` 全量通过，结果是 `93 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
   - `6281` 条事件写入 `bronze_events`
@@ -60,10 +60,10 @@ pytest
 
 训练性能说明：
 
-- `turn_local_smoke.yaml` 和 `response_local_smoke.yaml` 已针对本机 GPU 训练启用较大的 `batch_size`、`pin_memory`、少量 `num_workers` 和 worker prefetch，避免 CPU 数据管线持续饿住 GPU。
-- 训练样本仍以 JSON 字段保存在 parquet 中，Dataset 会在加载 manifest 时预反序列化，batch collator 再做特征编码；这比逐 batch 重复 JSON 解析更快，但还不是最终高吞吐方案。
-- 训练过程会按 `train.log_every_n_steps` 输出 batch 进度日志，包含 `batch/total`、当前 batch 耗时、窗口平均 batch 耗时、samples/s、窗口 loss/accuracy 和 ETA。
-- 如果 Windows 本机内存压力明显或 worker 启动异常，可临时把 `train.num_workers` 改回 `0`；如果 GPU 利用率仍很低，下一步应考虑离线预编码特征或更大的模型/batch。
+- `build-dataset` 会在写出 parquet 时离线预编码 `state_features_bin` 和 `candidate_features_bin`，包括 `turn` discard 的向听数、有效牌等候选特征；训练和评估阶段只做 float32 binary 到 tensor 的拷贝，不再在每个 epoch 的 DataLoader worker 中重复计算这些规则特征。
+- 这次样本 schema 已更新，旧的 `data/silver_samples` parquet 不能继续用于训练；变更后需要重新执行 `build-dataset` 和 `make-manifest`。
+- Windows 本地 smoke 配置默认使用 `train.num_workers: 0`，避免 spawn worker 复制整份内存数据集；Linux/P800 可以继续通过配置提高 `num_workers`，但应以训练日志里的 `data_wait` 和 `samples_per_s` 判断是否真的收益。
+- 训练过程会按 `train.log_every_n_steps` 输出 batch 进度日志，包含 `batch/total`、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA；其中 `data_wait` 用于定位 DataLoader 或 batch collation 是否仍是瓶颈。
 
 ## 当前缺口
 
@@ -73,10 +73,12 @@ pytest
 
 ## 文档索引
 
-- `MAHJONG_AI_PLAN.md`：总体方案与训练路线。
-- `MAHJONG_AI_ENGINEERING.md`：工程设计与目录、CLI、配置约定。
-- `PROJECT_STATUS.md`：当前实现进度、已验证结果、主要缺口和建议的下一步任务。
-- `RULE_COVERAGE.md`：当前规则引擎覆盖范围与未实现边界。
+- [docs/README.md](docs/README.md)：文档总索引和推荐阅读顺序。
+- [docs/status.md](docs/status.md)：当前实现进度、已验证结果、主要缺口和建议的下一步任务。
+- [docs/smoke-training.md](docs/smoke-training.md)：本地 smoke 数据、训练、评估和调试工作流。
+- [docs/rule-coverage.md](docs/rule-coverage.md)：当前规则引擎覆盖范围与未实现边界。
+- [docs/architecture-plan.md](docs/architecture-plan.md)：总体 AI、数据、模型和训练路线。
+- [docs/engineering-guide.md](docs/engineering-guide.md)：工程设计与目录、CLI、配置约定。
 
 ## 建议的下一步
 

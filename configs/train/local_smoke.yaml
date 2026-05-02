@@ -1,7 +1,7 @@
 device: cuda
 precision: fp16
 batch_size: 32
-num_workers: 2
+num_workers: 0
 epochs: 1
 grad_accum_steps: 1
 distributed: false

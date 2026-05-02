@@ -25,7 +25,7 @@
 - 使用 `tests/fixtures/tenhou` 实测可完成 `20` 局 XML 预处理、`6281` 条事件写入、`20/20` 个事件分片校验通过，并生成 `2996` 条 `turn` 样本、`8910` 条 `response` 样本
 - `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 
-更细的进度判断、模块状态和建议的下一步任务见 `PROJECT_STATUS.md`。
+更细的进度判断、模块状态和建议的下一步任务见 [status.md](status.md)。
 
 ## 1. 目标
 
@@ -48,8 +48,12 @@
 ```text
 train_mj/
   README.md
-  MAHJONG_AI_PLAN.md
-  MAHJONG_AI_ENGINEERING.md
+  docs/
+    architecture-plan.md
+    engineering-guide.md
+    status.md
+    rule-coverage.md
+    smoke-training.md
   pyproject.toml
   requirements.txt
   .env.example
@@ -288,7 +292,7 @@ sampling:
 device: cuda
 precision: fp16
 batch_size: 32
-num_workers: 2
+num_workers: 0
 epochs: 1
 grad_accum_steps: 1
 distributed: false
@@ -446,6 +450,9 @@ history_blob
 legal_actions_blob
 label_action_idx
 label_action_text
+state_features_bin
+candidate_features_bin
+label_kind
 player_weight
 ruleset_id
 ```
@@ -454,13 +461,14 @@ ruleset_id
 
 - `label_action_idx` 必须对应 `legal_actions_blob`
 - `label_action_text` 只用于 debug，不作为训练主键
+- `state_features_bin` 和 `candidate_features_bin` 是训练/评估直接读取的 float32 特征；CPU 密集的规则特征必须在 `build-dataset` 阶段离线写入，不能在训练期 DataLoader 里按 epoch 重算。
 - 样本切分必须按 `game_id`
 
 ## 8. 首批开发任务清单
 
 建议按下面顺序做，不要并行铺太大。
 
-注：截至 `2026-04-24`，`Task 1` 到 `Task 5` 及 `preprocess` / `validate-events` 已完成第一版；`Task 6` 及以后尚未开始。详细状态见 `PROJECT_STATUS.md`。
+注：当前任务状态以 [status.md](status.md) 为准；下方清单保留原始工程拆解和验收口径。
 
 ### Task 1：项目骨架初始化
 

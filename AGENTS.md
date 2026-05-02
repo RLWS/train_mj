@@ -4,10 +4,12 @@
 
 This repository has moved past the planning stage. Primary documents are:
 
-- `MAHJONG_AI_PLAN.md`: overall AI, data, model, and training strategy.
-- `MAHJONG_AI_ENGINEERING.md`: implementation layout, CLI design, configuration, and task plan.
-- `PROJECT_STATUS.md`: current implementation status, validated results, and next priorities.
-- `SMOKE_TRAIN_TUTORIAL.md`: hands-on smoke data, training, eval, and debugging workflow.
+- `docs/README.md`: documentation index and recommended reading order.
+- `docs/architecture-plan.md`: overall AI, data, model, and training strategy.
+- `docs/engineering-guide.md`: implementation layout, CLI design, configuration, and task plan.
+- `docs/status.md`: current implementation status, validated results, and next priorities.
+- `docs/smoke-training.md`: hands-on smoke data, training, eval, and debugging workflow.
+- `docs/rule-coverage.md`: current rule-engine coverage and known unsupported boundaries.
 
 Current layout:
 
@@ -41,7 +43,7 @@ pytest
 
 For local smoke data, use `tests/fixtures/tenhou` as the raw XML input. Run local smoke tests on the RTX 4070 before moving jobs to the P800 training machine.
 
-`build-dataset` is CPU-heavy and now uses process workers when available. Run `validate-events` first; after it reports `files_failed=0`, use `build-dataset --skip-validation` to avoid repeating replay validation. On P800, tune `--workers` by watching the CLI `samples_per_s` output; start around `32` and try `48` or `64` if CPU and NVMe utilization are healthy.
+`build-dataset` is CPU-heavy and now uses process workers when available. It also writes pre-encoded `state_features_bin` and `candidate_features_bin`, so schema changes require rebuilding `data/silver_samples` and manifests. Run `validate-events` first; after it reports `files_failed=0`, use `build-dataset --skip-validation` to avoid repeating replay validation. On P800, tune `--workers` by watching the CLI `samples_per_s` output; start around `32` and try `48` or `64` if CPU and NVMe utilization are healthy.
 
 ## Coding Style & Naming Conventions
 

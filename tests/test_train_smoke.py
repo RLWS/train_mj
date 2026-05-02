@@ -137,7 +137,11 @@ def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, caps
     captured = capsys.readouterr()
     assert "[train] epoch=1 split=train batch=" in captured.out
     assert "batch_time=" in captured.out
+    assert "data_wait=" in captured.out
+    assert "compute_time=" in captured.out
     assert "avg_batch_time=" in captured.out
+    assert "avg_data_wait=" in captured.out
+    assert "avg_compute_time=" in captured.out
     assert "samples_per_s=" in captured.out
     assert "eta=" in captured.out
 

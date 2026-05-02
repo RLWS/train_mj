@@ -250,6 +250,8 @@ def _run_epoch(
     running_correct = 0
     running_samples = 0
     running_time = 0.0
+    running_data_wait_time = 0.0
+    running_compute_time = 0.0
     kind_totals: dict[str, int] = {}
     kind_correct: dict[str, int] = {}
     kind_loss_totals: dict[str, float] = {}
@@ -260,8 +262,11 @@ def _run_epoch(
     model.train(train)
     total_batches = len(data_loader)
     epoch_start = time.perf_counter()
+    next_batch_start = epoch_start
     for batch in data_loader:
-        batch_start = time.perf_counter()
+        batch_ready = time.perf_counter()
+        data_wait_elapsed = batch_ready - next_batch_start
+        batch_start = batch_ready
         batches += 1
         prepared_batch = {
             key: value.to(device, non_blocking=device.type == "cuda")
@@ -290,11 +295,14 @@ def _run_epoch(
         total_loss += float(loss.item()) * batch_size
         total_correct += int(correct.sum().item())
         total_samples += batch_size
-        batch_elapsed = time.perf_counter() - batch_start
+        compute_elapsed = time.perf_counter() - batch_start
+        batch_elapsed = data_wait_elapsed + compute_elapsed
         running_loss += float(loss.item()) * batch_size
         running_correct += int(correct.sum().item())
         running_samples += batch_size
         running_time += batch_elapsed
+        running_data_wait_time += data_wait_elapsed
+        running_compute_time += compute_elapsed
 
         for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
             is_correct = int(correct[batch_index].item())
@@ -321,7 +329,11 @@ def _run_epoch(
                 total_samples=total_samples,
                 batch_samples=batch_size,
                 batch_elapsed=batch_elapsed,
+                data_wait_elapsed=data_wait_elapsed,
+                compute_elapsed=compute_elapsed,
                 running_time=running_time,
+                running_data_wait_time=running_data_wait_time,
+                running_compute_time=running_compute_time,
                 running_loss=running_loss,
                 running_correct=running_correct,
                 running_samples=running_samples,
@@ -331,6 +343,9 @@ def _run_epoch(
             running_correct = 0
             running_samples = 0
             running_time = 0.0
+            running_data_wait_time = 0.0
+            running_compute_time = 0.0
+        next_batch_start = time.perf_counter()
 
     average_loss = 0.0 if total_samples == 0 else total_loss / total_samples
     accuracy = 0.0 if total_samples == 0 else total_correct / total_samples
@@ -353,7 +368,22 @@ def _resolve_training_device(config_device: str | None) -> torch.device:
     normalized = normalize_device_name(config_device)
     if normalized in {"auto", "cuda"} and torch.cuda.is_available():
         return torch.device("cuda")
+    if normalized in {"auto", "xpu"} and _xpu_is_available():
+        return torch.device("xpu")
+    if normalized == "xpu":
+        raise RuntimeError("train.device is xpu, but torch.xpu is not available")
     return torch.device("cpu")
+
+
+def _xpu_is_available() -> bool:
+    xpu = getattr(torch, "xpu", None)
+    is_available = getattr(xpu, "is_available", None)
+    if not callable(is_available):
+        return False
+    try:
+        return bool(is_available())
+    except RuntimeError:
+        return False
 
 
 def _save_checkpoint(
@@ -403,7 +433,11 @@ def _print_batch_progress(
     total_samples: int,
     batch_samples: int,
     batch_elapsed: float,
+    data_wait_elapsed: float,
+    compute_elapsed: float,
     running_time: float,
+    running_data_wait_time: float,
+    running_compute_time: float,
     running_loss: float,
     running_correct: int,
     running_samples: int,
@@ -411,6 +445,8 @@ def _print_batch_progress(
 ) -> None:
     batches_in_window = max(1.0, running_samples / max(1, batch_samples))
     average_batch_time = running_time / batches_in_window
+    average_data_wait_time = running_data_wait_time / batches_in_window
+    average_compute_time = running_compute_time / batches_in_window
     samples_per_second = running_samples / running_time if running_time > 0 else 0.0
     window_loss = running_loss / running_samples if running_samples > 0 else 0.0
     window_accuracy = running_correct / running_samples if running_samples > 0 else 0.0
@@ -426,7 +462,11 @@ def _print_batch_progress(
         f"batch={batch_index}/{total_batches} ({progress:.1%}) "
         f"samples={total_samples} "
         f"batch_time={batch_elapsed:.3f}s "
+        f"data_wait={data_wait_elapsed:.3f}s "
+        f"compute_time={compute_elapsed:.3f}s "
         f"avg_batch_time={average_batch_time:.3f}s "
+        f"avg_data_wait={average_data_wait_time:.3f}s "
+        f"avg_compute_time={average_compute_time:.3f}s "
         f"samples_per_s={samples_per_second:.1f} "
         f"loss={window_loss:.4f} "
         f"accuracy={window_accuracy:.4f} "

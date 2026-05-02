@@ -159,62 +159,135 @@ def _can_form_honor_sets(counts: tuple[int, ...]) -> bool:
 
 
 def _standard_shanten(counts: tuple[int, ...]) -> int:
+    return _standard_shanten_by_groups(counts)
+
+
+def _standard_shanten_by_groups(counts: tuple[int, ...]) -> int:
+    option_groups = (
+        _suit_shanten_options(counts[0:9]),
+        _suit_shanten_options(counts[9:18]),
+        _suit_shanten_options(counts[18:27]),
+        _honor_shanten_options(counts[27:34]),
+    )
     best = 8
+    for first in option_groups[0]:
+        for second in option_groups[1]:
+            first_second = (
+                first[0] + second[0],
+                first[1] + second[1],
+                first[2] + second[2],
+            )
+            for third in option_groups[2]:
+                first_three = (
+                    first_second[0] + third[0],
+                    first_second[1] + third[1],
+                    first_second[2] + third[2],
+                )
+                for fourth in option_groups[3]:
+                    melds = first_three[0] + fourth[0]
+                    taatsu = first_three[1] + fourth[1]
+                    pairs = first_three[2] + fourth[2]
+                    pair_count = min(1, pairs)
+                    extra_pair_taatsu = max(0, pairs - pair_count)
+                    useful_taatsu = min(taatsu + extra_pair_taatsu, 4 - melds)
+                    best = min(best, 8 - 2 * melds - useful_taatsu - pair_count)
+    return best
 
-    def visit(current: list[int], start: int, melds: int, taatsu: int, pairs: int) -> None:
-        nonlocal best
+
+@lru_cache(maxsize=500_000)
+def _suit_shanten_options(counts: tuple[int, ...]) -> frozenset[tuple[int, int, int]]:
+    return frozenset(_prune_shanten_options(_build_group_options(counts, honor=False)))
+
+
+@lru_cache(maxsize=100_000)
+def _honor_shanten_options(counts: tuple[int, ...]) -> frozenset[tuple[int, int, int]]:
+    return frozenset(_prune_shanten_options(_build_group_options(counts, honor=True)))
+
+
+def _build_group_options(counts: tuple[int, ...], honor: bool) -> set[tuple[int, int, int]]:
+    size = len(counts)
+
+    @lru_cache(maxsize=None)
+    def visit(current_counts: tuple[int, ...]) -> frozenset[tuple[int, int, int]]:
         try:
-            first = next(index for index in range(start, 34) if current[index] > 0)
+            first = next(index for index, count in enumerate(current_counts) if count > 0)
         except StopIteration:
-            pair_count = min(1, pairs)
-            extra_pair_taatsu = max(0, pairs - pair_count)
-            useful_taatsu = min(taatsu + extra_pair_taatsu, 4 - melds)
-            best = min(best, 8 - 2 * melds - useful_taatsu - min(1, pairs))
-            return
+            return frozenset({(0, 0, 0)})
 
-        # Skip this tile. This keeps the search complete for isolated leftovers.
+        options: set[tuple[int, int, int]] = set()
+
+        current = list(current_counts)
         current[first] -= 1
-        visit(current, first, melds, taatsu, pairs)
-        current[first] += 1
+        options.update(visit(tuple(current)))
 
+        current = list(current_counts)
         if current[first] >= 3:
             current[first] -= 3
-            visit(current, first, melds + 1, taatsu, pairs)
-            current[first] += 3
+            options.update(_add_to_options(visit(tuple(current)), melds=1))
 
+        current = list(current_counts)
         if current[first] >= 2:
             current[first] -= 2
-            visit(current, first, melds, taatsu, pairs + 1)
-            current[first] += 2
+            options.update(_add_to_options(visit(tuple(current)), pairs=1))
 
-        if first < 27:
-            suit_offset = (first // 9) * 9
-            rank = first % 9
-            if rank <= 6 and current[first + 1] > 0 and current[first + 2] > 0:
+        if not honor:
+            rank = first
+            current = list(current_counts)
+            if rank <= size - 3 and current[first + 1] > 0 and current[first + 2] > 0:
                 current[first] -= 1
                 current[first + 1] -= 1
                 current[first + 2] -= 1
-                visit(current, first, melds + 1, taatsu, pairs)
-                current[first] += 1
-                current[first + 1] += 1
-                current[first + 2] += 1
+                options.update(_add_to_options(visit(tuple(current)), melds=1))
 
-            if rank <= 7 and current[first + 1] > 0:
+            current = list(current_counts)
+            if rank <= size - 2 and current[first + 1] > 0:
                 current[first] -= 1
                 current[first + 1] -= 1
-                visit(current, first, melds, taatsu + 1, pairs)
-                current[first] += 1
-                current[first + 1] += 1
+                options.update(_add_to_options(visit(tuple(current)), taatsu=1))
 
-            if rank <= 6 and current[first + 2] > 0:
+            current = list(current_counts)
+            if rank <= size - 3 and current[first + 2] > 0:
                 current[first] -= 1
                 current[first + 2] -= 1
-                visit(current, first, melds, taatsu + 1, pairs)
-                current[first] += 1
-                current[first + 2] += 1
+                options.update(_add_to_options(visit(tuple(current)), taatsu=1))
 
-    visit(list(counts), 0, 0, 0, 0)
-    return best
+        return frozenset(options)
+
+    return set(visit(counts))
+
+
+def _add_to_options(
+    options: frozenset[tuple[int, int, int]],
+    melds: int = 0,
+    taatsu: int = 0,
+    pairs: int = 0,
+) -> set[tuple[int, int, int]]:
+    return {
+        (option_melds + melds, option_taatsu + taatsu, option_pairs + pairs)
+        for option_melds, option_taatsu, option_pairs in options
+    }
+
+
+def _prune_shanten_options(options: set[tuple[int, int, int]]) -> set[tuple[int, int, int]]:
+    pruned: set[tuple[int, int, int]] = set()
+    for option in options:
+        melds, taatsu, pairs = option
+        dominated = False
+        for other in options:
+            if other == option:
+                continue
+            other_melds, other_taatsu, other_pairs = other
+            if (
+                other_melds >= melds
+                and other_taatsu >= taatsu
+                and other_pairs >= pairs
+                and (other_melds, other_taatsu, other_pairs) != (melds, taatsu, pairs)
+            ):
+                dominated = True
+                break
+        if not dominated:
+            pruned.add(option)
+    return pruned
 
 
 def _chiitoitsu_shanten(counts: tuple[int, ...]) -> int:

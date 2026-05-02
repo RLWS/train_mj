@@ -1,0 +1,31 @@
+defaults:
+  - data: tenhou_4p_red
+  - model: encoder_base
+  - task: turn
+  - train: p800_single
+
+seed: 20260423
+exp_name: turn_p800
+output_dir: outputs/checkpoints/turn_p800
+log_dir: outputs/logs/turn_p800
+
+data:
+  train_manifest: data/manifests/train.jsonl
+  valid_manifest: data/manifests/valid.jsonl
+  candidate_limit: 64
+
+train:
+  batch_size: 2048
+  num_workers: 16
+  valid_num_workers: 4
+  log_every_n_steps: 20
+  epochs: 10
+  lr: 0.001
+  weight_decay: 0.0001
+  turn_class_weights:
+    discard: 1.0
+    riichi_discard: 4.0
+    tsumo: 6.0
+    ankan: 8.0
+    kakan: 8.0
+    kyuushu_kyuuhai: 8.0

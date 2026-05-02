@@ -7,8 +7,11 @@ import pyarrow.parquet as pq
 
 from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.dataset_builder import DatasetBuilder
+from mjai.data.datasets.parquet_dataset import ManifestTurnDataset, TurnBatchCollator
 from mjai.data.datasets.event_store import read_events_from_parquet
 from mjai.data.builders.manifest_builder import ManifestBuilder
+from mjai.features.action_features import TURN_ACTION_DIM
+from mjai.features.state_features import TURN_STATE_DIM
 
 
 FIXTURE_DIR = Path("tests/fixtures/tenhou")
@@ -59,10 +62,36 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert build_summary["elapsed_seconds"] >= 0
     assert build_summary["samples_per_second"] > 0
 
-    turn_rows = pq.read_table(turn_files[0]).to_pylist()
+    turn_file = next(path for path in turn_files if pq.read_metadata(path).num_rows > 0)
+    turn_rows = pq.read_table(turn_file).to_pylist()
     assert turn_rows
     assert "sample_id" in turn_rows[0]
     assert "label_action_json" in turn_rows[0]
+    assert "state_features_bin" in turn_rows[0]
+    assert "candidate_features_bin" in turn_rows[0]
+    assert "label_index" in turn_rows[0]
+    assert "label_kind" in turn_rows[0]
+
+    first_legal_actions = json.loads(turn_rows[0]["legal_actions_json"])
+    assert len(bytes(turn_rows[0]["state_features_bin"])) == TURN_STATE_DIM * 4
+    assert len(bytes(turn_rows[0]["candidate_features_bin"])) == len(first_legal_actions) * TURN_ACTION_DIM * 4
+
+    manifest_path = tmp_path / "turn_only.jsonl"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "game_id": turn_file.stem,
+                "turn_path": turn_file.as_posix(),
+                "turn_rows": pq.read_metadata(turn_file).num_rows,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    dataset = ManifestTurnDataset(manifest_path)
+    batch = TurnBatchCollator(candidate_limit=64)(dataset.rows[:4])
+    assert batch["state_feats"].shape[1] == TURN_STATE_DIM
+    assert batch["candidate_feats"].shape[2] == TURN_ACTION_DIM
 
 
 def test_build_dataset_supports_parallel_workers(tmp_path: Path):

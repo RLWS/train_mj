@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
+from array import array
 from pathlib import Path
 from typing import Iterable
 
@@ -13,23 +13,15 @@ from torch.utils.data import Dataset
 from mjai.data.schema.samples import TurnSample
 from mjai.features.action_features import (
     RESPONSE_ACTION_DIM,
-    RESPONSE_ACTION_KINDS,
     TURN_ACTION_DIM,
-    TURN_ACTION_KINDS,
-    build_turn_discard_feature_context,
-    encode_turn_discard_features,
+    encode_response_action,
+    encode_turn_candidate_actions,
 )
 from mjai.features.state_features import (
-    ACTOR_DIM,
-    DORA_COUNTS_DIM,
-    EXACT_TILE_INDEX,
-    EXACT_TILE_VOCAB,
-    OPTIONAL_ACTOR_DIM,
-    OPTIONAL_TILE_DIM,
-    ROUND_NUMERIC_DIM,
-    SCORE_DIM,
     RESPONSE_STATE_DIM,
     TURN_STATE_DIM,
+    encode_response_state,
+    encode_turn_state,
 )
 from mjai.utils.paths import ensure_dir
 
@@ -45,11 +37,17 @@ SAMPLE_SCHEMA = pa.schema(
         ("state_json", pa.string()),
         ("legal_actions_json", pa.string()),
         ("label_action_json", pa.string()),
+        ("state_features_bin", pa.binary()),
+        ("candidate_features_bin", pa.binary()),
+        ("label_index", pa.int16()),
+        ("label_kind", pa.string()),
     ]
 )
 
 
 def serialize_sample(sample: TurnSample) -> dict[str, object]:
+    state_features, candidate_features = _encode_training_features(sample)
+    label_index, label_kind = _label_metadata(sample)
     return {
         "sample_id": sample.sample_id,
         "game_id": sample.game_id,
@@ -60,6 +58,14 @@ def serialize_sample(sample: TurnSample) -> dict[str, object]:
         "state_json": json.dumps(sample.state, ensure_ascii=False, sort_keys=True),
         "legal_actions_json": json.dumps(sample.legal_actions, ensure_ascii=False, sort_keys=True),
         "label_action_json": json.dumps(sample.label_action, ensure_ascii=False, sort_keys=True),
+        "state_features_bin": _float32_bytes(state_features),
+        "candidate_features_bin": _float32_bytes(
+            value
+            for candidate in candidate_features
+            for value in candidate
+        ),
+        "label_index": label_index,
+        "label_kind": label_kind,
     }
 
 
@@ -73,6 +79,38 @@ def write_samples_to_parquet(
     ensure_dir(output_file.parent)
     pq.write_table(table, output_file, compression="zstd")
     return table.num_rows
+
+
+def _encode_training_features(sample: TurnSample) -> tuple[list[float], list[list[float]]]:
+    if sample.decision_type == "response":
+        return (
+            encode_response_state(sample.state),
+            [encode_response_action(action) for action in sample.legal_actions],
+        )
+    if sample.decision_type == "turn":
+        return (
+            encode_turn_state(sample.state),
+            encode_turn_candidate_actions(sample.legal_actions, sample.state),
+        )
+    raise ValueError(f"unsupported decision_type for policy sample: {sample.decision_type}")
+
+
+def _label_metadata(sample: TurnSample) -> tuple[int, str]:
+    label_key = _action_key(sample.label_action)
+    legal_action_keys = [_action_key(action) for action in sample.legal_actions]
+    try:
+        label_index = legal_action_keys.index(label_key)
+    except ValueError as exc:
+        raise ValueError(f"label action missing from legal actions: {sample.sample_id}") from exc
+    return label_index, str(sample.label_action["kind"])
+
+
+def _float32_bytes(values: Iterable[float]) -> bytes:
+    encoded = array("f")
+    encoded.extend(float(value) for value in values)
+    if encoded.itemsize != 4:
+        raise RuntimeError("array('f') is not 32-bit on this platform")
+    return encoded.tobytes()
 
 
 class ManifestTurnDataset(Dataset):
@@ -187,18 +225,21 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
     decision_types: list[str] = []
 
     for batch_index, row in enumerate(rows):
-        _fill_turn_state_features(state_feats[batch_index], row["state"])
+        _copy_float32_feature_bytes(
+            state_feats[batch_index],
+            row["state_features_bin"],
+            expected_values=TURN_STATE_DIM,
+        )
         labels[batch_index] = _row_label_index(row)
-        feature_context = build_turn_discard_feature_context(row["state"])
+        candidate_count = len(row["legal_actions"])
 
-        for candidate_index, action in enumerate(row["legal_actions"]):
-            _fill_turn_action_features(
-                candidate_feats[batch_index, candidate_index],
-                action,
-                row["state"],
-                feature_context,
+        if candidate_count > 0:
+            _copy_float32_feature_bytes(
+                candidate_feats[batch_index, :candidate_count],
+                row["candidate_features_bin"],
+                expected_values=candidate_count * TURN_ACTION_DIM,
             )
-            candidate_mask[batch_index, candidate_index] = True
+            candidate_mask[batch_index, :candidate_count] = True
         label_kinds.append(str(row["label_kind"]))
         sample_ids.append(str(row["sample_id"]))
         game_ids.append(str(row["game_id"]))
@@ -244,12 +285,21 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
     decision_types: list[str] = []
 
     for batch_index, row in enumerate(rows):
-        _fill_response_state_features(state_feats[batch_index], row["state"])
+        _copy_float32_feature_bytes(
+            state_feats[batch_index],
+            row["state_features_bin"],
+            expected_values=RESPONSE_STATE_DIM,
+        )
         labels[batch_index] = _row_label_index(row)
+        candidate_count = len(row["legal_actions"])
 
-        for candidate_index, action in enumerate(row["legal_actions"]):
-            _fill_response_action_features(candidate_feats[batch_index, candidate_index], action)
-            candidate_mask[batch_index, candidate_index] = True
+        if candidate_count > 0:
+            _copy_float32_feature_bytes(
+                candidate_feats[batch_index, :candidate_count],
+                row["candidate_features_bin"],
+                expected_values=candidate_count * RESPONSE_ACTION_DIM,
+            )
+            candidate_mask[batch_index, :candidate_count] = True
         label_kinds.append(str(row["label_kind"]))
         sample_ids.append(str(row["sample_id"]))
         game_ids.append(str(row["game_id"]))
@@ -274,6 +324,17 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
         "actors": actors,
         "decision_types": decision_types,
     }
+
+
+def _copy_float32_feature_bytes(
+    target: torch.Tensor,
+    data: bytes,
+    expected_values: int,
+) -> None:
+    source = torch.frombuffer(bytearray(data), dtype=torch.float32)
+    if int(source.numel()) != expected_values:
+        raise ValueError(f"feature byte length mismatch: {source.numel()} != {expected_values}")
+    target.copy_(source.reshape(target.shape))
 
 
 def _load_turn_rows(manifest_path: Path) -> list[dict[str, object]]:
@@ -315,158 +376,6 @@ def _row_label_index(row: dict) -> int:
     return int(label_index)
 
 
-def _fill_turn_state_features(target: torch.Tensor, state: dict) -> None:
-    offset = 0
-    offset = _fill_exact_tile_counter(target, offset, state.get("hand", {}))
-
-    all_discards = state.get("all_discards", [])
-    for player_index in range(4):
-        player_discards = all_discards[player_index] if player_index < len(all_discards) else []
-        discard_counts: dict[str, int] = {}
-        for tile in player_discards:
-            discard_counts[tile] = discard_counts.get(tile, 0) + 1
-        offset = _fill_exact_tile_counter(target, offset, discard_counts)
-
-    offset = _fill_optional_tile(target, offset, state.get("last_discard_tile"))
-    offset = _fill_optional_actor(target, offset, state.get("last_discard_actor"))
-    offset = _fill_actor_onehot(target, offset, int(state.get("actor", 0)))
-    target[offset] = 1.0 if state.get("riichi_declared", False) else 0.0
-    offset += 1
-    target[offset] = 1.0 if state.get("temporary_furiten", False) else 0.0
-    offset += 1
-    target[offset] = 1.0 if state.get("riichi_furiten", False) else 0.0
-    offset += 1
-    _fill_own_meld_counts(target, offset, state.get("own_melds", []))
-    offset += 5
-    offset = _fill_actor_onehot(target, offset, int(state.get("dealer", 0)))
-    offset = _fill_actor_onehot(target, offset, int(state.get("seat_wind", 0)))
-    offset = _fill_dora_counts(target, offset, state)
-    offset = _fill_scores(target, offset, state.get("scores", []))
-    _fill_round_numeric(target, offset, state)
-
-
-def _fill_response_state_features(target: torch.Tensor, state: dict) -> None:
-    _fill_turn_state_features(target[:TURN_STATE_DIM], state)
-    offset = TURN_STATE_DIM
-    response_target = state.get("response_target", {})
-    offset = _fill_optional_actor(target, offset, response_target.get("source"))
-    _fill_optional_tile(target, offset, response_target.get("tile"))
-
-
-def _fill_turn_action_features(
-    target: torch.Tensor,
-    action: dict,
-    state: dict | None = None,
-    feature_context: dict | None = None,
-) -> None:
-    kind = str(action.get("kind", "unknown"))
-    try:
-        target[TURN_ACTION_KINDS.index(kind)] = 1.0
-    except ValueError:
-        target[TURN_ACTION_KINDS.index("unknown")] = 1.0
-
-    tile = action.get("tile")
-    if tile is not None:
-        target[len(TURN_ACTION_KINDS) + EXACT_TILE_INDEX[str(tile)]] = 1.0
-
-    feature_offset = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB)
-    target[feature_offset:] = target.new_tensor(
-        encode_turn_discard_features(action, state, feature_context)
-    )
-
-
-def _fill_response_action_features(target: torch.Tensor, action: dict) -> None:
-    kind = str(action.get("kind", "unknown"))
-    try:
-        target[RESPONSE_ACTION_KINDS.index(kind)] = 1.0
-    except ValueError:
-        target[RESPONSE_ACTION_KINDS.index("unknown")] = 1.0
-
-    offset = len(RESPONSE_ACTION_KINDS)
-    tile = action.get("tile")
-    if tile is not None:
-        target[offset + EXACT_TILE_INDEX[str(tile)]] = 1.0
-
-    source = action.get("source")
-    if source is not None:
-        target[offset + len(EXACT_TILE_VOCAB) + int(source)] = 1.0
-
-
-def _fill_exact_tile_counter(target: torch.Tensor, offset: int, counter: dict[str, int]) -> int:
-    for tile, count in counter.items():
-        index = EXACT_TILE_INDEX.get(tile)
-        if index is not None:
-            target[offset + index] = float(count)
-    return offset + len(EXACT_TILE_VOCAB)
-
-
-def _fill_optional_tile(target: torch.Tensor, offset: int, tile: str | None) -> int:
-    if tile is None:
-        target[offset + OPTIONAL_TILE_DIM - 1] = 1.0
-    else:
-        target[offset + EXACT_TILE_INDEX[tile]] = 1.0
-    return offset + OPTIONAL_TILE_DIM
-
-
-def _fill_optional_actor(target: torch.Tensor, offset: int, actor: int | None) -> int:
-    if actor is None:
-        target[offset + OPTIONAL_ACTOR_DIM - 1] = 1.0
-    else:
-        target[offset + int(actor)] = 1.0
-    return offset + OPTIONAL_ACTOR_DIM
-
-
-def _fill_actor_onehot(target: torch.Tensor, offset: int, actor: int) -> int:
-    target[offset + actor] = 1.0
-    return offset + ACTOR_DIM
-
-
-def _fill_own_meld_counts(target: torch.Tensor, offset: int, melds: list[dict]) -> None:
-    kinds = ["chi", "pon", "daiminkan", "ankan", "kakan"]
-    counts = {kind: 0.0 for kind in kinds}
-    for meld in melds:
-        kind = meld.get("kind")
-        if kind in counts:
-            counts[kind] += 1.0
-    for index, kind in enumerate(kinds):
-        target[offset + index] = counts[kind]
-
-
-def _fill_dora_counts(target: torch.Tensor, offset: int, state: dict) -> int:
-    for base_index in state.get("dora_base_indices", []):
-        target[offset + _base_index_to_exact_tile_index(int(base_index))] += 1.0
-    return offset + DORA_COUNTS_DIM
-
-
-def _fill_scores(target: torch.Tensor, offset: int, scores: list[int]) -> int:
-    for index, score in enumerate(scores[:SCORE_DIM]):
-        target[offset + index] = float(score) / 1000.0
-    return offset + SCORE_DIM
-
-
-def _fill_round_numeric(target: torch.Tensor, offset: int, state: dict) -> None:
-    values = [
-        min(1.0, float(state.get("turn_number", 0)) / 18.0),
-        min(1.0, float(state.get("remaining_draws_estimate", 0)) / 18.0),
-        min(1.0, float(state.get("honba", 0)) / 8.0),
-        min(1.0, float(state.get("riichi_sticks", 0)) / 8.0),
-    ]
-    for index, value in enumerate(values[:ROUND_NUMERIC_DIM]):
-        target[offset + index] = value
-
-
-def _base_index_to_exact_tile_index(base_index: int) -> int:
-    if base_index < 9:
-        tile = f"{base_index + 1}m"
-    elif base_index < 18:
-        tile = f"{base_index - 8}p"
-    elif base_index < 27:
-        tile = f"{base_index - 17}s"
-    else:
-        tile = f"{base_index - 26}z"
-    return EXACT_TILE_INDEX[tile]
-
-
 def _resolve_sample_parquet_files(dataset_path: Path) -> list[Path]:
     if dataset_path.is_file():
         if dataset_path.suffix != ".parquet":
@@ -506,7 +415,13 @@ def _build_inspected_sample(
     state = json.loads(str(row["state_json"]))
     label_key = _action_key(label_action)
     legal_action_keys = [_action_key(action) for action in legal_actions]
-    label_index = legal_action_keys.index(label_key) if label_key in legal_action_keys else None
+    label_index = int(_required_sample_field(row, "label_index"))
+    label_in_legal = (
+        0 <= label_index < len(legal_action_keys)
+        and legal_action_keys[label_index] == label_key
+    )
+    state_features_bin = bytes(_required_sample_field(row, "state_features_bin"))
+    candidate_features_bin = bytes(_required_sample_field(row, "candidate_features_bin"))
 
     return {
         "dataset_path": str(dataset_path.as_posix()),
@@ -520,8 +435,11 @@ def _build_inspected_sample(
         "actor": int(row["actor"]),
         "decision_type": row["decision_type"],
         "candidate_count": len(legal_actions),
-        "label_in_legal": label_index is not None,
+        "label_in_legal": label_in_legal,
         "label_index": label_index,
+        "label_kind": _required_sample_field(row, "label_kind"),
+        "state_feature_bytes": len(state_features_bin),
+        "candidate_feature_bytes": len(candidate_features_bin),
         "label_action": label_action,
         "legal_actions": legal_actions,
         "state": state,
@@ -531,12 +449,6 @@ def _build_inspected_sample(
 def _deserialize_dataset_row(row: dict[str, object]) -> dict[str, object]:
     legal_actions = json.loads(row["legal_actions_json"])
     label_action = json.loads(row["label_action_json"])
-    label_key = _action_key(label_action)
-    legal_action_keys = [_action_key(action) for action in legal_actions]
-    try:
-        label_index = legal_action_keys.index(label_key)
-    except ValueError as exc:
-        raise ValueError(f"label action missing from legal actions: {row['sample_id']}") from exc
 
     return {
         "sample_id": row["sample_id"],
@@ -548,6 +460,18 @@ def _deserialize_dataset_row(row: dict[str, object]) -> dict[str, object]:
         "state": json.loads(row["state_json"]),
         "legal_actions": legal_actions,
         "label_action": label_action,
-        "label_index": label_index,
-        "label_kind": str(label_action["kind"]),
+        "state_features_bin": bytes(_required_sample_field(row, "state_features_bin")),
+        "candidate_features_bin": bytes(_required_sample_field(row, "candidate_features_bin")),
+        "label_index": int(_required_sample_field(row, "label_index")),
+        "label_kind": str(_required_sample_field(row, "label_kind")),
     }
+
+
+def _required_sample_field(row: dict[str, object], field_name: str) -> object:
+    try:
+        return row[field_name]
+    except KeyError as exc:
+        raise ValueError(
+            f"sample parquet is missing '{field_name}'; rebuild data/silver_samples "
+            "with the current build-dataset command and regenerate manifests"
+        ) from exc

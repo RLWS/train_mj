@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-04-29`
+更新时间：`2026-05-02`
 
 ## 1. 总体判断
 
@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `84 passed`。
+- `pytest` 全量通过，当前结果为 `93 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -95,12 +95,13 @@
   - `bronze_events` 预处理器已实现。
   - 事件分片回放校验器已实现。
   - `turn` 与 `response` 样本构建器已实现，当前真实夹具已产出 `tsumo`、`ankan` 与 `kyuushu_kyuuhai` 的 `turn` 样本，`kakan` 与 `chankan` 也已进入合法动作与样本构建链路。
-  - `build-dataset` 已支持 `--workers N` 并行处理事件分片，当前实现使用线程池以避开 Windows 进程池启动和权限问题。
+  - `build-dataset` 已支持 `--workers N` 并行处理事件分片，优先使用进程池；当 Windows 环境触发进程池限制时会回退到线程池。
   - Parquet 写出与 manifest 生成已实现。
   - 事件分布、动作分布、split 样本统计和 warning 已实现第一版。
 - `mjai/data/datasets/`
-  - manifest 数据集会在初始化时预反序列化样本 JSON，并预计算 `label_index / label_kind`，避免训练 batch 阶段重复做 JSON 解析和合法动作字符串比对。
-  - `turn/response` batch collator 已改为可 pickle 的类，支持 Windows DataLoader 多 worker；collate 阶段直接填充 tensor，减少大量小 tensor 构造。
+  - `build-dataset` 写出的 parquet 已包含 `state_features_bin`、`candidate_features_bin`、`label_index` 和 `label_kind`；训练和评估阶段不再逐 epoch 重新编码状态/动作特征。
+  - `turn` discard 的向听数、有效牌、形状摘要等候选特征已经移到样本构建阶段离线计算，避免 DataLoader worker 在训练期反复执行 CPU 密集的规则搜索。
+  - manifest 数据集会在初始化时预反序列化样本 JSON，并读取预编码特征二进制；旧 schema 的 `silver_samples` 需要重新运行 `build-dataset` / `make-manifest` 后才能训练。
 - `configs/`
   - 数据、任务、模型、训练配置目录已建立。
 - `mjai/features/`
@@ -109,8 +110,8 @@
   - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
   - 已有最小训练循环、`turn/response` 标签样本加权 loss、总体与宏平均 accuracy、按动作类别和主类/非主类分组的训练指标、checkpoint 落盘。
-  - 已支持 `pin_memory`、`persistent_workers`、`prefetch_factor` 和 CUDA `non_blocking` 传输；本地 smoke 配置已从串行小 batch 调整为更适合 GPU 试跑的起点。
-  - 已支持由 `train.log_every_n_steps` 控制的 batch 进度日志，输出 batch 进度、单 batch 耗时、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA。
+  - 已支持 `pin_memory`、`persistent_workers`、`prefetch_factor` 和 CUDA `non_blocking` 传输；Windows 本地 smoke 配置默认 `num_workers: 0`，避免 spawn worker 复制整份内存数据集。
+  - 已支持由 `train.log_every_n_steps` 控制的 batch 进度日志，输出 batch 进度、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA。
 - `mjai/eval/`
   - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
   - 已支持按动作类别、主类/非主类分组、候选规模分桶与首批错例导出。
@@ -192,7 +193,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 更长训练轮数与更可靠的 eval report 留存
 - 训练过程中的动作分布、候选规模和非法标签质量闸门
 - 类别不均衡下的自动权重估计、采样均衡和少数类错例聚合
-- 更高吞吐的数据格式：当前仍需从 JSON 样本构造特征，若 4000+ 局训练时 GPU 仍长期低利用率，应优先考虑离线预编码 state/action 特征或更大模型/batch，而不是继续只调 DataLoader 参数。
+- 更高吞吐的数据格式后续方向：当前已经完成 state/action 特征离线预编码，下一步应根据 `data_wait`、GPU 利用率和内存占用决定是否继续推进 mmap/Arrow streaming 数据集，而不是回到训练期规则特征重算。
 - 根据错例聚合决定是否回补规则
 
 ## 5. 阶段结论

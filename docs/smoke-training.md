@@ -9,9 +9,7 @@
 - `inspect-sample`：看单条样本
 - `dump-case`：回到原始事件上下文
 
-适用目录：
-
-- 仓库根目录 [train_mj](F:\Code\AI\train_study\train_mj)
+适用目录：仓库根目录。
 
 ## 1. 你会得到什么
 
@@ -29,7 +27,7 @@
 确保当前终端位于仓库根目录：
 
 ```powershell
-cd F:\Code\AI\train_study\train_mj
+cd <repo-root>
 ```
 
 当前流程依赖本地可用的 Python / PyTorch 环境。
@@ -47,18 +45,20 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 
 这里推荐先单独跑 `validate-events`，确认 `files_failed=0` 后，再在 `build-dataset` 使用 `--skip-validation`，避免同一批事件在构建样本时重复回放校验。`build-dataset` 现在会输出 `elapsed_s`、`games_per_s` 和 `samples_per_s`，可以直接用来判断构建吞吐。
 
+当前 `silver_samples` parquet 会写入离线预编码的 `state_features_bin` 和 `candidate_features_bin`。`turn` 的 discard hand-shape 特征，包括向听数、有效牌数量等 CPU 密集计算，已经从训练期 DataLoader 移到 `build-dataset` 阶段。更新到这个 schema 后，旧的 `data/silver_samples` 需要删除或覆盖后重新生成，并重新执行 `make-manifest`。
+
 执行完成后会得到：
 
-- 事件分片目录：[data/bronze_events](F:\Code\AI\train_study\train_mj\data\bronze_events)
-- 事件校验报告：[smoke_event_validation.json](F:\Code\AI\train_study\train_mj\outputs\reports\smoke_event_validation.json)
-- 样本分片目录：[data/silver_samples](F:\Code\AI\train_study\train_mj\data\silver_samples)
-- manifest 目录：[data/manifests](F:\Code\AI\train_study\train_mj\data\manifests)
+- 事件分片目录：[data/bronze_events](../data/bronze_events)
+- 事件校验报告：[outputs/reports/smoke_event_validation.json](../outputs/reports/smoke_event_validation.json)
+- 样本分片目录：[data/silver_samples](../data/silver_samples)
+- manifest 目录：[data/manifests](../data/manifests)
 
 最关键的文件是：
 
-- [train.jsonl](F:\Code\AI\train_study\train_mj\data\manifests\train.jsonl)
-- [valid.jsonl](F:\Code\AI\train_study\train_mj\data\manifests\valid.jsonl)
-- [test.jsonl](F:\Code\AI\train_study\train_mj\data\manifests\test.jsonl)
+- [train.jsonl](../data/manifests/train.jsonl)
+- [valid.jsonl](../data/manifests/valid.jsonl)
+- [test.jsonl](../data/manifests/test.jsonl)
 
 这一步对应的含义是：
 
@@ -82,6 +82,8 @@ python -m mjai.cli build-dataset --input data/bronze_events --output data/silver
 
 `build-dataset` 现在优先使用进程池并行，适合 CPU 密集的规则回放和合法动作生成。可以试 `--workers 32`、`48`、`64`，取 `samples_per_s` 最高且机器负载稳定的值。
 
+因为候选特征已经离线预编码，训练阶段不再需要用很多 DataLoader worker 做特征计算。Windows 本地配置默认 `num_workers: 0`，主要避免 worker spawn 后复制整份 manifest 数据集；Linux/P800 上可以从较小的 worker 数起步，再看训练日志里的 `data_wait` 是否仍然明显。
+
 ## 4. 第二步：跑 turn smoke train
 
 命令：
@@ -92,7 +94,7 @@ python -m mjai.cli train --config configs/turn_local_smoke.yaml
 
 配置文件：
 
-- [turn_local_smoke.yaml](F:\Code\AI\train_study\train_mj\configs\turn_local_smoke.yaml)
+- [turn_local_smoke.yaml](../configs/turn_local_smoke.yaml)
 
 这个配置默认读取：
 
@@ -101,8 +103,8 @@ python -m mjai.cli train --config configs/turn_local_smoke.yaml
 
 默认输出位置：
 
-- checkpoint：[turn_local_smoke](F:\Code\AI\train_study\train_mj\outputs\checkpoints\turn_local_smoke)
-- log：[turn_local_smoke](F:\Code\AI\train_study\train_mj\outputs\logs\turn_local_smoke)
+- checkpoint：[outputs/checkpoints/turn_local_smoke](../outputs/checkpoints/turn_local_smoke)
+- log：[outputs/logs/turn_local_smoke](../outputs/logs/turn_local_smoke)
 
 重点看这些文件：
 
@@ -125,12 +127,12 @@ python -m mjai.cli train --config configs/response_local_smoke.yaml
 
 配置文件：
 
-- [response_local_smoke.yaml](F:\Code\AI\train_study\train_mj\configs\response_local_smoke.yaml)
+- [response_local_smoke.yaml](../configs/response_local_smoke.yaml)
 
 默认输出位置：
 
-- checkpoint：[response_local_smoke](F:\Code\AI\train_study\train_mj\outputs\checkpoints\response_local_smoke)
-- log：[response_local_smoke](F:\Code\AI\train_study\train_mj\outputs\logs\response_local_smoke)
+- checkpoint：[outputs/checkpoints/response_local_smoke](../outputs/checkpoints/response_local_smoke)
+- log：[outputs/logs/response_local_smoke](../outputs/logs/response_local_smoke)
 
 和 `turn` 一样，至少确认这些文件存在：
 

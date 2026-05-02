@@ -14,7 +14,7 @@ model:
 train:
   device: auto
   batch_size: 1024
-  num_workers: 2
+  num_workers: 0
   valid_num_workers: 0
   pin_memory: true
   persistent_workers: true

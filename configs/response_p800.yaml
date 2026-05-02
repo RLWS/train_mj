@@ -1,0 +1,34 @@
+defaults:
+  - data: tenhou_4p_red
+  - model: encoder_base
+  - task: response
+  - train: p800_single
+
+seed: 20260423
+exp_name: response_p800
+output_dir: outputs/checkpoints/response_p800
+log_dir: outputs/logs/response_p800
+
+data:
+  train_manifest: data/manifests/train.jsonl
+  valid_manifest: data/manifests/valid.jsonl
+  candidate_limit: 16
+
+model:
+  hidden_size: 256
+
+train:
+  batch_size: 2048
+  num_workers: 16
+  valid_num_workers: 4
+  log_every_n_steps: 20
+  epochs: 10
+  lr: 0.001
+  weight_decay: 0.0001
+  response_class_weights:
+    pass: 1.0
+    chi: 8.0
+    pon: 8.0
+    daiminkan: 8.0
+    ron: 12.0
+    chankan: 12.0
