@@ -33,6 +33,23 @@ def test_response_sample_label_is_in_legal_actions():
         assert sample.label_action in sample.legal_actions
 
 
+def test_response_sample_label_after_open_meld_clears_temporary_furiten():
+    parser = TenhouParser()
+    builder = ResponseSampleBuilder()
+    path = FIXTURE_DIR / "2023011001gm-00a9-0000-ef310a72.xml"
+
+    samples = builder.build_samples(parser.parse_file(path))
+    target_sample = next(
+        sample
+        for sample in samples
+        if sample.sample_id == "2023011001gm-00a9-0000-ef310a72:8:102:3:response"
+    )
+
+    assert target_sample.state["temporary_furiten"] is False
+    assert target_sample.label_action["kind"] == "ron"
+    assert target_sample.label_action in target_sample.legal_actions
+
+
 def test_response_samples_include_non_pass_labels():
     parser = TenhouParser()
     builder = ResponseSampleBuilder()

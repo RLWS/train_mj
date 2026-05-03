@@ -199,6 +199,7 @@ class GameState:
                     consumed_tiles=tuple(consumed_tiles),
                 )
             )
+            self.temporary_furiten[actor] = False
             self.last_discard_actor = None
             self.last_discard_tile = None
             return

@@ -131,6 +131,24 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
 
     epochs = int(config.get("train", {}).get("epochs", 1))
+    _print_training_start(
+        task_name=task_name,
+        device=device,
+        output_dir=output_dir,
+        log_dir=log_dir,
+        train_dataset=train_dataset,
+        valid_dataset=valid_dataset,
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        train_config=train_config,
+        model_config=config.get("model", {}),
+        candidate_limit=candidate_limit,
+        pin_memory=pin_memory,
+        train_num_workers=train_num_workers,
+        valid_num_workers=valid_num_workers,
+        log_every_n_steps=log_every_n_steps,
+        epochs=epochs,
+    )
     epoch_summaries: list[dict[str, Any]] = []
     best_valid_accuracy = float("-inf")
     best_valid_loss = float("inf")
@@ -414,6 +432,55 @@ def _build_collate_fn(task_name: str, candidate_limit: int):
     if task_name == "turn":
         return TurnBatchCollator(candidate_limit=candidate_limit)
     return ResponseBatchCollator(candidate_limit=candidate_limit)
+
+
+def _print_training_start(
+    task_name: str,
+    device: torch.device,
+    output_dir: Path,
+    log_dir: Path,
+    train_dataset,
+    valid_dataset,
+    train_loader: DataLoader,
+    valid_loader: DataLoader | None,
+    train_config: dict[str, Any],
+    model_config: dict[str, Any],
+    candidate_limit: int,
+    pin_memory: bool,
+    train_num_workers: int,
+    valid_num_workers: int,
+    log_every_n_steps: int,
+    epochs: int,
+) -> None:
+    valid_samples = 0 if valid_dataset is None else len(valid_dataset)
+    valid_batches = 0 if valid_loader is None else len(valid_loader)
+    print(
+        "[train] starting "
+        f"task={task_name} "
+        f"device={device} "
+        f"cuda_available={torch.cuda.is_available()} "
+        f"xpu_available={_xpu_is_available()} "
+        f"epochs={epochs} "
+        f"train_samples={len(train_dataset)} "
+        f"valid_samples={valid_samples} "
+        f"train_batches={len(train_loader)} "
+        f"valid_batches={valid_batches} "
+        f"batch_size={int(train_config.get('batch_size', 32))} "
+        f"candidate_limit={candidate_limit} "
+        f"num_workers={train_num_workers} "
+        f"valid_num_workers={valid_num_workers} "
+        f"pin_memory={pin_memory} "
+        f"persistent_workers={bool(train_config.get('persistent_workers', True)) if train_num_workers > 0 else False} "
+        f"prefetch_factor={int(train_config.get('prefetch_factor', 2)) if train_num_workers > 0 else 0} "
+        f"hidden_size={int(model_config.get('hidden_size', 128))} "
+        f"dropout={float(model_config.get('dropout', 0.1))} "
+        f"lr={float(train_config.get('lr', 1e-3))} "
+        f"weight_decay={float(train_config.get('weight_decay', 0.0))} "
+        f"log_every_n_steps={log_every_n_steps} "
+        f"output_dir={output_dir} "
+        f"log_dir={log_dir}",
+        flush=True,
+    )
 
 
 def _worker_loader_kwargs(train_config: dict[str, Any], num_workers: int) -> dict[str, Any]:

@@ -71,6 +71,31 @@ def test_draw_clears_temporary_furiten_only():
     assert state.riichi_furiten[0] is True
 
 
+def test_open_meld_clears_temporary_furiten_only():
+    state = GameState(
+        hands=[
+            HandState.from_tiles(["5m", "5m"]),
+            HandState.from_tiles(["5m"]),
+            HandState(),
+            HandState(),
+        ]
+    )
+    state.apply_discard(actor=1, tile="5m")
+    state.temporary_furiten[0] = True
+    state.riichi_furiten[0] = True
+
+    state.apply_meld(
+        actor=0,
+        kind="pon",
+        source=1,
+        called_tile="5m",
+        consumed_tiles=["5m", "5m"],
+    )
+
+    assert state.temporary_furiten[0] is False
+    assert state.riichi_furiten[0] is True
+
+
 def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
     state = GameState()
     state.riichi_declared[0] = True

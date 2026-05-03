@@ -135,6 +135,15 @@ def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, caps
     assert main(["train", "--config", str(config_path)]) == 0
 
     captured = capsys.readouterr()
+    assert "[train] starting task=turn" in captured.out
+    assert "device=cpu" in captured.out
+    assert "train_samples=" in captured.out
+    assert "valid_samples=" in captured.out
+    assert "train_batches=" in captured.out
+    assert "valid_batches=" in captured.out
+    assert "batch_size=64" in captured.out
+    assert "num_workers=0" in captured.out
+    assert "output_dir=" in captured.out
     assert "[train] epoch=1 split=train batch=" in captured.out
     assert "batch_time=" in captured.out
     assert "data_wait=" in captured.out
