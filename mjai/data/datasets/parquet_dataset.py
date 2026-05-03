@@ -14,7 +14,7 @@ from mjai.data.schema.samples import TurnSample
 from mjai.features.action_features import (
     RESPONSE_ACTION_DIM,
     TURN_ACTION_DIM,
-    encode_response_action,
+    encode_response_candidate_actions,
     encode_turn_candidate_actions,
 )
 from mjai.features.state_features import (
@@ -85,7 +85,7 @@ def _encode_training_features(sample: TurnSample) -> tuple[list[float], list[lis
     if sample.decision_type == "response":
         return (
             encode_response_state(sample.state),
-            [encode_response_action(action) for action in sample.legal_actions],
+            encode_response_candidate_actions(sample.legal_actions, sample.state),
         )
     if sample.decision_type == "turn":
         return (

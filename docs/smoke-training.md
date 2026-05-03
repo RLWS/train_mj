@@ -319,6 +319,8 @@ python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-i
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。
 
+注意：response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `candidate_features_bin` 的维度会和当前模型不匹配。
+
 如果你再多走一步，把评估也跑上：
 
 ```powershell

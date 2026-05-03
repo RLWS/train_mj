@@ -13,7 +13,9 @@ from mjai.features.state_features import (
     encode_turn_state,
 )
 from mjai.features.action_features import (
+    RESPONSE_ACTION_DIM,
     RESPONSE_ACTION_KINDS,
+    RESPONSE_CALL_FEATURE_DIM,
     TURN_ACTION_KINDS,
     TURN_DISCARD_FEATURE_DIM,
     encode_response_action,
@@ -46,6 +48,85 @@ def test_encode_response_action_supports_chankan():
     vector = encode_response_action({"kind": "chankan", "tile": "5m", "source": 1})
 
     assert vector[RESPONSE_ACTION_KINDS.index("chankan")] == 1.0
+    assert len(vector) == RESPONSE_ACTION_DIM
+
+
+def test_encode_response_action_adds_call_shape_features():
+    state = {
+        "actor": 0,
+        "hand": {
+            "2m": 1,
+            "4m": 1,
+            "5m": 1,
+            "6m": 1,
+            "7m": 1,
+            "2p": 1,
+            "3p": 1,
+            "4p": 1,
+            "5p": 2,
+            "6p": 1,
+            "5z": 2,
+        },
+        "all_discards": [[], [], [], []],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "last_discard_actor": 3,
+        "last_discard_tile": "3m",
+        "response_target": {"source": 3, "tile": "3m"},
+        "dora_base_indices": [4],
+        "turn_number": 8,
+        "remaining_draws_estimate": 10,
+    }
+
+    vector = encode_response_action(
+        {"kind": "chi", "tile": "3m", "source": 3, "consumed_tiles": ["2m", "4m"]},
+        state,
+    )
+
+    assert len(vector) == RESPONSE_ACTION_DIM
+    call_features = vector[-RESPONSE_CALL_FEATURE_DIM:]
+    assert call_features[0] == 1.0
+    assert call_features[1] == 1.0
+    assert call_features[4] != 0.0
+    assert call_features[20] == 1.0
+    assert call_features[27] == 8 / 18
+
+
+def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
+    state = {
+        "actor": 1,
+        "hand": {"0p": 1, "5p": 1, "5z": 2, "1m": 1, "2m": 1, "3m": 1},
+        "all_discards": [[], [], [], []],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "last_discard_actor": 0,
+        "last_discard_tile": "5z",
+        "response_target": {"source": 0, "tile": "5z"},
+        "dealer": 0,
+        "seat_wind": 1,
+        "dora_base_indices": [13],
+        "turn_number": 3,
+        "remaining_draws_estimate": 15,
+    }
+
+    pon_vector = encode_response_action(
+        {"kind": "pon", "tile": "5z", "source": 0, "consumed_tiles": ["5z", "5z"]},
+        state,
+    )
+    red_vector = encode_response_action(
+        {"kind": "pon", "tile": "5p", "source": 0, "consumed_tiles": ["0p", "5p"]},
+        state,
+    )
+
+    pon_features = pon_vector[-RESPONSE_CALL_FEATURE_DIM:]
+    red_features = red_vector[-RESPONSE_CALL_FEATURE_DIM:]
+    assert pon_features[16] == 1.0
+    assert red_features[11] == 1.0
+    assert red_features[12] == 1.0
 
 
 def test_encode_turn_state_includes_furiten_flags():

@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `95 passed`。
+- `pytest` 全量通过，当前结果为 `97 passed`。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -54,7 +54,7 @@
   - 首批错例样本的 label、top-k 预测、legal actions，以及可直接执行的 `inspect-sample` / `dump-case` 跳转命令
   - JSON 评估报告
 - response 评估报告已补充 response 专用诊断：`single_candidate` / `multi_candidate`、`pass` vs `non_pass` precision / recall / F1、`false_call_rate`、`missed_call_rate`、候选集合聚合与 `label->pred` confusion。
-- 2026-05-03 response 重训已完成并记录在 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：训练过滤后保留 `141423 / 1490034` 条 response 训练样本；`best.pt` 在 valid/test 上分别达到 `multi_candidate top1=0.7766/0.7804`、`non_pass_f1=0.6135/0.6218`、`false_call_rate=0.0174/0.0170`。
+- 2026-05-03 response action feature 增强后复训已完成并记录在 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：训练过滤后保留 `141423 / 1490034` 条 response 训练样本；最新 `best.pt` 在 valid/test 上分别达到 `multi_candidate top1=0.8521/0.8502`、`multi_candidate macro top1=0.7882/0.8697`、`non_pass_f1=0.7215/0.7189`、`false_call_rate=0.0111/0.0111`、`missed_call_rate=0.1425/0.1466`。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
@@ -108,13 +108,14 @@
   - 数据、任务、模型、训练配置目录已建立。
 - `mjai/features/`
   - 已有最小 `turn/response` 状态特征与动作特征编码。
+  - response 候选动作特征已补充第一版 call 收益/代价信息：叫牌前后向听、有效牌数量、有效牌枚数、赤牌/dora 消耗、对子/搭子消耗、役牌碰、chi 形状、巡目和剩余巡目。
 - `mjai/models/`
   - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
   - 已有最小训练循环、`turn/response` 标签样本加权 loss、总体与宏平均 accuracy、按动作类别和主类/非主类分组的训练指标、checkpoint 落盘。
   - response 训练已支持 `train.response_min_train_candidate_count`，当前 response smoke / P800 配置默认用 `2` 过滤训练集中的 pass-only 单候选样本；valid/test 评估仍保留全量样本。
-- response 的 `best.pt` / `best_response.pt` 现在按 `non_pass_f1 - false_call_rate` 选择，避免只被 overall accuracy 或 pass-only 样本支配；`best_accuracy.pt`、`best_loss.pt`、`best_macro.pt` 仍保留。
-  - 2026-05-03 重训显示当前选择标准会偏向保守 response：false call 降低，但 `chi/pon` 漏叫上升。下一轮需要对 checkpoint selection、类别权重和 response action 特征做对照实验。
+  - response 的 `best.pt` / `best_response.pt` 现在按 `non_pass_f1 - false_call_rate` 选择，避免只被 overall accuracy 或 pass-only 样本支配；`best_accuracy.pt`、`best_loss.pt`、`best_macro.pt` 仍保留。
+  - 2026-05-03 action feature 增强后复训显示 response 已经达到进入更大数据 baseline 的门槛：false call 与 missed call 同时下降，`chi/pon` top1 也有明确提升。下一轮先在 20 万局数据上验证当前配置，不要同时改 checkpoint selection、类别权重或模型结构。
   - 已支持 `pin_memory`、`persistent_workers`、`prefetch_factor` 和 CUDA `non_blocking` 传输；Windows 本地 smoke 配置默认 `num_workers: 0`，避免 spawn worker 复制整份内存数据集。
   - 已支持由 `train.log_every_n_steps` 控制的 batch 进度日志，输出 batch 进度、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA。
 - `mjai/eval/`
@@ -207,6 +208,12 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 更高吞吐的数据格式后续方向：当前已经完成 state/action 特征离线预编码，下一步应根据 `data_wait`、GPU 利用率和内存占用决定是否继续推进 mmap/Arrow streaming 数据集，而不是回到训练期规则特征重算。
 - 根据错例聚合决定是否回补规则
 
+数据兼容性与 20 万局训练提醒：
+
+- response action feature 维度已变化，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配当前 `RESPONSE_ACTION_DIM`。下一轮 response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
+- 可以开始 20 万局训练，但第一阶段应限定为“全量数据构建 + 当前单任务 baseline”。先跑 `response_p800.yaml` 和 `turn_p800.yaml` 建立基线；不要在同一轮混入 8 卡 DDP、多任务联合训练或复杂模型结构改造。
+- 20 万局 response baseline 的优先验收指标是：`label_action not in legal_actions = 0`、valid/test `multi_candidate top1` 接近当前 `0.85` 基线、`non_pass_f1 >= 0.70`、`false_call_rate <= 0.015`、`missed_call_rate <= 0.16`。
+
 ## 5. 阶段结论
 
 如果按原始路线图划分，当前可以认为：
@@ -226,7 +233,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议按下面顺序推进：训练先行，规则边界按证据回补。
 
-### 任务 1：扩大数据构建与质量闸门
+### 任务 1：20 万局数据构建与质量闸门
 
 目标：
 
@@ -234,7 +241,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. 扩大输入牌谱规模，跑通 `preprocess / validate-events / build-dataset --workers N / make-manifest`
+1. 扩大输入牌谱到 20 万局，跑通 `preprocess / validate-events / build-dataset --workers N / make-manifest`
 2. 汇总构建失败率、非法标签率、动作分布、候选规模分布和 split 样本数
 3. 对失败样本只保留轻量定位信息，依赖 `inspect-sample` 和 `dump-case` 回溯上下文
 
@@ -244,14 +251,15 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 非法标签率和构建失败率有明确统计。
 - 发现的高频失败能定位到具体 `game_id / kyoku_index / step_index`。
 
-### 任务 2：深入训练当前 `turn/response` baseline
+### 任务 2：训练当前 `turn/response` 20 万局 baseline
 
 建议范围：
 
-1. 增大训练数据量、epoch、hidden size 和 batch 配置
-2. 分别训练 `turn` 与 `response`，固定输出 `train_metrics.json`、checkpoint 和 eval report
-3. 对比不同配置的 loss、top-k accuracy、per-kind 指标和候选规模分桶
-4. 记录可复现实验配置，避免只看单次 smoke 结果
+1. 先保持当前 `turn_p800.yaml` / `response_p800.yaml` 配置，分别训练 `turn` 与 `response`
+2. 固定输出 `train_metrics.json`、checkpoint、valid eval report 和 test eval report
+3. response 先对照当前 4k 基线：`multi_candidate top1≈0.85`、`non_pass_f1≈0.72`、`false_call_rate≈0.011`
+4. turn 先建立大数据 exact top1 / top3 / macro top1 基线，再决定是否扩大 hidden size 或加特征
+5. 记录可复现实验配置，避免只看单次 smoke 结果
 
 ### 任务 3：规则边界按训练反馈回补
 

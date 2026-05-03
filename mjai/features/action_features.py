@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from mjai.features.state_features import EXACT_TILE_INDEX, EXACT_TILE_VOCAB
-from mjai.rules.hand_checker import effective_tile_base_indices_from_counts, shanten_number_from_counts
+from mjai.rules.hand_checker import (
+    effective_tile_base_indices_from_counts,
+    effective_tile_base_indices_from_counts_with_fixed_melds,
+    shanten_number_from_counts,
+    standard_shanten_from_counts_with_fixed_melds,
+)
 from mjai.rules.tiles import AKA_BASE_INDICES, dora_from_indicator, tile_to_base_index
 
 
@@ -9,7 +14,13 @@ TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "ky
 TURN_DISCARD_FEATURE_DIM = 25
 TURN_ACTION_DIM = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + TURN_DISCARD_FEATURE_DIM
 RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "unknown")
-RESPONSE_ACTION_DIM = len(RESPONSE_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + 4
+RESPONSE_CALL_FEATURE_DIM = 29
+RESPONSE_ACTION_DIM = (
+    len(RESPONSE_ACTION_KINDS)
+    + len(EXACT_TILE_VOCAB)
+    + 4
+    + RESPONSE_CALL_FEATURE_DIM
+)
 
 
 def encode_turn_action(
@@ -40,7 +51,11 @@ def encode_turn_candidate_actions(actions: list[dict], state: dict) -> list[list
     return [encode_turn_action(action, state, context) for action in actions]
 
 
-def encode_response_action(action: dict) -> list[float]:
+def encode_response_action(
+    action: dict,
+    state: dict | None = None,
+    context: dict | None = None,
+) -> list[float]:
     vector = [0.0] * RESPONSE_ACTION_DIM
 
     kind = str(action.get("kind", "unknown"))
@@ -57,7 +72,16 @@ def encode_response_action(action: dict) -> list[float]:
     source = action.get("source")
     if source is not None:
         vector[offset + len(EXACT_TILE_VOCAB) + int(source)] = 1.0
+    feature_offset = offset + len(EXACT_TILE_VOCAB) + 4
+    call_features = encode_response_call_features(action, state, context)
+    vector[feature_offset : feature_offset + RESPONSE_CALL_FEATURE_DIM] = call_features
     return vector
+
+
+def encode_response_candidate_actions(actions: list[dict], state: dict) -> list[list[float]]:
+    """Encode all response candidates for one sample, sharing hand-shape context once."""
+    context = build_response_call_feature_context(state)
+    return [encode_response_action(action, state, context) for action in actions]
 
 
 def build_turn_discard_feature_context(state: dict | None) -> dict | None:
@@ -69,6 +93,99 @@ def build_turn_discard_feature_context(state: dict | None) -> dict | None:
         "current_shanten": shanten_number_from_counts(tuple(counts)),
         "dora_bases": _dora_base_indices(state),
     }
+
+
+def build_response_call_feature_context(state: dict | None) -> dict | None:
+    if state is None:
+        return None
+    counts = _hand_counts_from_state(state)
+    current_effective_tiles = effective_tile_base_indices_from_counts(tuple(counts))
+    return {
+        "counts": counts,
+        "current_shanten": shanten_number_from_counts(tuple(counts)),
+        "current_effective_tiles": current_effective_tiles,
+        "current_effective_tile_copies": _effective_tile_copies(counts, current_effective_tiles),
+        "dora_bases": _dora_base_indices(state),
+    }
+
+
+def encode_response_call_features(
+    action: dict,
+    state: dict | None,
+    context: dict | None = None,
+) -> list[float]:
+    """Encode response candidate features that describe call value and cost."""
+    features = [0.0] * RESPONSE_CALL_FEATURE_DIM
+    if state is None:
+        return features
+    if context is None:
+        context = build_response_call_feature_context(state)
+    assert context is not None
+
+    kind = str(action.get("kind", "unknown"))
+    counts = list(context["counts"])
+    current_shanten = int(context["current_shanten"])
+    current_effective_tiles = context["current_effective_tiles"]
+    current_effective_tile_copies = int(context["current_effective_tile_copies"])
+    target_tile = action.get("tile") or state.get("response_target", {}).get("tile")
+    target_base = tile_to_base_index(str(target_tile)) if target_tile is not None else None
+    consumed_tiles = [str(tile) for tile in action.get("consumed_tiles", [])]
+    dora_bases = context["dora_bases"]
+
+    after_counts = list(counts)
+    action_is_call = kind in {"chi", "pon", "daiminkan"}
+    call_is_valid = action_is_call and _can_apply_response_call(after_counts, consumed_tiles)
+    if call_is_valid:
+        for tile in consumed_tiles:
+            after_counts[tile_to_base_index(tile)] -= 1
+        after_counts_tuple = tuple(after_counts)
+        fixed_melds_after_call = _fixed_melds_after_response_call(state)
+        after_shanten = standard_shanten_from_counts_with_fixed_melds(
+            after_counts_tuple,
+            fixed_melds_after_call,
+        )
+        after_effective_tiles = effective_tile_base_indices_from_counts_with_fixed_melds(
+            after_counts_tuple,
+            fixed_melds_after_call,
+        )
+        after_effective_tile_copies = _effective_tile_copies(after_counts, after_effective_tiles)
+        after_shape = _shape_summary(after_counts)
+    else:
+        after_shanten = current_shanten
+        after_effective_tiles = current_effective_tiles
+        after_effective_tile_copies = current_effective_tile_copies
+        after_shape = _shape_summary(after_counts)
+
+    features[0] = 1.0 if action_is_call else 0.0
+    features[1] = 1.0 if call_is_valid else 0.0
+    features[2] = _scale_shanten(current_shanten)
+    features[3] = _scale_shanten(after_shanten)
+    features[4] = float(current_shanten - after_shanten)
+    features[5] = min(1.0, len(current_effective_tiles) / 34.0)
+    features[6] = min(1.0, len(after_effective_tiles) / 34.0)
+    features[7] = _scale_delta(len(after_effective_tiles) - len(current_effective_tiles), 34.0)
+    features[8] = min(1.0, current_effective_tile_copies / 136.0)
+    features[9] = min(1.0, after_effective_tile_copies / 136.0)
+    features[10] = _scale_delta(after_effective_tile_copies - current_effective_tile_copies, 136.0)
+    features[11] = 1.0 if any(tile.startswith("0") for tile in consumed_tiles) else 0.0
+    features[12] = 1.0 if _action_consumes_dora(consumed_tiles, dora_bases) else 0.0
+    features[13] = 1.0 if target_base is not None and target_base in dora_bases else 0.0
+    features[14] = 1.0 if _consumes_pair(counts, consumed_tiles) else 0.0
+    features[15] = 1.0 if _breaks_taatsu(counts, consumed_tiles) else 0.0
+    features[16] = 1.0 if kind == "pon" and target_base is not None and _is_yakuhai(state, target_base) else 0.0
+    features[17] = 1.0 if target_base is not None and _is_terminal(target_base) else 0.0
+    features[18] = 1.0 if target_base is not None and _is_honor(target_base) else 0.0
+    features[19] = 1.0 if kind == "chi" and _chi_shape(action) == "ryanmen" else 0.0
+    features[20] = 1.0 if kind == "chi" and _chi_shape(action) == "closed_wait" else 0.0
+    features[21] = 1.0 if kind == "chi" and _chi_shape(action) == "edge_wait" else 0.0
+    features[22] = min(1.0, after_shape["complete_sets"] / 4.0)
+    features[23] = min(1.0, after_shape["pairs"] / 7.0)
+    features[24] = min(1.0, after_shape["ryanmen"] / 8.0)
+    features[25] = min(1.0, after_shape["closed_waits"] / 8.0)
+    features[26] = min(1.0, after_shape["isolated"] / 14.0)
+    features[27] = min(1.0, float(state.get("turn_number", 0)) / 18.0)
+    features[28] = min(1.0, float(state.get("remaining_draws_estimate", 0)) / 18.0)
+    return features
 
 
 def encode_turn_discard_features(
@@ -135,6 +252,92 @@ def _hand_counts_from_state(state: dict) -> list[int]:
     for tile, count in state.get("hand", {}).items():
         counts[tile_to_base_index(str(tile))] += int(count)
     return counts
+
+
+def _can_apply_response_call(counts: list[int], consumed_tiles: list[str]) -> bool:
+    if not consumed_tiles:
+        return False
+    available_counts = list(counts)
+    for tile in consumed_tiles:
+        base_index = tile_to_base_index(tile)
+        if available_counts[base_index] <= 0:
+            return False
+        available_counts[base_index] -= 1
+    return True
+
+
+def _fixed_melds_after_response_call(state: dict) -> int:
+    return min(4, len(state.get("own_melds", [])) + 1)
+
+
+def _effective_tile_copies(counts: list[int], effective_tiles) -> int:
+    return sum(max(0, 4 - counts[index]) for index in effective_tiles)
+
+
+def _scale_delta(value: int | float, denominator: float) -> float:
+    return max(-1.0, min(1.0, float(value) / denominator))
+
+
+def _action_consumes_dora(consumed_tiles: list[str], dora_bases: set[int]) -> bool:
+    return any(tile_to_base_index(tile) in dora_bases or tile.startswith("0") for tile in consumed_tiles)
+
+
+def _consumes_pair(counts: list[int], consumed_tiles: list[str]) -> bool:
+    consumed_bases = {tile_to_base_index(tile) for tile in consumed_tiles}
+    return any(counts[base_index] >= 2 for base_index in consumed_bases)
+
+
+def _breaks_taatsu(counts: list[int], consumed_tiles: list[str]) -> bool:
+    consumed_bases = {tile_to_base_index(tile) for tile in consumed_tiles}
+    for base_index in consumed_bases:
+        if base_index >= 27:
+            continue
+        suit_offset = (base_index // 9) * 9
+        for neighbor in (base_index - 2, base_index - 1, base_index + 1, base_index + 2):
+            if suit_offset <= neighbor < suit_offset + 9 and counts[neighbor] > 0:
+                return True
+    return False
+
+
+def _is_yakuhai(state: dict, base_index: int) -> bool:
+    if base_index < 27:
+        return False
+    honor = base_index - 27
+    if 4 <= honor <= 6:
+        return True
+    seat_wind = int(state.get("seat_wind", -1))
+    dealer = int(state.get("dealer", -1))
+    actor = int(state.get("actor", -1))
+    round_wind = int(state.get("round_wind", 0))
+    if honor == seat_wind:
+        return True
+    if honor == round_wind:
+        return True
+    return honor == ((actor - dealer) % 4)
+
+
+def _chi_shape(action: dict) -> str:
+    if str(action.get("kind", "")) != "chi":
+        return "none"
+    tiles = [action.get("tile"), *action.get("consumed_tiles", [])]
+    if any(tile is None for tile in tiles):
+        return "none"
+    base_indices = sorted(tile_to_base_index(str(tile)) for tile in tiles)
+    if len(base_indices) != 3 or base_indices[-1] - base_indices[0] != 2:
+        return "none"
+    if base_indices[0] >= 27:
+        return "none"
+
+    target_base = tile_to_base_index(str(action["tile"]))
+    start_rank = base_indices[0] % 9
+    target_rank = target_base % 9
+    if target_rank == start_rank + 1:
+        return "closed_wait"
+    if start_rank == 0 and target_rank == 2:
+        return "edge_wait"
+    if start_rank == 6 and target_rank == 6:
+        return "edge_wait"
+    return "ryanmen"
 
 
 def _shape_summary(counts: list[int]) -> dict[str, int]:

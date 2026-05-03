@@ -1,6 +1,6 @@
 # Turn / Response 训练分析记录
 
-更新时间：`2026-05-02`
+更新时间：`2026-05-03`
 
 本文记录当前 `outputs/checkpoints/turn_local_smoke` 与 `outputs/checkpoints/response_local_smoke` 两次训练的结果分析，以及下一轮使用 20 万局数据和 8 张 P800 的改进方向。
 
@@ -378,3 +378,203 @@ test confusion 与 valid 基本一致：
 
 - 保守模型：当前 epoch 10 `best.pt`，false call 低，适合先接入推理安全线。
 - 积极模型：epoch 3 或后续 recall-oriented 配置，适合分析 `chi/pon` recall 上限。
+
+## 8. 2026-05-03 response action 特征增强
+
+本轮按“先补候选动作特征，不改模型结构”的方向实现了第一版 response candidate feature 扩展。
+
+新增内容：
+
+- `RESPONSE_ACTION_DIM` 增加一组 `RESPONSE_CALL_FEATURE_DIM`。
+- response 样本构建阶段离线写入增强后的 `candidate_features_bin`。
+- 新增 response 候选特征包括：
+  - call 前当前向听数。
+  - call 后按固定副露数计算的标准形向听数。
+  - `shanten_delta`。
+  - call 前后有效牌种类数、有效牌枚数及 delta。
+  - 是否消耗赤牌、dora、目标牌是否 dora。
+  - 是否消耗对子、是否拆搭子。
+  - `pon` 是否碰役牌。
+  - `chi` 形状：两面、嵌张、边张。
+  - call 后面子数、对子数、两面、坎张/边张、孤张摘要。
+  - 巡目和剩余巡目。
+
+实现约束：
+
+- 不改变合法动作生成。
+- 不改变模型结构。
+- 不改变 response 训练过滤策略。
+- 继续使用离线预编码，训练期不重新计算规则特征。
+
+重要兼容性：
+
+由于 `RESPONSE_ACTION_DIM` 已变化，旧 `data/silver_samples` 中的 response `candidate_features_bin` 会和当前代码不匹配。下一轮训练前必须重建：
+
+```bash
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 32 --skip-validation
+python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
+```
+
+建议下一次实验只比较“特征增强前后”的差异，先不要同时改 class weight：
+
+- 配置保持当前 `response_local_smoke.yaml`。
+- 训练 `10` epoch。
+- 重点观察：
+  - `multi_candidate top1`
+  - `multi_candidate macro top1`
+  - `chi top1`
+  - `pon top1`
+  - `non_pass_f1`
+  - `false_call_rate`
+  - `missed_call_rate`
+
+如果增强特征有效，期望是：
+
+- `multi_candidate macro top1` 从 `0.7162` 往 `0.74+` 提升。
+- `chi top1` 从 `0.58` 附近往 `0.62+` 提升。
+- `pon top1` 从 `0.83` 附近往 `0.86+` 提升。
+- `false_call_rate` 维持在 `2.5%` 以下。
+
+## 9. 2026-05-03 response 特征增强后复训结果
+
+本轮是第 8 节 response action feature 增强后的复训结果。训练配置保持 `configs/response_local_smoke.yaml` 不变：
+
+- checkpoint 目录：`outputs/checkpoints/response_local_smoke`
+- 训练配置：`hidden_size=128`，`batch_size=1024`，`epochs=10`
+- 训练过滤：`response_min_train_candidate_count=2`
+- 训练样本：从 `1490034` 条 response train 样本过滤到 `141423` 条，过滤 `1348611` 条 pass-only 单候选样本。
+- 最新复评报告：
+  - `outputs/checkpoints/response_local_smoke/eval_valid_best_feature_2026-05-03.json`
+  - `outputs/checkpoints/response_local_smoke/eval_test_best_feature_2026-05-03.json`
+
+注意：`eval_valid_best_2026-05-03.json` 和 `eval_test_best_2026-05-03.json` 是 19:41 生成的旧报告，早于本轮 21:55 的最新 checkpoint，不应再作为本轮结论。
+
+### 9.1 与特征增强前对比
+
+增强前结果指第 7 节中过滤 pass-only 后、但尚未补 response action feature 的 2026-05-03 复训结果；增强后结果来自本轮最新 `best.pt`。
+
+| 指标 | 增强前 valid | 增强后 valid | 增强前 test | 增强后 test |
+|---|---:|---:|---:|---:|
+| overall top1 | `0.9788` | `0.9859` | `0.9793` | `0.9859` |
+| macro top1 | `0.7515` | `0.8107` | `0.7597` | `0.8925` |
+| multi-candidate top1 | `0.7766` | `0.8521` | `0.7804` | `0.8502` |
+| multi-candidate macro top1 | `0.7162` | `0.7882` | `0.7248` | `0.8697` |
+| non-pass precision | `0.4962` | `0.6228` | `0.5040` | `0.6210` |
+| non-pass recall | `0.8034` | `0.8575` | `0.8114` | `0.8534` |
+| non-pass F1 | `0.6135` | `0.7215` | `0.6218` | `0.7189` |
+| false call rate | `0.0174` | `0.0111` | `0.0170` | `0.0111` |
+| missed call rate | `0.1966` | `0.1425` | `0.1886` | `0.1466` |
+| chi top1 | `0.5822` | `0.6455` | `0.5778` | `0.6303` |
+| pon top1 | `0.8334` | `0.8963` | `0.8434` | `0.8895` |
+| ron top1 | `1.0000` | `1.0000` | `1.0000` | `1.0000` |
+
+结论：
+
+- response action feature 增强有效，并且超过了第 8 节的预期目标：valid `multi_candidate macro top1=0.7882`、`chi top1=0.6455`、`pon top1=0.8963`，同时 `false_call_rate=1.11%`。
+- valid/test 一致性很好：test `multi_candidate top1=0.8502`、`non_pass_f1=0.7189`、`false_call_rate=1.11%`，说明这轮提升不是只吃到了 valid split。
+- 这轮不再是“降低 false call 但明显牺牲漏叫”的状态。增强前 valid `missed_call_rate=19.66%`，增强后降到 `14.25%`；test 也从 `18.86%` 降到 `14.66%`。
+- `ron` 仍然满分，核心难点继续集中在 `chi/pon` 是否值得叫，以及 pass hard negative。
+
+`macro top1` 尤其 test 的 `0.8925` 会受 `chankan/daiminkan` 这类极少样本波动影响，后续判断 response 质量仍应优先看 `multi_candidate`、`non_pass F1`、`false_call_rate`、`missed_call_rate`、`chi/pon top1`。
+
+### 9.2 epoch 与 checkpoint 选择
+
+最新 `train_metrics.json` 显示 `best.pt`、`best_response.pt`、`best_accuracy.pt` 都选择 valid epoch 10：
+
+| 指标 | epoch 10 valid |
+|---|---:|
+| valid loss | `0.0954` |
+| overall top1 | `0.9859` |
+| macro top1 | `0.8104` |
+| multi-candidate top1 | `0.8521` |
+| multi-candidate macro top1 | `0.7882` |
+| non-pass F1 | `0.7215` |
+| false call rate | `0.0111` |
+| missed call rate | `0.1425` |
+| response score (`non_pass_f1 - false_call_rate`) | `0.7104` |
+
+训练曲线的主要变化是：随着 epoch 增加，模型从“更积极叫牌”变成“更会区分 pass hard negative”。epoch 1 的 `missed_call_rate=0.0741` 更低，但 `false_call_rate=0.0240`、`non_pass_precision=0.4514`，误叫偏多；epoch 10 将 false call 压到 `0.0111`，同时 non-pass F1 提到 `0.7215`。因此当前 checkpoint selection 对本轮是合理的。
+
+仍需保留的风险是：如果后续目标是更积极的副露风格，单纯最大化 `non_pass_f1 - false_call_rate` 可能仍偏保守。下一轮在 20 万局上先不要改 selection，等拿到大数据 baseline 后再决定是否加入 `chi/pon recall` 下限。
+
+### 9.3 当前错误结构
+
+最新 valid confusion：
+
+| label -> pred | count |
+|---|---:|
+| `pass -> chi` | `967` |
+| `pass -> pon` | `1015` |
+| `pass -> ron` | `60` |
+| `pass -> daiminkan` | `32` |
+| `chi -> pass` | `383` |
+| `pon -> pass` | `181` |
+| `chi -> chi` | `810` |
+| `pon -> pon` | `1582` |
+| `ron -> ron` | `1019` |
+
+最新 test confusion：
+
+| label -> pred | count |
+|---|---:|
+| `pass -> chi` | `1014` |
+| `pass -> pon` | `1009` |
+| `pass -> ron` | `64` |
+| `pass -> daiminkan` | `34` |
+| `chi -> pass` | `395` |
+| `pon -> pass` | `201` |
+| `chi -> chi` | `781` |
+| `pon -> pon` | `1642` |
+| `ron -> ron` | `1030` |
+
+相比增强前，false call 与 missed call 同时下降。剩余错例中，`pass -> chi/pon` 仍是最大量，说明下一阶段最有价值的错例分析不是再盲目加特征，而是抽样看 false call 是否符合牌谱玩家风格，还是模型缺少防守/点况/他家威胁信息。
+
+### 9.4 是否可以开始 20 万局训练
+
+可以开始，但建议把“开始 20 万局训练”限定为：**全量数据构建 + 当前单任务 baseline 训练**，而不是直接进入 8 卡 DDP、多任务联合训练或复杂模型。
+
+理由：
+
+- 数据链路已经在 4233 局上验证过 `files_failed=0`、非法标签率 `0.00%`。
+- response 最新本地复训已经通过目标门槛：`multi_candidate top1≈0.85`、`non_pass_f1≈0.72`、`false_call_rate≈1.1%`，valid/test 稳定。
+- response action feature 维度已变，20 万局训练本来就必须重建 `silver_samples`，现在正适合作为新的数据版本基线。
+- 当前工程尚未真正实现 8 卡 DDP / 多任务 batch 混合；`configs/train/p800_ddp.yaml` 仍应视为配置骨架，不应把分布式工程风险和模型效果评估混在同一轮。
+
+建议 20 万局第一阶段命令：
+
+```bash
+python -m mjai.cli preprocess --input data/raw_xml --output data/bronze_events
+python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/event_validation_20w.json
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 32 --skip-validation
+python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
+
+python -m mjai.cli train --config configs/response_p800.yaml
+python -m mjai.cli eval --ckpt outputs/checkpoints/response_p800/best.pt --split valid --report outputs/checkpoints/response_p800/eval_valid_best.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/response_p800/best.pt --split test --report outputs/checkpoints/response_p800/eval_test_best.json
+```
+
+P800 上 `build-dataset --workers` 可从 `32` 起步，再根据 CLI 输出的 `samples_per_s` 试 `48` 或 `64`。第一轮 response baseline 先用 `configs/response_p800.yaml`，不要同时改 class weight、selection score 或模型结构。
+
+20 万局 response baseline 的最低验收建议：
+
+- `validate-events` 的 `files_failed=0` 或失败原因可解释且占比极低。
+- `label_action not in legal_actions` 继续为 `0`。
+- valid/test `multi_candidate top1` 不低于本地基线太多，建议先看 `>=0.84`。
+- valid/test `non_pass_f1 >= 0.70`。
+- `false_call_rate <= 0.015`。
+- `missed_call_rate <= 0.16`。
+- `chi top1 >= 0.62`，`pon top1 >= 0.88`。
+
+如果 20 万局的分布和当前 4233 局不同，阈值可以放宽，但必须解释差异来自数据分布还是模型退化。
+
+### 9.5 下一阶段任务
+
+优先级建议如下：
+
+1. 先跑 20 万局数据构建，产出 `preprocess_summary.json`、`event_validation_20w.json`、`build_summary.json` 和 manifest split 统计。
+2. 用当前 `response_p800.yaml` 跑 response 单任务 baseline，并固定保存 valid/test eval report。
+3. 再跑 `turn_p800.yaml`，建立同一份 20 万局数据上的 turn baseline。
+4. 对 response false call / missed call 各抽样 `50-100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源，重点看防守信息、点况信息和玩家风格差异。
+5. 在 20 万局单任务 baseline 稳定后，再实现真正的 `task: multitask`、DDP、bf16 autocast、grad accumulation 和 step eval/save。
+
+短期不要继续在 4k 局上反复调 response 权重。当前 4k 结果已经足够支持进入 20 万局 baseline；继续小数据调参会开始过度贴合当前 split。

@@ -78,6 +78,65 @@ def effective_tile_base_indices_from_counts(counts: tuple[int, ...]) -> frozense
 
 
 @lru_cache(maxsize=1_000_000)
+def standard_shanten_from_counts_with_fixed_melds(
+    counts: tuple[int, ...],
+    fixed_melds: int,
+) -> int:
+    """Return standard-hand shanten while treating open melds as completed sets."""
+    fixed_meld_count = max(0, min(4, int(fixed_melds)))
+    option_groups = (
+        _suit_shanten_options(counts[0:9]),
+        _suit_shanten_options(counts[9:18]),
+        _suit_shanten_options(counts[18:27]),
+        _honor_shanten_options(counts[27:34]),
+    )
+    best = 8
+    for first in option_groups[0]:
+        for second in option_groups[1]:
+            first_second = (
+                first[0] + second[0],
+                first[1] + second[1],
+                first[2] + second[2],
+            )
+            for third in option_groups[2]:
+                first_three = (
+                    first_second[0] + third[0],
+                    first_second[1] + third[1],
+                    first_second[2] + third[2],
+                )
+                for fourth in option_groups[3]:
+                    closed_melds = first_three[0] + fourth[0]
+                    taatsu = first_three[1] + fourth[1]
+                    pairs = first_three[2] + fourth[2]
+                    melds = min(4, closed_melds + fixed_meld_count)
+                    pair_count = min(1, pairs)
+                    extra_pair_taatsu = max(0, pairs - pair_count)
+                    useful_taatsu = min(taatsu + extra_pair_taatsu, max(0, 4 - melds))
+                    best = min(best, 8 - 2 * melds - useful_taatsu - pair_count)
+    return best
+
+
+@lru_cache(maxsize=1_000_000)
+def effective_tile_base_indices_from_counts_with_fixed_melds(
+    counts: tuple[int, ...],
+    fixed_melds: int,
+) -> frozenset[int]:
+    current_shanten = standard_shanten_from_counts_with_fixed_melds(counts, fixed_melds)
+    improving_tiles: set[int] = set()
+    for base_index, count in enumerate(counts):
+        if count >= 4:
+            continue
+        next_counts = list(counts)
+        next_counts[base_index] += 1
+        if (
+            standard_shanten_from_counts_with_fixed_melds(tuple(next_counts), fixed_melds)
+            < current_shanten
+        ):
+            improving_tiles.add(base_index)
+    return frozenset(improving_tiles)
+
+
+@lru_cache(maxsize=1_000_000)
 def _is_agari_counts(counts: tuple[int, ...]) -> bool:
     total_tiles = sum(counts)
     if total_tiles % 3 != 2:
