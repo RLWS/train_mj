@@ -21,6 +21,10 @@ OPTIONAL_TILE_DIM = EXACT_TILE_DIM + 1
 OPTIONAL_ACTOR_DIM = 5  # four seats plus one "missing" bucket
 ACTOR_DIM = 4
 
+# Keep this layout in sync with docs/model-inputs.md. These vectors are
+# serialized into parquet as float32 bytes, so dimension or order changes require
+# rebuilding data/silver_samples and manifests.
+#
 # encode_turn_state layout:
 # hand counts | 4 players' discard counts | last discard tile | last discard actor |
 # current actor | riichi flag | furiten flags | own meld kind counts | round context
@@ -60,15 +64,20 @@ RESPONSE_STATE_DIM = TURN_STATE_DIM + RESPONSE_TARGET_SOURCE_DIM + RESPONSE_TARG
 
 def encode_turn_state(state: dict) -> list[float]:
     features: list[float] = []
+    # 37 exact-tile hand counts. Red fives use their own exact-tile slots.
     features.extend(_encode_exact_tile_counter(state.get("hand", {})))
 
     all_discards = state.get("all_discards", [])
+    # Four discard-count blocks, one per player. This is count-based history;
+    # discard order is not encoded yet.
     for player_discards in all_discards[:4]:
         discard_counts: dict[str, int] = {}
         for tile in player_discards:
             discard_counts[tile] = discard_counts.get(tile, 0) + 1
         features.extend(_encode_exact_tile_counter(discard_counts))
 
+    # Optional last-discard context is useful for turn decisions after calls and
+    # keeps the state vector shape shared with response state.
     last_discard_tile = state.get("last_discard_tile")
     features.extend(_encode_optional_tile(last_discard_tile))
     features.extend(_encode_optional_actor(state.get("last_discard_actor")))
@@ -87,6 +96,8 @@ def encode_turn_state(state: dict) -> list[float]:
 
 def encode_response_state(state: dict) -> list[float]:
     features = encode_turn_state(state)
+    # Response adds the pending discard/kakan target to the common turn-state
+    # prefix so pass/chi/pon/ron candidates are scored against the same target.
     response_target = state.get("response_target", {})
     features.extend(_encode_optional_actor(response_target.get("source")))
     features.extend(_encode_optional_tile(response_target.get("tile")))

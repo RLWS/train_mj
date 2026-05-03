@@ -27,6 +27,8 @@ class TurnHead(nn.Module):
         candidate_hidden: torch.Tensor,
         candidate_mask: torch.Tensor,
     ) -> torch.Tensor:
+        # Broadcast one encoded state to every legal candidate, then score each
+        # candidate-state pair independently.
         expanded_state = state_hidden.unsqueeze(1).expand_as(candidate_hidden)
         joint = torch.cat(
             [
@@ -38,4 +40,6 @@ class TurnHead(nn.Module):
             dim=-1,
         )
         logits = self.scorer(joint).squeeze(-1)
+        # Padding candidates are impossible choices and must not participate in
+        # argmax or cross entropy.
         return logits.masked_fill(~candidate_mask, -1e9)

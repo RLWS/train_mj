@@ -29,6 +29,9 @@ class MahjongEncoder(nn.Module):
         state_feats: torch.Tensor,
         candidate_feats: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        # state_feats: [B, state_dim] -> [B, H]
+        # candidate_feats: [B, C, action_dim] -> [B, C, H]; nn.Linear applies
+        # over the last dimension and preserves the candidate axis.
         state_hidden = self.state_encoder(state_feats)
         candidate_hidden = self.action_encoder(candidate_feats)
         return state_hidden, candidate_hidden

@@ -6,10 +6,11 @@
 
 1. [status.md](status.md)：当前项目状态、已验证结果、主要缺口和下一步任务。
 2. [smoke-training.md](smoke-training.md)：用夹具数据跑通预处理、构建样本、训练、评估和调试链路。
-3. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：当前 turn / response 训练效果分析，以及 20 万局 + 8 张 P800 的下一轮实验建议。
-4. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
-5. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
-6. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。
+3. [model-inputs.md](model-inputs.md)：当前 turn / response 模型输入张量、维度和特征语义。
+4. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：当前 turn / response 训练效果分析，以及 20 万局 + 8 张 P800 的下一轮实验建议。
+5. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
+6. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
+7. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。
 
 ## 命名说明
 
@@ -18,3 +19,4 @@
 - `status.md` 原为 `PROJECT_STATUS.md`，作为当前事实来源。
 - `rule-coverage.md` 原为 `RULE_COVERAGE.md`，记录规则边界。
 - `smoke-training.md` 原为 `SMOKE_TRAIN_TUTORIAL.md`，记录本地 smoke 工作流。
+- `model-inputs.md` 记录当前模型输入 schema；修改 state/action feature 维度时必须同步更新。

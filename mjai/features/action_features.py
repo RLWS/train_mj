@@ -11,6 +11,8 @@ from mjai.rules.tiles import AKA_BASE_INDICES, dora_from_indicator, tile_to_base
 
 
 TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "kyuushu_kyuuhai", "unknown")
+# Candidate action layouts are documented in docs/model-inputs.md. These dims
+# are serialized into parquet, so changing them requires rebuilding samples.
 TURN_DISCARD_FEATURE_DIM = 25
 TURN_ACTION_DIM = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + TURN_DISCARD_FEATURE_DIM
 RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "unknown")
@@ -28,6 +30,8 @@ def encode_turn_action(
     state: dict | None = None,
     context: dict | None = None,
 ) -> list[float]:
+    # Layout: action kind one-hot | action tile one-hot | discard-candidate features.
+    # Non-discard turn actions leave the discard-candidate block as zero.
     vector = [0.0] * TURN_ACTION_DIM
 
     kind = str(action.get("kind", "unknown"))
@@ -56,6 +60,9 @@ def encode_response_action(
     state: dict | None = None,
     context: dict | None = None,
 ) -> list[float]:
+    # Layout: response kind one-hot | target tile one-hot | source actor one-hot
+    # | call/context features. Pass/ron/chankan still receive context features
+    # so they can be compared with call candidates in the same legal set.
     vector = [0.0] * RESPONSE_ACTION_DIM
 
     kind = str(action.get("kind", "unknown"))
@@ -88,6 +95,8 @@ def build_turn_discard_feature_context(state: dict | None) -> dict | None:
     if state is None:
         return None
     counts = _hand_counts_from_state(state)
+    # Shared once per sample so each discard candidate does not rerun the same
+    # current-hand shanten and dora extraction.
     return {
         "counts": counts,
         "current_shanten": shanten_number_from_counts(tuple(counts)),
@@ -100,6 +109,8 @@ def build_response_call_feature_context(state: dict | None) -> dict | None:
         return None
     counts = _hand_counts_from_state(state)
     current_effective_tiles = effective_tile_base_indices_from_counts(tuple(counts))
+    # Shared once per response sample. Candidate-specific encoding only mutates
+    # a copy for the call being evaluated.
     return {
         "counts": counts,
         "current_shanten": shanten_number_from_counts(tuple(counts)),
@@ -134,6 +145,8 @@ def encode_response_call_features(
 
     after_counts = list(counts)
     action_is_call = kind in {"chi", "pon", "daiminkan"}
+    # For calls, after_* features simulate consuming the tiles and adding one
+    # fixed meld. For pass/ron/chankan, after_* intentionally equals current.
     call_is_valid = action_is_call and _can_apply_response_call(after_counts, consumed_tiles)
     if call_is_valid:
         for tile in consumed_tiles:
@@ -208,6 +221,8 @@ def encode_turn_discard_features(
     if counts[base_index] <= 0:
         return features
 
+    # Candidate-specific discard features simulate the hand after throwing this
+    # exact tile. They are the main signal for choosing among discard candidates.
     after_counts = list(counts)
     after_counts[base_index] -= 1
     after_counts_tuple = tuple(after_counts)

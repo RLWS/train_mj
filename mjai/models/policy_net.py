@@ -8,7 +8,12 @@ from mjai.models.heads.turn_head import TurnHead
 
 
 class MahjongPolicyNet(nn.Module):
-    """First-pass policy network supporting turn candidate ranking."""
+    """Candidate-ranking policy for turn or response batches.
+
+    The batch contract is documented in docs/model-inputs.md:
+    state_feats=[B, state_dim], candidate_feats=[B, C, action_dim],
+    candidate_mask=[B, C], labels=[B].
+    """
 
     def __init__(
         self,
@@ -28,6 +33,7 @@ class MahjongPolicyNet(nn.Module):
         self.response_head = TurnHead(hidden_size=hidden_size, dropout=dropout)
 
     def forward_turn(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        # Returns logits over legal turn candidates with shape [B, C].
         state_hidden, candidate_hidden = self.encoder(
             batch["state_feats"],
             batch["candidate_feats"],
@@ -39,6 +45,7 @@ class MahjongPolicyNet(nn.Module):
         )
 
     def forward_response(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        # Same candidate-ranking contract as turn, but using response dimensions.
         state_hidden, candidate_hidden = self.encoder(
             batch["state_feats"],
             batch["candidate_feats"],
