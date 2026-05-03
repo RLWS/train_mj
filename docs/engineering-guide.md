@@ -584,6 +584,8 @@ ruleset_id
 - 同一模型可切 `turn`、`response`、`multitask`
 - checkpoint 可单独评估各 head
 
+当前实现说明：模型类已经暴露共享 encoder + `turn_head` / `response_head` 接口，但训练入口目前只支持单任务 `turn` / `response`。`task: multitask` 的 batch 混合、loss 聚合和真正的共享 encoder 联合训练仍未实现。response 训练优化只作用于 response 数据过滤、response 指标和 response checkpoint 选择，不改变 turn 训练路径。
+
 ### Task 9：训练机适配
 
 产出：

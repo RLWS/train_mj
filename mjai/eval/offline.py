@@ -19,6 +19,7 @@ from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
+from mjai.training.metrics import ResponseDiagnostics, ResponseMetricsAccumulator
 from mjai.utils.device import normalize_device_name
 from mjai.utils.paths import ensure_dir
 
@@ -100,6 +101,7 @@ class EvalSummary:
     per_kind: dict[str, EvalKindSummary]
     class_groups: dict[str, EvalKindSummary]
     candidate_buckets: dict[str, EvalBucketSummary]
+    response: ResponseDiagnostics | None
     misclassified_examples: list[MisclassifiedExample]
 
 
@@ -162,6 +164,7 @@ def evaluate_checkpoint(
     group_hits: dict[str, dict[int, int]] = {}
     bucket_totals: dict[str, int] = {}
     bucket_hits: dict[str, dict[int, int]] = {}
+    response_metrics = ResponseMetricsAccumulator() if task_name == "response" else None
     misclassified_examples: list[MisclassifiedExample] = []
 
     with torch.no_grad():
@@ -189,6 +192,7 @@ def evaluate_checkpoint(
             total_samples += batch_size_actual
 
             ranks = _compute_label_ranks(logits, prepared_batch["labels"])
+            predictions = logits.argmax(dim=1)
             for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
                 rank = int(ranks[batch_index].item())
                 candidate_count = int(prepared_batch["candidate_counts"][batch_index])
@@ -211,6 +215,18 @@ def evaluate_checkpoint(
                     kind_hits[label_kind][k] += hit
                     group_hits[group_name][k] += hit
                     bucket_hits[bucket_name][k] += hit
+
+                if response_metrics is not None:
+                    legal_actions = prepared_batch["legal_actions"][batch_index]
+                    predicted_index = int(predictions[batch_index].item())
+                    predicted_action = legal_actions[predicted_index]
+                    response_metrics.update(
+                        label_kind=label_kind,
+                        predicted_kind=str(predicted_action.get("kind", "unknown")),
+                        candidate_kinds=[str(action.get("kind", "unknown")) for action in legal_actions],
+                        candidate_count=candidate_count,
+                        label_rank=rank,
+                    )
 
                 if rank > 1 and len(misclassified_examples) < max_misclassified_examples:
                     sample_id = str(prepared_batch["sample_ids"][batch_index])
@@ -293,6 +309,7 @@ def evaluate_checkpoint(
             )
             for bucket, count in sorted(bucket_totals.items())
         },
+        response=None if response_metrics is None else response_metrics.summary(),
         misclassified_examples=misclassified_examples,
     )
     resolved_report_path.write_text(

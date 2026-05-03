@@ -284,6 +284,14 @@ python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt 
 - `candidate_buckets`
 - `misclassified_examples`
 
+response checkpoint 还会额外输出 `response` 诊断块，重点看：
+
+- `multi_candidate`：排除 pass-only 单候选后的 top-k / macro top-k。
+- `binary.non_pass_precision / non_pass_recall / non_pass_f1`。
+- `binary.false_call_rate`：真实 pass 但模型选择 chi/pon/ron 等响应的比例。
+- `binary.missed_call_rate`：真实 chi/pon/ron 等响应但模型选择 pass 的比例。
+- `candidate_sets` 与 `confusion`：按候选集合和 `label->pred` 聚合错法。
+
 其中 `misclassified_examples` 现在已经带有：
 
 - 样本定位信息：`sample_id / game_id / kyoku_index / step_index / actor`
@@ -308,6 +316,8 @@ python -m mjai.cli train --config configs/response_local_smoke.yaml
 python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
 python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-id 0 --step-id 2
 ```
+
+`configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。
 
 如果你再多走一步，把评估也跑上：
 

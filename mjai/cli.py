@@ -116,7 +116,16 @@ def _run_train(args: argparse.Namespace) -> int:
             f"valid_macro_accuracy={summary.valid_macro_accuracy:.4f}"
         )
     print(f"device={summary.used_device}")
+    if summary.filtered_train_samples > 0:
+        print(
+            "training_filter="
+            f"original_train_samples={summary.original_train_samples} "
+            f"filtered_train_samples={summary.filtered_train_samples} "
+            f"kept_train_samples={summary.train_samples}"
+        )
     print(f"best_checkpoint={summary.best_checkpoint}")
+    if summary.best_response_checkpoint is not None:
+        print(f"best_response_checkpoint={summary.best_response_checkpoint}")
     print(f"best_loss_checkpoint={summary.best_loss_checkpoint}")
     print(f"best_macro_checkpoint={summary.best_macro_checkpoint}")
     print(f"final_checkpoint={summary.final_checkpoint}")
@@ -152,6 +161,22 @@ def _run_eval(args: argparse.Namespace) -> int:
             for group, group_summary in sorted(summary.class_groups.items())
         )
         print(f"class_group_top1={class_groups}")
+    if summary.response is not None:
+        response = summary.response
+        print(
+            "response_multi_candidate="
+            f"samples={response.multi_candidate.samples} "
+            f"top1={response.multi_candidate.top1_accuracy:.4f} "
+            f"macro_top1={response.multi_candidate.macro_top1_accuracy:.4f}"
+        )
+        print(
+            "response_binary="
+            f"non_pass_precision={response.binary.non_pass_precision:.4f} "
+            f"non_pass_recall={response.binary.non_pass_recall:.4f} "
+            f"non_pass_f1={response.binary.non_pass_f1:.4f} "
+            f"false_call_rate={response.binary.false_call_rate:.4f} "
+            f"missed_call_rate={response.binary.missed_call_rate:.4f}"
+        )
     return 0
 
 

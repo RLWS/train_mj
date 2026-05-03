@@ -130,9 +130,21 @@ class ManifestTurnDataset(Dataset):
 class ManifestResponseDataset(Dataset):
     """In-memory response dataset loaded from manifest-listed parquet shards."""
 
-    def __init__(self, manifest_path: str | Path) -> None:
+    def __init__(self, manifest_path: str | Path, min_candidate_count: int = 1) -> None:
         self.manifest_path = Path(manifest_path)
-        self.rows = _load_response_rows(self.manifest_path)
+        self.min_candidate_count = int(min_candidate_count)
+        if self.min_candidate_count < 1:
+            raise ValueError(
+                f"min_candidate_count must be >= 1, got: {self.min_candidate_count}"
+            )
+        rows = _load_response_rows(self.manifest_path)
+        self.original_rows = len(rows)
+        self.rows = [
+            row
+            for row in rows
+            if len(row["legal_actions"]) >= self.min_candidate_count
+        ]
+        self.filtered_rows = self.original_rows - len(self.rows)
 
     def __len__(self) -> int:
         return len(self.rows)

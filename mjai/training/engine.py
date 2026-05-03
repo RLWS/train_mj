@@ -23,6 +23,11 @@ from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
+from mjai.training.metrics import (
+    ResponseDiagnostics,
+    ResponseMetricsAccumulator,
+    response_selection_score,
+)
 from mjai.utils.config import dump_yaml
 from mjai.utils.device import normalize_device_name
 from mjai.utils.paths import ensure_dir
@@ -47,6 +52,7 @@ class EpochSummary:
     samples: int
     per_kind: dict[str, LabelMetricSummary]
     class_groups: dict[str, LabelMetricSummary]
+    response: ResponseDiagnostics | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -61,7 +67,10 @@ class TrainSummary:
     valid_macro_accuracy: float | None
     train_samples: int
     valid_samples: int
+    original_train_samples: int
+    filtered_train_samples: int
     best_checkpoint: str
+    best_response_checkpoint: str | None
     best_loss_checkpoint: str
     best_macro_checkpoint: str
     final_checkpoint: str
@@ -80,10 +89,20 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     log_dir = ensure_dir(config.get("log_dir", "outputs/logs/turn_smoke"))
     dump_yaml(output_dir / "config.resolved.yaml", config)
 
-    train_dataset = _build_dataset(task_name, config["data"]["train_manifest"])
+    train_dataset = _build_dataset(
+        task_name,
+        config["data"]["train_manifest"],
+        train_config=config.get("train", {}),
+        split="train",
+    )
     valid_manifest = config.get("data", {}).get("valid_manifest")
     valid_dataset = (
-        _build_dataset(task_name, valid_manifest)
+        _build_dataset(
+            task_name,
+            valid_manifest,
+            train_config=config.get("train", {}),
+            split="valid",
+        )
         if valid_manifest and Path(valid_manifest).exists()
         else None
     )
@@ -153,10 +172,12 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     best_valid_accuracy = float("-inf")
     best_valid_loss = float("inf")
     best_valid_macro_accuracy = float("-inf")
+    best_response_selection_score = float("-inf")
     best_checkpoint_path = output_dir / "best.pt"
     best_accuracy_checkpoint_path = output_dir / "best_accuracy.pt"
     best_loss_checkpoint_path = output_dir / "best_loss.pt"
     best_macro_checkpoint_path = output_dir / "best_macro.pt"
+    best_response_checkpoint_path = output_dir / "best_response.pt"
     final_checkpoint_path = output_dir / "final.pt"
 
     last_train_summary: EpochSummary | None = None
@@ -194,19 +215,55 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
 
             if last_valid_summary.accuracy >= best_valid_accuracy:
                 best_valid_accuracy = last_valid_summary.accuracy
-                _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_valid_summary)
-                _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_valid_summary)
+                _save_checkpoint(
+                    best_accuracy_checkpoint_path,
+                    model,
+                    optimizer,
+                    config,
+                    last_valid_summary,
+                )
+                if task_name != "response":
+                    _save_checkpoint(
+                        best_checkpoint_path,
+                        model,
+                        optimizer,
+                        config,
+                        last_valid_summary,
+                    )
             if last_valid_summary.loss <= best_valid_loss:
                 best_valid_loss = last_valid_summary.loss
                 _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
             if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
                 best_valid_macro_accuracy = last_valid_summary.macro_accuracy
                 _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
+            if task_name == "response":
+                current_response_score = response_selection_score(last_valid_summary.response)
+                if (
+                    current_response_score is not None
+                    and current_response_score >= best_response_selection_score
+                ):
+                    best_response_selection_score = current_response_score
+                    _save_checkpoint(
+                        best_response_checkpoint_path,
+                        model,
+                        optimizer,
+                        config,
+                        last_valid_summary,
+                    )
+                    _save_checkpoint(
+                        best_checkpoint_path,
+                        model,
+                        optimizer,
+                        config,
+                        last_valid_summary,
+                    )
         else:
             _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
             _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
             _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
             _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
+            if task_name == "response":
+                _save_checkpoint(best_response_checkpoint_path, model, optimizer, config, last_train_summary)
 
     assert last_train_summary is not None
     _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
@@ -218,6 +275,14 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
                 "epoch_summaries": epoch_summaries,
                 "train_samples": len(train_dataset),
                 "valid_samples": 0 if valid_dataset is None else len(valid_dataset),
+                "original_train_samples": _dataset_original_rows(train_dataset),
+                "filtered_train_samples": _dataset_filtered_rows(train_dataset),
+                "best_response_selection_score": (
+                    None
+                    if task_name != "response"
+                    or best_response_selection_score == float("-inf")
+                    else best_response_selection_score
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -240,7 +305,12 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         valid_macro_accuracy=None if last_valid_summary is None else last_valid_summary.macro_accuracy,
         train_samples=len(train_dataset),
         valid_samples=0 if valid_dataset is None else len(valid_dataset),
+        original_train_samples=_dataset_original_rows(train_dataset),
+        filtered_train_samples=_dataset_filtered_rows(train_dataset),
         best_checkpoint=str(best_checkpoint_path),
+        best_response_checkpoint=(
+            str(best_response_checkpoint_path) if task_name == "response" else None
+        ),
         best_loss_checkpoint=str(best_loss_checkpoint_path),
         best_macro_checkpoint=str(best_macro_checkpoint_path),
         final_checkpoint=str(final_checkpoint_path),
@@ -276,6 +346,7 @@ def _run_epoch(
     group_totals: dict[str, int] = {}
     group_correct: dict[str, int] = {}
     group_loss_totals: dict[str, float] = {}
+    response_metrics = ResponseMetricsAccumulator() if task_name == "response" else None
 
     model.train(train)
     total_batches = len(data_loader)
@@ -309,6 +380,7 @@ def _run_epoch(
 
         batch_size = prepared_batch["labels"].shape[0]
         predictions = logits.argmax(dim=1)
+        label_ranks = _compute_label_ranks(logits, prepared_batch["labels"])
         correct = predictions == prepared_batch["labels"]
         total_loss += float(loss.item()) * batch_size
         total_correct += int(correct.sum().item())
@@ -333,6 +405,17 @@ def _run_epoch(
             group_totals[group_name] = group_totals.get(group_name, 0) + 1
             group_correct[group_name] = group_correct.get(group_name, 0) + is_correct
             group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
+            if response_metrics is not None:
+                legal_actions = prepared_batch["legal_actions"][batch_index]
+                predicted_index = int(predictions[batch_index].item())
+                predicted_action = legal_actions[predicted_index]
+                response_metrics.update(
+                    label_kind=label_kind,
+                    predicted_kind=str(predicted_action.get("kind", "unknown")),
+                    candidate_kinds=[str(action.get("kind", "unknown")) for action in legal_actions],
+                    candidate_count=int(prepared_batch["candidate_counts"][batch_index]),
+                    label_rank=int(label_ranks[batch_index].item()),
+                )
 
         if (
             train
@@ -379,6 +462,7 @@ def _run_epoch(
         samples=total_samples,
         per_kind=per_kind,
         class_groups=class_groups,
+        response=None if response_metrics is None else response_metrics.summary(),
     )
 
 
@@ -391,6 +475,12 @@ def _resolve_training_device(config_device: str | None) -> torch.device:
     if normalized == "xpu":
         raise RuntimeError("train.device is xpu, but torch.xpu is not available")
     return torch.device("cpu")
+
+
+def _compute_label_ranks(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    label_scores = logits.gather(1, labels.unsqueeze(1)).squeeze(1)
+    higher_scores = (logits > label_scores.unsqueeze(1)).sum(dim=1)
+    return higher_scores + 1
 
 
 def _xpu_is_available() -> bool:
@@ -422,16 +512,41 @@ def _save_checkpoint(
     )
 
 
-def _build_dataset(task_name: str, manifest_path: str | Path):
+def _build_dataset(
+    task_name: str,
+    manifest_path: str | Path,
+    train_config: dict[str, Any] | None = None,
+    split: str | None = None,
+):
     if task_name == "turn":
         return ManifestTurnDataset(manifest_path)
-    return ManifestResponseDataset(manifest_path)
+    return ManifestResponseDataset(
+        manifest_path,
+        min_candidate_count=_response_min_candidate_count(train_config or {}, split),
+    )
+
+
+def _response_min_candidate_count(
+    train_config: dict[str, Any],
+    split: str | None,
+) -> int:
+    if split != "train":
+        return 1
+    return int(train_config.get("response_min_train_candidate_count", 1))
 
 
 def _build_collate_fn(task_name: str, candidate_limit: int):
     if task_name == "turn":
         return TurnBatchCollator(candidate_limit=candidate_limit)
     return ResponseBatchCollator(candidate_limit=candidate_limit)
+
+
+def _dataset_original_rows(dataset) -> int:
+    return int(getattr(dataset, "original_rows", len(dataset)))
+
+
+def _dataset_filtered_rows(dataset) -> int:
+    return int(getattr(dataset, "filtered_rows", 0))
 
 
 def _print_training_start(
@@ -453,6 +568,8 @@ def _print_training_start(
     epochs: int,
 ) -> None:
     valid_samples = 0 if valid_dataset is None else len(valid_dataset)
+    filtered_train_samples = _dataset_filtered_rows(train_dataset)
+    original_train_samples = _dataset_original_rows(train_dataset)
     valid_batches = 0 if valid_loader is None else len(valid_loader)
     print(
         "[train] starting "
@@ -462,6 +579,8 @@ def _print_training_start(
         f"xpu_available={_xpu_is_available()} "
         f"epochs={epochs} "
         f"train_samples={len(train_dataset)} "
+        f"original_train_samples={original_train_samples} "
+        f"filtered_train_samples={filtered_train_samples} "
         f"valid_samples={valid_samples} "
         f"train_batches={len(train_loader)} "
         f"valid_batches={valid_batches} "

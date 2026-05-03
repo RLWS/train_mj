@@ -72,10 +72,12 @@ def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
     assert (output_dir / "best_accuracy.pt").exists()
     assert (output_dir / "best_loss.pt").exists()
     assert (output_dir / "best_macro.pt").exists()
+    assert "best_response_selection_score" in metrics
     assert (output_dir / "final.pt").exists()
     assert (log_dir / "epoch_metrics.jsonl").exists()
     assert metrics["train_samples"] > 0
     assert metrics["valid_samples"] > 0
+    assert metrics["filtered_train_samples"] == 0
     assert metrics["epoch_summaries"]
     first_epoch = metrics["epoch_summaries"][0]
     assert "macro_accuracy" in first_epoch
@@ -197,6 +199,7 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
                 "  epochs: 1",
                 "  lr: 0.005",
                 "  weight_decay: 0.0",
+                "  response_min_train_candidate_count: 2",
                 "  response_class_weights:",
                 "    pass: 1.0",
                 "    chi: 6.0",
@@ -218,13 +221,19 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
     assert (output_dir / "best_accuracy.pt").exists()
     assert (output_dir / "best_loss.pt").exists()
     assert (output_dir / "best_macro.pt").exists()
+    assert (output_dir / "best_response.pt").exists()
     assert (output_dir / "final.pt").exists()
     assert (log_dir / "epoch_metrics.jsonl").exists()
     assert metrics["train_samples"] > 0
     assert metrics["valid_samples"] > 0
+    assert metrics["original_train_samples"] >= metrics["train_samples"]
+    assert metrics["filtered_train_samples"] == (
+        metrics["original_train_samples"] - metrics["train_samples"]
+    )
     assert metrics["epoch_summaries"]
     first_epoch = metrics["epoch_summaries"][0]
     assert "macro_accuracy" in first_epoch
+    assert "response" in first_epoch
     assert first_epoch["per_kind"]
     assert first_epoch["class_groups"]
 
@@ -309,6 +318,7 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
     assert report["per_kind"]
     assert report["class_groups"]
     assert report["candidate_buckets"]
+    assert report["response"] is None
     assert "misclassified_examples" in report
     if report["misclassified_examples"]:
         example = report["misclassified_examples"][0]
@@ -397,6 +407,11 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
     assert report["per_kind"]
     assert report["class_groups"]
     assert report["candidate_buckets"]
+    assert report["response"]
+    assert "multi_candidate" in report["response"]
+    assert "binary" in report["response"]
+    assert "candidate_sets" in report["response"]
+    assert "confusion" in report["response"]
     assert "misclassified_examples" in report
     if report["misclassified_examples"]:
         example = report["misclassified_examples"][0]
