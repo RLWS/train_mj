@@ -84,6 +84,8 @@ python -m mjai.cli build-dataset --input data/bronze_events --output data/silver
 
 因为候选特征已经离线预编码，训练阶段不再需要用很多 DataLoader worker 做特征计算。Windows 本地配置默认 `num_workers: 0`，主要避免 worker spawn 后复制整份 manifest 数据集；Linux/P800 上可以从较小的 worker 数起步，再看训练日志里的 `data_wait` 是否仍然明显。
 
+P800/CUDA 单卡训练现在会读取 `train.precision`、`train.allow_tf32` 和 `train.float32_matmul_precision`。`turn_p800.yaml` 与 `response_p800.yaml` 默认开启 `precision: bf16`、`allow_tf32: true` 和 `float32_matmul_precision: high`；训练启动日志会打印 `precision`、`autocast`、`autocast_dtype`、`allow_tf32`。如果日志里 `data_wait` 接近 0 但 GPU 利用率仍低，瓶颈通常不是 DataLoader，而是当前 MLP ranker 单 step 计算量偏小。优先观察 `samples_per_s` 和 `avg_compute_time`，再尝试把 `batch_size` 从 `2048` 提到 `4096` 或 `8192`；继续加 `num_workers` 通常收益不大。
+
 ## 4. 第二步：跑 turn smoke train
 
 命令：

@@ -191,7 +191,7 @@ Response：
 
 1. 先在 20 万局上重建 `silver_samples` 和 manifest。
 2. 先跑当前模型的大数据 baseline，确认大数据是否解决过拟合和稀有类波动。
-3. 训练工程先补齐真正的 8 卡 DDP、bf16 autocast、grad accumulation、step eval/save。
+3. 训练工程先补齐真正的 8 卡 DDP、grad accumulation、step eval/save；`bf16` autocast 已在单卡训练路径接入。
 4. response 先过滤或降权 pass-only 样本，再训练。
 5. 指标体系补齐后，再做特征增强实验。
 6. 最后再尝试更复杂模型。
@@ -538,6 +538,7 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 - 数据链路已经在 4233 局上验证过 `files_failed=0`、非法标签率 `0.00%`。
 - response 最新本地复训已经通过目标门槛：`multi_candidate top1≈0.85`、`non_pass_f1≈0.72`、`false_call_rate≈1.1%`，valid/test 稳定。
 - response action feature 维度已变，20 万局训练本来就必须重建 `silver_samples`，现在正适合作为新的数据版本基线。
+- 单卡训练路径已接入 `train.precision: bf16`、CUDA TF32 和低同步指标聚合；如果 `data_wait≈0`，P800 调优应优先看 `samples_per_s` / `avg_compute_time`，再调 `batch_size`。
 - 当前工程尚未真正实现 8 卡 DDP / 多任务 batch 混合；`configs/train/p800_ddp.yaml` 仍应视为配置骨架，不应把分布式工程风险和模型效果评估混在同一轮。
 
 建议 20 万局第一阶段命令：
@@ -575,6 +576,6 @@ P800 上 `build-dataset --workers` 可从 `32` 起步，再根据 CLI 输出的 
 2. 用当前 `response_p800.yaml` 跑 response 单任务 baseline，并固定保存 valid/test eval report。
 3. 再跑 `turn_p800.yaml`，建立同一份 20 万局数据上的 turn baseline。
 4. 对 response false call / missed call 各抽样 `50-100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源，重点看防守信息、点况信息和玩家风格差异。
-5. 在 20 万局单任务 baseline 稳定后，再实现真正的 `task: multitask`、DDP、bf16 autocast、grad accumulation 和 step eval/save。
+5. 在 20 万局单任务 baseline 稳定后，再实现真正的 `task: multitask`、DDP、grad accumulation 和 step eval/save。
 
 短期不要继续在 4k 局上反复调 response 权重。当前 4k 结果已经足够支持进入 20 万局 baseline；继续小数据调参会开始过度贴合当前 split。

@@ -122,6 +122,7 @@ def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, caps
                 "  dropout: 0.0",
                 "train:",
                 "  device: cpu",
+                "  precision: bf16",
                 "  batch_size: 64",
                 "  num_workers: 0",
                 "  epochs: 1",
@@ -145,6 +146,8 @@ def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, caps
     assert "valid_batches=" in captured.out
     assert "batch_size=64" in captured.out
     assert "num_workers=0" in captured.out
+    assert "precision=bf16" in captured.out
+    assert "autocast=False" in captured.out
     assert "output_dir=" in captured.out
     assert "[train] epoch=1 split=train batch=" in captured.out
     assert "batch_time=" in captured.out

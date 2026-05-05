@@ -5,6 +5,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from contextlib import nullcontext
 
 import torch
 from torch import nn
@@ -119,6 +120,8 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     collate_fn = _build_collate_fn(task_name, candidate_limit)
     train_config = config.get("train", {})
     device = _resolve_training_device(train_config.get("device"))
+    precision_config = _resolve_precision_config(train_config, device)
+    _configure_matmul_precision(train_config, device)
     train_num_workers = int(train_config.get("num_workers", 0))
     valid_num_workers = int(train_config.get("valid_num_workers", 0))
     pin_memory = bool(train_config.get("pin_memory", device.type == "cuda"))
@@ -176,6 +179,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         valid_num_workers=valid_num_workers,
         log_every_n_steps=log_every_n_steps,
         epochs=epochs,
+        precision_config=precision_config,
     )
     epoch_summaries: list[dict[str, Any]] = []
     best_valid_accuracy = float("-inf")
@@ -204,6 +208,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
             train=True,
             weight_map=weight_map,
             log_every_n_steps=log_every_n_steps,
+            precision_config=precision_config,
         )
         epoch_summaries.append(asdict(last_train_summary))
 
@@ -219,6 +224,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
                 train=False,
                 weight_map=weight_map,
                 log_every_n_steps=0,
+                precision_config=precision_config,
             )
             epoch_summaries.append(asdict(last_valid_summary))
 
@@ -342,6 +348,7 @@ def _run_epoch(
     train: bool,
     weight_map: dict[str, float],
     log_every_n_steps: int,
+    precision_config: dict[str, Any],
 ) -> EpochSummary:
     total_loss = 0.0
     total_correct = 0
@@ -377,17 +384,18 @@ def _run_epoch(
             for key, value in batch.items()
         }
 
-        if task_name == "turn":
-            logits = model.forward_turn(prepared_batch)
-        else:
-            logits = model.forward_response(prepared_batch)
-        sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
-        loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
-        per_sample_losses = F.cross_entropy(logits, prepared_batch["labels"], reduction="none")
+        with _autocast_context(device, precision_config):
+            if task_name == "turn":
+                logits = model.forward_turn(prepared_batch)
+            else:
+                logits = model.forward_response(prepared_batch)
+            sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
+            loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
+            per_sample_losses = F.cross_entropy(logits, prepared_batch["labels"], reduction="none")
 
         if train:
             assert optimizer is not None
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
 
@@ -395,21 +403,31 @@ def _run_epoch(
         predictions = logits.argmax(dim=1)
         label_ranks = _compute_label_ranks(logits, prepared_batch["labels"])
         correct = predictions == prepared_batch["labels"]
-        total_loss += float(loss.item()) * batch_size
-        total_correct += int(correct.sum().item())
+        loss_value = float(loss.detach().item())
+        correct_list = correct.detach().to("cpu").tolist()
+        per_sample_loss_list = per_sample_losses.detach().to("cpu").tolist()
+        if response_metrics is not None:
+            prediction_list = predictions.detach().to("cpu").tolist()
+            label_rank_list = label_ranks.detach().to("cpu").tolist()
+        else:
+            prediction_list = []
+            label_rank_list = []
+        batch_correct = int(sum(int(value) for value in correct_list))
+        total_loss += loss_value * batch_size
+        total_correct += batch_correct
         total_samples += batch_size
         compute_elapsed = time.perf_counter() - batch_start
         batch_elapsed = data_wait_elapsed + compute_elapsed
-        running_loss += float(loss.item()) * batch_size
-        running_correct += int(correct.sum().item())
+        running_loss += loss_value * batch_size
+        running_correct += batch_correct
         running_samples += batch_size
         running_time += batch_elapsed
         running_data_wait_time += data_wait_elapsed
         running_compute_time += compute_elapsed
 
         for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
-            is_correct = int(correct[batch_index].item())
-            sample_loss = float(per_sample_losses[batch_index].item())
+            is_correct = int(correct_list[batch_index])
+            sample_loss = float(per_sample_loss_list[batch_index])
             kind_totals[label_kind] = kind_totals.get(label_kind, 0) + 1
             kind_correct[label_kind] = kind_correct.get(label_kind, 0) + is_correct
             kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + sample_loss
@@ -420,14 +438,14 @@ def _run_epoch(
             group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
             if response_metrics is not None:
                 legal_actions = prepared_batch["legal_actions"][batch_index]
-                predicted_index = int(predictions[batch_index].item())
+                predicted_index = int(prediction_list[batch_index])
                 predicted_action = legal_actions[predicted_index]
                 response_metrics.update(
                     label_kind=label_kind,
                     predicted_kind=str(predicted_action.get("kind", "unknown")),
                     candidate_kinds=[str(action.get("kind", "unknown")) for action in legal_actions],
                     candidate_count=int(prepared_batch["candidate_counts"][batch_index]),
-                    label_rank=int(label_ranks[batch_index].item()),
+                    label_rank=int(label_rank_list[batch_index]),
                 )
 
         if (
@@ -505,6 +523,44 @@ def _xpu_is_available() -> bool:
         return bool(is_available())
     except RuntimeError:
         return False
+
+
+def _resolve_precision_config(train_config: dict[str, Any], device: torch.device) -> dict[str, Any]:
+    precision = str(train_config.get("precision", "fp32")).lower()
+    if precision in {"float32", "32", "full"}:
+        precision = "fp32"
+    if precision in {"float16", "16"}:
+        precision = "fp16"
+    if precision not in {"fp32", "fp16", "bf16"}:
+        raise ValueError(f"unsupported train.precision: {precision}")
+
+    autocast_enabled = device.type in {"cuda", "xpu"} and precision in {"fp16", "bf16"}
+    autocast_dtype = torch.bfloat16 if precision == "bf16" else torch.float16
+    return {
+        "precision": precision,
+        "autocast_enabled": autocast_enabled,
+        "autocast_dtype": autocast_dtype,
+    }
+
+
+def _autocast_context(device: torch.device, precision_config: dict[str, Any]):
+    if not bool(precision_config.get("autocast_enabled", False)):
+        return nullcontext()
+    return torch.autocast(
+        device_type=device.type,
+        dtype=precision_config["autocast_dtype"],
+    )
+
+
+def _configure_matmul_precision(train_config: dict[str, Any], device: torch.device) -> None:
+    if device.type != "cuda":
+        return
+    matmul_precision = str(train_config.get("float32_matmul_precision", "high")).lower()
+    if matmul_precision in {"highest", "high", "medium"}:
+        torch.set_float32_matmul_precision(matmul_precision)
+    allow_tf32 = bool(train_config.get("allow_tf32", True))
+    torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+    torch.backends.cudnn.allow_tf32 = allow_tf32
 
 
 def _save_checkpoint(
@@ -616,6 +672,7 @@ def _print_training_start(
     valid_num_workers: int,
     log_every_n_steps: int,
     epochs: int,
+    precision_config: dict[str, Any],
 ) -> None:
     valid_samples = 0 if valid_dataset is None else len(valid_dataset)
     filtered_train_samples = _dataset_filtered_rows(train_dataset)
@@ -639,6 +696,11 @@ def _print_training_start(
         f"num_workers={train_num_workers} "
         f"valid_num_workers={valid_num_workers} "
         f"pin_memory={pin_memory} "
+        f"precision={precision_config['precision']} "
+        f"autocast={bool(precision_config['autocast_enabled'])} "
+        f"autocast_dtype={_format_autocast_dtype(precision_config)} "
+        f"allow_tf32={_cuda_tf32_enabled()} "
+        f"float32_matmul_precision={torch.get_float32_matmul_precision()} "
         f"persistent_workers={bool(train_config.get('persistent_workers', True)) if train_num_workers > 0 else False} "
         f"prefetch_factor={int(train_config.get('prefetch_factor', 2)) if train_num_workers > 0 else 0} "
         f"hidden_size={int(model_config.get('hidden_size', 128))} "
@@ -659,6 +721,23 @@ def _worker_loader_kwargs(train_config: dict[str, Any], num_workers: int) -> dic
         "persistent_workers": bool(train_config.get("persistent_workers", True)),
         "prefetch_factor": int(train_config.get("prefetch_factor", 2)),
     }
+
+
+def _format_autocast_dtype(precision_config: dict[str, Any]) -> str:
+    if not bool(precision_config.get("autocast_enabled", False)):
+        return "none"
+    dtype = precision_config.get("autocast_dtype")
+    if dtype is torch.bfloat16:
+        return "bf16"
+    if dtype is torch.float16:
+        return "fp16"
+    return str(dtype)
+
+
+def _cuda_tf32_enabled() -> bool:
+    if not torch.cuda.is_available():
+        return False
+    return bool(torch.backends.cuda.matmul.allow_tf32)
 
 
 def _print_batch_progress(

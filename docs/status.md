@@ -117,6 +117,8 @@
   - response 的 `best.pt` / `best_response.pt` 现在按 `non_pass_f1 - false_call_rate` 选择，避免只被 overall accuracy 或 pass-only 样本支配；`best_accuracy.pt`、`best_loss.pt`、`best_macro.pt` 仍保留。
   - 2026-05-03 action feature 增强后复训显示 response 已经达到进入更大数据 baseline 的门槛：false call 与 missed call 同时下降，`chi/pon` top1 也有明确提升。下一轮先在 20 万局数据上验证当前配置，不要同时改 checkpoint selection、类别权重或模型结构。
   - 已支持 `pin_memory`、`persistent_workers`、`prefetch_factor` 和 CUDA `non_blocking` 传输；Windows 本地 smoke 配置默认 `num_workers: 0`，避免 spawn worker 复制整份内存数据集。
+  - 训练循环已接入 `train.precision` 的 CUDA/XPU autocast；P800 配置默认 `bf16`，CUDA 路径默认开启 TF32，并在启动日志中打印实际精度设置。
+  - 训练指标聚合已减少 batch 内逐样本 `.item()` 同步：每个 batch 将 `correct`、per-sample loss、response rank/prediction 一次性搬到 CPU 后聚合，降低小 MLP ranker 训练时的 GPU 同步碎片。
   - 已支持由 `train.log_every_n_steps` 控制的 batch 进度日志，输出 batch 进度、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA。
 - `mjai/eval/`
   - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
