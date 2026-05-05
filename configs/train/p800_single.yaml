@@ -1,4 +1,4 @@
-device: xpu
+device: cuda
 precision: bf16
 batch_size: 128
 num_workers: 8

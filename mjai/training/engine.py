@@ -10,12 +10,14 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 
 from mjai.data.datasets.parquet_dataset import (
     ManifestResponseDataset,
     ManifestTurnDataset,
     ResponseBatchCollator,
+    StreamingManifestResponseDataset,
+    StreamingManifestTurnDataset,
     TurnBatchCollator,
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
@@ -88,6 +90,13 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     output_dir = ensure_dir(config.get("output_dir", "outputs/checkpoints/turn_smoke"))
     log_dir = ensure_dir(config.get("log_dir", "outputs/logs/turn_smoke"))
     dump_yaml(output_dir / "config.resolved.yaml", config)
+    print(
+        "[train] preparing datasets "
+        f"task={task_name} "
+        f"train_manifest={config['data']['train_manifest']} "
+        f"valid_manifest={config.get('data', {}).get('valid_manifest')}",
+        flush=True,
+    )
 
     train_dataset = _build_dataset(
         task_name,
@@ -117,7 +126,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     train_loader = DataLoader(
         train_dataset,
         batch_size=int(train_config.get("batch_size", 32)),
-        shuffle=True,
+        shuffle=_dataloader_shuffle(train_dataset, train=True),
         num_workers=train_num_workers,
         collate_fn=collate_fn,
         pin_memory=pin_memory,
@@ -267,16 +276,20 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
 
     assert last_train_summary is not None
     _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
+    observed_train_samples = int(last_train_summary.samples)
+    observed_valid_samples = 0 if last_valid_summary is None else int(last_valid_summary.samples)
+    original_train_samples = _dataset_original_rows(train_dataset)
+    filtered_train_samples = _observed_filtered_rows(train_dataset, observed_train_samples)
 
     metrics_path = output_dir / "train_metrics.json"
     metrics_path.write_text(
         json.dumps(
             {
                 "epoch_summaries": epoch_summaries,
-                "train_samples": len(train_dataset),
-                "valid_samples": 0 if valid_dataset is None else len(valid_dataset),
-                "original_train_samples": _dataset_original_rows(train_dataset),
-                "filtered_train_samples": _dataset_filtered_rows(train_dataset),
+                "train_samples": observed_train_samples,
+                "valid_samples": observed_valid_samples,
+                "original_train_samples": original_train_samples,
+                "filtered_train_samples": filtered_train_samples,
                 "best_response_selection_score": (
                     None
                     if task_name != "response"
@@ -303,10 +316,10 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         valid_loss=None if last_valid_summary is None else last_valid_summary.loss,
         valid_accuracy=None if last_valid_summary is None else last_valid_summary.accuracy,
         valid_macro_accuracy=None if last_valid_summary is None else last_valid_summary.macro_accuracy,
-        train_samples=len(train_dataset),
-        valid_samples=0 if valid_dataset is None else len(valid_dataset),
-        original_train_samples=_dataset_original_rows(train_dataset),
-        filtered_train_samples=_dataset_filtered_rows(train_dataset),
+        train_samples=observed_train_samples,
+        valid_samples=observed_valid_samples,
+        original_train_samples=original_train_samples,
+        filtered_train_samples=filtered_train_samples,
         best_checkpoint=str(best_checkpoint_path),
         best_response_checkpoint=(
             str(best_response_checkpoint_path) if task_name == "response" else None
@@ -518,12 +531,39 @@ def _build_dataset(
     train_config: dict[str, Any] | None = None,
     split: str | None = None,
 ):
+    train_config = train_config or {}
     if task_name == "turn":
+        if bool(train_config.get("streaming_dataset", True)):
+            shuffle = split == "train"
+            return StreamingManifestTurnDataset(
+                manifest_path,
+                shuffle_shards=shuffle and bool(train_config.get("shuffle_shards", True)),
+                shuffle_rows=shuffle and bool(train_config.get("shuffle_rows", True)),
+                shuffle_buffer_size=int(train_config.get("shuffle_buffer_size", 8192)),
+                seed=int(train_config.get("dataset_seed", 20260423)),
+            )
         return ManifestTurnDataset(manifest_path)
+    response_min_candidate_count = _response_min_candidate_count(train_config, split)
+    if bool(train_config.get("streaming_dataset", True)):
+        shuffle = split == "train"
+        return StreamingManifestResponseDataset(
+            manifest_path,
+            min_candidate_count=response_min_candidate_count,
+            shuffle_shards=shuffle and bool(train_config.get("shuffle_shards", True)),
+            shuffle_rows=shuffle and bool(train_config.get("shuffle_rows", True)),
+            shuffle_buffer_size=int(train_config.get("shuffle_buffer_size", 8192)),
+            seed=int(train_config.get("dataset_seed", 20260423)),
+        )
     return ManifestResponseDataset(
         manifest_path,
-        min_candidate_count=_response_min_candidate_count(train_config or {}, split),
+        min_candidate_count=response_min_candidate_count,
     )
+
+
+def _dataloader_shuffle(dataset, train: bool) -> bool:
+    if not train or isinstance(dataset, IterableDataset):
+        return False
+    return True
 
 
 def _response_min_candidate_count(
@@ -547,6 +587,16 @@ def _dataset_original_rows(dataset) -> int:
 
 def _dataset_filtered_rows(dataset) -> int:
     return int(getattr(dataset, "filtered_rows", 0))
+
+
+def _observed_filtered_rows(dataset, observed_rows: int) -> int:
+    filtered_rows = _dataset_filtered_rows(dataset)
+    if filtered_rows > 0:
+        return filtered_rows
+    original_rows = _dataset_original_rows(dataset)
+    if original_rows > observed_rows:
+        return original_rows - observed_rows
+    return 0
 
 
 def _print_training_start(

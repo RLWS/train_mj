@@ -7,7 +7,13 @@ import pyarrow.parquet as pq
 
 from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.dataset_builder import DatasetBuilder
-from mjai.data.datasets.parquet_dataset import ManifestTurnDataset, TurnBatchCollator
+from mjai.data.datasets.parquet_dataset import (
+    ManifestTurnDataset,
+    StreamingManifestResponseDataset,
+    StreamingManifestTurnDataset,
+    ResponseBatchCollator,
+    TurnBatchCollator,
+)
 from mjai.data.datasets.event_store import read_events_from_parquet
 from mjai.data.builders.manifest_builder import ManifestBuilder
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
@@ -100,6 +106,38 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     batch = TurnBatchCollator(candidate_limit=64)(dataset.rows[:4])
     assert batch["state_feats"].shape[1] == TURN_STATE_DIM
     assert batch["candidate_feats"].shape[2] == TURN_ACTION_DIM
+
+    streaming_dataset = StreamingManifestTurnDataset(manifest_path, shuffle_rows=False)
+    streaming_rows = [row for _, row in zip(range(4), streaming_dataset)]
+    streaming_batch = TurnBatchCollator(candidate_limit=64)(streaming_rows)
+    assert len(streaming_dataset) == len(dataset)
+    assert streaming_batch["state_feats"].shape[1] == TURN_STATE_DIM
+    assert streaming_batch["candidate_feats"].shape[2] == TURN_ACTION_DIM
+
+    response_manifest = tmp_path / "response_only.jsonl"
+    response_file = next(path for path in response_files if pq.read_metadata(path).num_rows > 0)
+    response_manifest.write_text(
+        json.dumps(
+            {
+                "game_id": response_file.stem,
+                "response_path": response_file.as_posix(),
+                "response_rows": pq.read_metadata(response_file).num_rows,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    response_dataset = StreamingManifestResponseDataset(
+        response_manifest,
+        min_candidate_count=2,
+        shuffle_rows=False,
+    )
+    response_rows = [row for _, row in zip(range(4), response_dataset)]
+    response_batch = ResponseBatchCollator(candidate_limit=16)(response_rows)
+    assert response_rows
+    assert all(row["candidate_count"] >= 2 for row in response_rows)
+    assert response_batch["state_feats"].shape[1] == RESPONSE_STATE_DIM
+    assert response_batch["candidate_feats"].shape[2] == RESPONSE_ACTION_DIM
 
 
 def test_build_dataset_supports_parallel_workers(tmp_path: Path):

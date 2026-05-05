@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import random
 from array import array
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
 from mjai.data.schema.samples import TurnSample
 from mjai.features.action_features import (
@@ -134,6 +136,148 @@ class ManifestTurnDataset(Dataset):
         return self.rows[index]
 
 
+class StreamingManifestTurnDataset(IterableDataset):
+    """Turn dataset that streams manifest-listed parquet shards at iteration time.
+
+    The eager dataset remains useful for inspection/eval workflows that need full
+    JSON fields. Training only needs the pre-encoded feature bytes and label
+    metadata, so this avoids materializing every sample before the first batch.
+    """
+
+    def __init__(
+        self,
+        manifest_path: str | Path,
+        *,
+        shuffle_shards: bool = True,
+        shuffle_rows: bool = True,
+        shuffle_buffer_size: int = 8192,
+        seed: int = 20260423,
+    ) -> None:
+        self.manifest_path = Path(manifest_path)
+        self.shards = _load_manifest_shards(self.manifest_path, task_name="turn")
+        self.total_rows = sum(shard.rows for shard in self.shards)
+        self.original_rows = self.total_rows
+        self.filtered_rows = 0
+        self.shuffle_shards = shuffle_shards
+        self.shuffle_rows = shuffle_rows
+        self.shuffle_buffer_size = max(0, int(shuffle_buffer_size))
+        self.seed = int(seed)
+        self._iteration = 0
+
+    def __len__(self) -> int:
+        return self.total_rows
+
+    def __iter__(self):
+        worker_info = get_worker_info()
+        if worker_info is None:
+            worker_id = 0
+            worker_count = 1
+            seed_base = self.seed
+        else:
+            worker_id = int(worker_info.id)
+            worker_count = int(worker_info.num_workers)
+            seed_base = int(worker_info.seed)
+
+        iteration = self._iteration
+        self._iteration += 1
+        rng = random.Random(seed_base + iteration * 1009 + worker_id)
+
+        shard_indices = list(range(worker_id, len(self.shards), worker_count))
+        if self.shuffle_shards:
+            rng.shuffle(shard_indices)
+
+        if self.shuffle_rows and self.shuffle_buffer_size > 1:
+            yield from _buffered_shuffle(
+                _iter_turn_training_rows(self.shards, shard_indices, rng if self.shuffle_rows else None),
+                rng=rng,
+                buffer_size=self.shuffle_buffer_size,
+            )
+            return
+
+        for shard_index in shard_indices:
+            shard = self.shards[shard_index]
+            rows = _load_turn_training_rows(shard.path)
+            if self.shuffle_rows:
+                rng.shuffle(rows)
+            yield from rows
+
+
+class StreamingManifestResponseDataset(IterableDataset):
+    """Response dataset that streams parquet shards without loading state JSON."""
+
+    def __init__(
+        self,
+        manifest_path: str | Path,
+        *,
+        min_candidate_count: int = 1,
+        shuffle_shards: bool = True,
+        shuffle_rows: bool = True,
+        shuffle_buffer_size: int = 8192,
+        seed: int = 20260423,
+    ) -> None:
+        self.manifest_path = Path(manifest_path)
+        self.min_candidate_count = int(min_candidate_count)
+        if self.min_candidate_count < 1:
+            raise ValueError(
+                f"min_candidate_count must be >= 1, got: {self.min_candidate_count}"
+            )
+        self.shards = _load_manifest_shards(self.manifest_path, task_name="response")
+        self.total_rows = sum(shard.rows for shard in self.shards)
+        self.original_rows = self.total_rows
+        # Response filtering is applied while streaming. Computing this exactly
+        # at construction would reintroduce the full startup scan.
+        self.filtered_rows = 0
+        self.shuffle_shards = shuffle_shards
+        self.shuffle_rows = shuffle_rows
+        self.shuffle_buffer_size = max(0, int(shuffle_buffer_size))
+        self.seed = int(seed)
+        self._iteration = 0
+
+    def __len__(self) -> int:
+        return self.total_rows
+
+    def __iter__(self):
+        worker_info = get_worker_info()
+        if worker_info is None:
+            worker_id = 0
+            worker_count = 1
+            seed_base = self.seed
+        else:
+            worker_id = int(worker_info.id)
+            worker_count = int(worker_info.num_workers)
+            seed_base = int(worker_info.seed)
+
+        iteration = self._iteration
+        self._iteration += 1
+        rng = random.Random(seed_base + iteration * 1009 + worker_id)
+
+        shard_indices = list(range(worker_id, len(self.shards), worker_count))
+        if self.shuffle_shards:
+            rng.shuffle(shard_indices)
+
+        if self.shuffle_rows and self.shuffle_buffer_size > 1:
+            yield from _buffered_shuffle(
+                _iter_response_training_rows(
+                    self.shards,
+                    shard_indices,
+                    rng if self.shuffle_rows else None,
+                    self.min_candidate_count,
+                ),
+                rng=rng,
+                buffer_size=self.shuffle_buffer_size,
+            )
+            return
+
+        for shard_index in shard_indices:
+            rows = _load_response_training_rows(
+                self.shards[shard_index].path,
+                min_candidate_count=self.min_candidate_count,
+            )
+            if self.shuffle_rows:
+                rng.shuffle(rows)
+            yield from rows
+
+
 class ManifestResponseDataset(Dataset):
     """In-memory response dataset loaded from manifest-listed parquet shards."""
 
@@ -226,7 +370,7 @@ def inspect_dataset_sample_by_id(dataset_path: str | Path, sample_id: str) -> di
 
 
 def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, torch.Tensor | list[str]]:
-    max_candidates = max(len(row["legal_actions"]) for row in rows)
+    max_candidates = max(_row_candidate_count(row) for row in rows)
     if max_candidates > candidate_limit:
         raise ValueError(f"candidate count exceeds configured limit: {max_candidates} > {candidate_limit}")
 
@@ -253,7 +397,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
             expected_values=TURN_STATE_DIM,
         )
         labels[batch_index] = _row_label_index(row)
-        candidate_count = len(row["legal_actions"])
+        candidate_count = _row_candidate_count(row)
 
         if candidate_count > 0:
             _copy_float32_feature_bytes(
@@ -277,9 +421,9 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
         "labels": labels,
         "label_kinds": label_kinds,
         "sample_ids": sample_ids,
-        "label_actions": [row["label_action"] for row in rows],
-        "legal_actions": [row["legal_actions"] for row in rows],
-        "candidate_counts": [len(row["legal_actions"]) for row in rows],
+        "label_actions": [row.get("label_action", {}) for row in rows],
+        "legal_actions": [row.get("legal_actions", []) for row in rows],
+        "candidate_counts": [_row_candidate_count(row) for row in rows],
         "game_ids": game_ids,
         "kyoku_indices": kyoku_indices,
         "step_indices": step_indices,
@@ -289,7 +433,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
 
 
 def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, torch.Tensor | list[str]]:
-    max_candidates = max(len(row["legal_actions"]) for row in rows)
+    max_candidates = max(_row_candidate_count(row) for row in rows)
     if max_candidates > candidate_limit:
         raise ValueError(f"candidate count exceeds configured limit: {max_candidates} > {candidate_limit}")
 
@@ -315,7 +459,7 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
             expected_values=RESPONSE_STATE_DIM,
         )
         labels[batch_index] = _row_label_index(row)
-        candidate_count = len(row["legal_actions"])
+        candidate_count = _row_candidate_count(row)
 
         if candidate_count > 0:
             _copy_float32_feature_bytes(
@@ -339,9 +483,9 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
         "labels": labels,
         "label_kinds": label_kinds,
         "sample_ids": sample_ids,
-        "label_actions": [row["label_action"] for row in rows],
+        "label_actions": [row.get("label_action", {}) for row in rows],
         "legal_actions": [row["legal_actions"] for row in rows],
-        "candidate_counts": [len(row["legal_actions"]) for row in rows],
+        "candidate_counts": [_row_candidate_count(row) for row in rows],
         "game_ids": game_ids,
         "kyoku_indices": kyoku_indices,
         "step_indices": step_indices,
@@ -377,6 +521,122 @@ def _load_turn_rows(manifest_path: Path) -> list[dict[str, object]]:
     return rows
 
 
+@dataclass(slots=True, frozen=True)
+class _ManifestShard:
+    path: Path
+    rows: int
+
+
+_TRAINING_TURN_COLUMNS = [
+    "sample_id",
+    "game_id",
+    "kyoku_index",
+    "step_index",
+    "actor",
+    "decision_type",
+    "state_features_bin",
+    "candidate_features_bin",
+    "label_index",
+    "label_kind",
+]
+
+
+_TRAINING_RESPONSE_COLUMNS = [
+    "sample_id",
+    "game_id",
+    "kyoku_index",
+    "step_index",
+    "actor",
+    "decision_type",
+    "legal_actions_json",
+    "state_features_bin",
+    "candidate_features_bin",
+    "label_index",
+    "label_kind",
+]
+
+
+def _load_manifest_shards(manifest_path: Path, task_name: str) -> list[_ManifestShard]:
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"manifest file not found: {manifest_path}")
+
+    path_key = f"{task_name}_path"
+    rows_key = f"{task_name}_rows"
+    shards: list[_ManifestShard] = []
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        shard_path = Path(record[path_key])
+        if rows_key in record:
+            row_count = int(record[rows_key])
+        else:
+            row_count = int(pq.read_metadata(shard_path).num_rows)
+        if row_count > 0:
+            shards.append(_ManifestShard(path=shard_path, rows=row_count))
+    return shards
+
+
+def _load_turn_training_rows(parquet_path: Path) -> list[dict[str, object]]:
+    table = pq.read_table(parquet_path, columns=_TRAINING_TURN_COLUMNS)
+    return [_deserialize_turn_training_row(row) for row in table.to_pylist()]
+
+
+def _load_response_training_rows(
+    parquet_path: Path,
+    *,
+    min_candidate_count: int,
+) -> list[dict[str, object]]:
+    table = pq.read_table(parquet_path, columns=_TRAINING_RESPONSE_COLUMNS)
+    rows: list[dict[str, object]] = []
+    for row in table.to_pylist():
+        deserialized = _deserialize_response_training_row(row)
+        if int(deserialized["candidate_count"]) >= min_candidate_count:
+            rows.append(deserialized)
+    return rows
+
+
+def _iter_turn_training_rows(
+    shards: list[_ManifestShard],
+    shard_indices: list[int],
+    rng: random.Random | None,
+):
+    for shard_index in shard_indices:
+        rows = _load_turn_training_rows(shards[shard_index].path)
+        if rng is not None:
+            rng.shuffle(rows)
+        yield from rows
+
+
+def _iter_response_training_rows(
+    shards: list[_ManifestShard],
+    shard_indices: list[int],
+    rng: random.Random | None,
+    min_candidate_count: int,
+):
+    for shard_index in shard_indices:
+        rows = _load_response_training_rows(
+            shards[shard_index].path,
+            min_candidate_count=min_candidate_count,
+        )
+        if rng is not None:
+            rng.shuffle(rows)
+        yield from rows
+
+
+def _buffered_shuffle(rows, *, rng: random.Random, buffer_size: int):
+    buffer = []
+    for row in rows:
+        if len(buffer) < buffer_size:
+            buffer.append(row)
+            continue
+        index = rng.randrange(len(buffer))
+        yield buffer[index]
+        buffer[index] = row
+    rng.shuffle(buffer)
+    yield from buffer
+
+
 def _load_response_rows(manifest_path: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     if not manifest_path.exists():
@@ -400,6 +660,29 @@ def _row_label_index(row: dict) -> int:
     if label_index is None:
         raise ValueError(f"label action missing from legal actions: {row['sample_id']}")
     return int(label_index)
+
+
+def _row_candidate_count(row: dict) -> int:
+    candidate_count = row.get("candidate_count")
+    if candidate_count is not None:
+        return int(candidate_count)
+    return len(row["legal_actions"])
+
+
+def _candidate_count_from_feature_bytes(
+    candidate_features_bin: bytes,
+    *,
+    action_dim: int,
+    sample_id: str,
+) -> int:
+    feature_bytes = len(candidate_features_bin)
+    bytes_per_candidate = action_dim * 4
+    if feature_bytes % bytes_per_candidate != 0:
+        raise ValueError(
+            "candidate feature byte length mismatch "
+            f"for sample {sample_id}: {feature_bytes} is not divisible by {bytes_per_candidate}"
+        )
+    return feature_bytes // bytes_per_candidate
 
 
 def _resolve_sample_parquet_files(dataset_path: Path) -> list[Path]:
@@ -488,6 +771,58 @@ def _deserialize_dataset_row(row: dict[str, object]) -> dict[str, object]:
         "label_action": label_action,
         "state_features_bin": bytes(_required_sample_field(row, "state_features_bin")),
         "candidate_features_bin": bytes(_required_sample_field(row, "candidate_features_bin")),
+        "label_index": int(_required_sample_field(row, "label_index")),
+        "label_kind": str(_required_sample_field(row, "label_kind")),
+    }
+
+
+def _deserialize_turn_training_row(row: dict[str, object]) -> dict[str, object]:
+    candidate_features_bin = bytes(_required_sample_field(row, "candidate_features_bin"))
+    return {
+        "sample_id": row["sample_id"],
+        "game_id": row["game_id"],
+        "kyoku_index": int(row["kyoku_index"]),
+        "step_index": int(row["step_index"]),
+        "actor": int(row["actor"]),
+        "decision_type": row["decision_type"],
+        "label_action": {},
+        "state_features_bin": bytes(_required_sample_field(row, "state_features_bin")),
+        "candidate_features_bin": candidate_features_bin,
+        "candidate_count": _candidate_count_from_feature_bytes(
+            candidate_features_bin,
+            action_dim=TURN_ACTION_DIM,
+            sample_id=str(row["sample_id"]),
+        ),
+        "label_index": int(_required_sample_field(row, "label_index")),
+        "label_kind": str(_required_sample_field(row, "label_kind")),
+    }
+
+
+def _deserialize_response_training_row(row: dict[str, object]) -> dict[str, object]:
+    legal_actions = json.loads(row["legal_actions_json"])
+    candidate_features_bin = bytes(_required_sample_field(row, "candidate_features_bin"))
+    candidate_count = _candidate_count_from_feature_bytes(
+        candidate_features_bin,
+        action_dim=RESPONSE_ACTION_DIM,
+        sample_id=str(row["sample_id"]),
+    )
+    if candidate_count != len(legal_actions):
+        raise ValueError(
+            "response candidate count mismatch "
+            f"for sample {row['sample_id']}: {candidate_count} != {len(legal_actions)}"
+        )
+    return {
+        "sample_id": row["sample_id"],
+        "game_id": row["game_id"],
+        "kyoku_index": int(row["kyoku_index"]),
+        "step_index": int(row["step_index"]),
+        "actor": int(row["actor"]),
+        "decision_type": row["decision_type"],
+        "label_action": {},
+        "legal_actions": legal_actions,
+        "state_features_bin": bytes(_required_sample_field(row, "state_features_bin")),
+        "candidate_features_bin": candidate_features_bin,
+        "candidate_count": candidate_count,
         "label_index": int(_required_sample_field(row, "label_index")),
         "label_kind": str(_required_sample_field(row, "label_kind")),
     }
