@@ -213,6 +213,7 @@ class StreamingManifestResponseDataset(IterableDataset):
         shuffle_shards: bool = True,
         shuffle_rows: bool = True,
         shuffle_buffer_size: int = 8192,
+        include_legal_actions: bool = True,
         seed: int = 20260423,
     ) -> None:
         self.manifest_path = Path(manifest_path)
@@ -230,6 +231,7 @@ class StreamingManifestResponseDataset(IterableDataset):
         self.shuffle_shards = shuffle_shards
         self.shuffle_rows = shuffle_rows
         self.shuffle_buffer_size = max(0, int(shuffle_buffer_size))
+        self.include_legal_actions = bool(include_legal_actions)
         self.seed = int(seed)
         self._iteration = 0
 
@@ -262,6 +264,7 @@ class StreamingManifestResponseDataset(IterableDataset):
                     shard_indices,
                     rng if self.shuffle_rows else None,
                     self.min_candidate_count,
+                    self.include_legal_actions,
                 ),
                 rng=rng,
                 buffer_size=self.shuffle_buffer_size,
@@ -272,6 +275,7 @@ class StreamingManifestResponseDataset(IterableDataset):
             rows = _load_response_training_rows(
                 self.shards[shard_index].path,
                 min_candidate_count=self.min_candidate_count,
+                include_legal_actions=self.include_legal_actions,
             )
             if self.shuffle_rows:
                 rng.shuffle(rows)
@@ -556,6 +560,20 @@ _TRAINING_RESPONSE_COLUMNS = [
 ]
 
 
+_TRAINING_RESPONSE_FAST_COLUMNS = [
+    "sample_id",
+    "game_id",
+    "kyoku_index",
+    "step_index",
+    "actor",
+    "decision_type",
+    "state_features_bin",
+    "candidate_features_bin",
+    "label_index",
+    "label_kind",
+]
+
+
 def _load_manifest_shards(manifest_path: Path, task_name: str) -> list[_ManifestShard]:
     if not manifest_path.exists():
         raise FileNotFoundError(f"manifest file not found: {manifest_path}")
@@ -586,11 +604,16 @@ def _load_response_training_rows(
     parquet_path: Path,
     *,
     min_candidate_count: int,
+    include_legal_actions: bool,
 ) -> list[dict[str, object]]:
-    table = pq.read_table(parquet_path, columns=_TRAINING_RESPONSE_COLUMNS)
+    columns = _TRAINING_RESPONSE_COLUMNS if include_legal_actions else _TRAINING_RESPONSE_FAST_COLUMNS
+    table = pq.read_table(parquet_path, columns=columns)
     rows: list[dict[str, object]] = []
     for row in table.to_pylist():
-        deserialized = _deserialize_response_training_row(row)
+        deserialized = _deserialize_response_training_row(
+            row,
+            include_legal_actions=include_legal_actions,
+        )
         if int(deserialized["candidate_count"]) >= min_candidate_count:
             rows.append(deserialized)
     return rows
@@ -613,11 +636,13 @@ def _iter_response_training_rows(
     shard_indices: list[int],
     rng: random.Random | None,
     min_candidate_count: int,
+    include_legal_actions: bool,
 ):
     for shard_index in shard_indices:
         rows = _load_response_training_rows(
             shards[shard_index].path,
             min_candidate_count=min_candidate_count,
+            include_legal_actions=include_legal_actions,
         )
         if rng is not None:
             rng.shuffle(rows)
@@ -798,19 +823,25 @@ def _deserialize_turn_training_row(row: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _deserialize_response_training_row(row: dict[str, object]) -> dict[str, object]:
-    legal_actions = json.loads(row["legal_actions_json"])
+def _deserialize_response_training_row(
+    row: dict[str, object],
+    *,
+    include_legal_actions: bool,
+) -> dict[str, object]:
     candidate_features_bin = bytes(_required_sample_field(row, "candidate_features_bin"))
     candidate_count = _candidate_count_from_feature_bytes(
         candidate_features_bin,
         action_dim=RESPONSE_ACTION_DIM,
         sample_id=str(row["sample_id"]),
     )
-    if candidate_count != len(legal_actions):
-        raise ValueError(
-            "response candidate count mismatch "
-            f"for sample {row['sample_id']}: {candidate_count} != {len(legal_actions)}"
-        )
+    legal_actions = []
+    if include_legal_actions:
+        legal_actions = json.loads(row["legal_actions_json"])
+        if candidate_count != len(legal_actions):
+            raise ValueError(
+                "response candidate count mismatch "
+                f"for sample {row['sample_id']}: {candidate_count} != {len(legal_actions)}"
+            )
     return {
         "sample_id": row["sample_id"],
         "game_id": row["game_id"],

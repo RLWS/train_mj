@@ -209,6 +209,11 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
             weight_map=weight_map,
             log_every_n_steps=log_every_n_steps,
             precision_config=precision_config,
+            collect_response_diagnostics=_collect_response_diagnostics(
+                task_name,
+                train_config,
+                split="train",
+            ),
         )
         epoch_summaries.append(asdict(last_train_summary))
 
@@ -225,6 +230,11 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
                 weight_map=weight_map,
                 log_every_n_steps=0,
                 precision_config=precision_config,
+                collect_response_diagnostics=_collect_response_diagnostics(
+                    task_name,
+                    train_config,
+                    split="valid",
+                ),
             )
             epoch_summaries.append(asdict(last_valid_summary))
 
@@ -349,6 +359,7 @@ def _run_epoch(
     weight_map: dict[str, float],
     log_every_n_steps: int,
     precision_config: dict[str, Any],
+    collect_response_diagnostics: bool,
 ) -> EpochSummary:
     total_loss = 0.0
     total_correct = 0
@@ -366,7 +377,11 @@ def _run_epoch(
     group_totals: dict[str, int] = {}
     group_correct: dict[str, int] = {}
     group_loss_totals: dict[str, float] = {}
-    response_metrics = ResponseMetricsAccumulator() if task_name == "response" else None
+    response_metrics = (
+        ResponseMetricsAccumulator()
+        if task_name == "response" and collect_response_diagnostics
+        else None
+    )
 
     model.train(train)
     total_batches = len(data_loader)
@@ -401,12 +416,17 @@ def _run_epoch(
 
         batch_size = prepared_batch["labels"].shape[0]
         predictions = logits.argmax(dim=1)
-        label_ranks = _compute_label_ranks(logits, prepared_batch["labels"])
+        label_ranks = (
+            _compute_label_ranks(logits, prepared_batch["labels"])
+            if response_metrics is not None
+            else None
+        )
         correct = predictions == prepared_batch["labels"]
         loss_value = float(loss.detach().item())
         correct_list = correct.detach().to("cpu").tolist()
         per_sample_loss_list = per_sample_losses.detach().to("cpu").tolist()
         if response_metrics is not None:
+            assert label_ranks is not None
             prediction_list = predictions.detach().to("cpu").tolist()
             label_rank_list = label_ranks.detach().to("cpu").tolist()
         else:
@@ -608,6 +628,11 @@ def _build_dataset(
             shuffle_shards=shuffle and bool(train_config.get("shuffle_shards", True)),
             shuffle_rows=shuffle and bool(train_config.get("shuffle_rows", True)),
             shuffle_buffer_size=int(train_config.get("shuffle_buffer_size", 8192)),
+            include_legal_actions=_collect_response_diagnostics(
+                task_name,
+                train_config,
+                split=split,
+            ),
             seed=int(train_config.get("dataset_seed", 20260423)),
         )
     return ManifestResponseDataset(
@@ -629,6 +654,18 @@ def _response_min_candidate_count(
     if split != "train":
         return 1
     return int(train_config.get("response_min_train_candidate_count", 1))
+
+
+def _collect_response_diagnostics(
+    task_name: str,
+    train_config: dict[str, Any],
+    split: str | None,
+) -> bool:
+    if task_name != "response":
+        return False
+    if split == "train":
+        return bool(train_config.get("response_train_diagnostics", False))
+    return bool(train_config.get("response_eval_diagnostics", True))
 
 
 def _build_collate_fn(task_name: str, candidate_limit: int):
@@ -708,6 +745,8 @@ def _print_training_start(
         f"lr={float(train_config.get('lr', 1e-3))} "
         f"weight_decay={float(train_config.get('weight_decay', 0.0))} "
         f"log_every_n_steps={log_every_n_steps} "
+        f"response_train_diagnostics={_collect_response_diagnostics(task_name, train_config, 'train')} "
+        f"response_eval_diagnostics={_collect_response_diagnostics(task_name, train_config, 'valid')} "
         f"output_dir={output_dir} "
         f"log_dir={log_dir}",
         flush=True,

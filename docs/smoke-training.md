@@ -86,6 +86,8 @@ python -m mjai.cli build-dataset --input data/bronze_events --output data/silver
 
 P800/CUDA 单卡训练现在会读取 `train.precision`、`train.allow_tf32` 和 `train.float32_matmul_precision`。`turn_p800.yaml` 与 `response_p800.yaml` 默认开启 `precision: bf16`、`allow_tf32: true` 和 `float32_matmul_precision: high`；训练启动日志会打印 `precision`、`autocast`、`autocast_dtype`、`allow_tf32`。如果日志里 `data_wait` 接近 0 但 GPU 利用率仍低，瓶颈通常不是 DataLoader，而是当前 MLP ranker 单 step 计算量偏小。优先观察 `samples_per_s` 和 `avg_compute_time`，再尝试把 `batch_size` 从 `2048` 提到 `4096` 或 `8192`；继续加 `num_workers` 通常收益不大。
 
+`response` 训练还要额外注意诊断开销。训练 split 默认 `response_train_diagnostics: false`，不会读取/解析 `legal_actions_json`，也不会逐样本计算 response candidate-set 诊断；valid split 默认 `response_eval_diagnostics: true`，仍会输出 `non_pass_f1`、false/missed call 等指标，并继续用于选择 `best_response.pt`。如果为了排查训练集诊断临时打开 `response_train_diagnostics: true`，GPU 利用率会明显下降。
+
 ## 4. 第二步：跑 turn smoke train
 
 命令：

@@ -236,9 +236,11 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
     assert metrics["epoch_summaries"]
     first_epoch = metrics["epoch_summaries"][0]
     assert "macro_accuracy" in first_epoch
-    assert "response" in first_epoch
+    assert first_epoch["response"] is None
     assert first_epoch["per_kind"]
     assert first_epoch["class_groups"]
+    valid_epoch = metrics["epoch_summaries"][1]
+    assert valid_epoch["response"]
 
 
 def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
