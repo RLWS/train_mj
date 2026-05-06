@@ -9,9 +9,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from mjai.data.datasets.parquet_dataset import (
-    ManifestResponseDataset,
-    ManifestTurnDataset,
     ResponseBatchCollator,
+    StreamingManifestResponseDataset,
+    StreamingManifestTurnDataset,
     TurnBatchCollator,
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
@@ -127,6 +127,8 @@ def evaluate_checkpoint(
     batch_size = int(config.get("train", {}).get("batch_size", 32))
     max_misclassified_examples = int(config.get("eval", {}).get("max_misclassified_examples", 10))
     device = _resolve_device(config.get("train", {}).get("device"))
+    num_workers = _resolve_eval_num_workers(config)
+    pin_memory = bool(config.get("eval", {}).get("pin_memory", device.type == "cuda"))
     dataset_dir = _resolve_dataset_dir(manifest_path, task_name)
     bronze_dir = _resolve_bronze_dir(config)
 
@@ -138,8 +140,10 @@ def evaluate_checkpoint(
         dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=num_workers,
         collate_fn=_build_collate_fn(task_name, candidate_limit),
+        pin_memory=pin_memory,
+        **_worker_loader_kwargs(config, num_workers),
     )
 
     model = MahjongPolicyNet(
@@ -166,12 +170,15 @@ def evaluate_checkpoint(
     bucket_hits: dict[str, dict[int, int]] = {}
     response_metrics = ResponseMetricsAccumulator() if task_name == "response" else None
     misclassified_examples: list[MisclassifiedExample] = []
+    non_blocking = bool(pin_memory and device.type == "cuda")
 
     with torch.no_grad():
         for batch in data_loader:
             batches += 1
             prepared_batch = {
-                key: value.to(device) if isinstance(value, torch.Tensor) else value
+                key: value.to(device, non_blocking=non_blocking)
+                if isinstance(value, torch.Tensor)
+                else value
                 for key, value in batch.items()
             }
 
@@ -364,9 +371,10 @@ def _resolve_bronze_dir(config: dict[str, Any]) -> Path:
 
 
 def _read_first_manifest_record(manifest_path: Path) -> dict[str, Any]:
-    for line in manifest_path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            return json.loads(line)
+    with manifest_path.open("r", encoding="utf-8") as manifest_file:
+        for line in manifest_file:
+            if line.strip():
+                return json.loads(line)
     raise ValueError(f"manifest has no records: {manifest_path}")
 
 
@@ -413,15 +421,52 @@ def _build_top_predictions(
 
 
 def _build_dataset(task_name: str, manifest_path: Path):
+    # 大数据评估默认流式读取 parquet shard，不再把整个 valid/test split 载入内存。
+    # 错例报告仍需要动作 JSON，因此只额外读取 legal_actions/label_action，不读取 state_json。
     if task_name == "turn":
-        return ManifestTurnDataset(manifest_path)
-    return ManifestResponseDataset(manifest_path)
+        return StreamingManifestTurnDataset(
+            manifest_path,
+            shuffle_shards=False,
+            shuffle_rows=False,
+            shuffle_buffer_size=0,
+            include_legal_actions=True,
+            include_label_action=True,
+        )
+    return StreamingManifestResponseDataset(
+        manifest_path,
+        min_candidate_count=1,
+        shuffle_shards=False,
+        shuffle_rows=False,
+        shuffle_buffer_size=0,
+        include_legal_actions=True,
+        include_label_action=True,
+    )
 
 
 def _build_collate_fn(task_name: str, candidate_limit: int):
     if task_name == "turn":
         return TurnBatchCollator(candidate_limit=candidate_limit)
     return ResponseBatchCollator(candidate_limit=candidate_limit)
+
+
+def _resolve_eval_num_workers(config: dict[str, Any]) -> int:
+    eval_config = config.get("eval", {})
+    train_config = config.get("train", {})
+    return int(eval_config.get("num_workers", train_config.get("valid_num_workers", 0)))
+
+
+def _worker_loader_kwargs(config: dict[str, Any], num_workers: int) -> dict[str, Any]:
+    if num_workers <= 0:
+        return {}
+    eval_config = config.get("eval", {})
+    train_config = config.get("train", {})
+    kwargs: dict[str, Any] = {}
+    prefetch_factor = eval_config.get("prefetch_factor", train_config.get("prefetch_factor"))
+    if prefetch_factor is not None:
+        kwargs["prefetch_factor"] = int(prefetch_factor)
+    if bool(eval_config.get("persistent_workers", train_config.get("persistent_workers", False))):
+        kwargs["persistent_workers"] = True
+    return kwargs
 
 
 def _build_eval_kind_summaries(

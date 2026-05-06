@@ -46,6 +46,7 @@
   - `best_macro.pt`
   - `final.pt`
 - `python -m mjai.cli eval --ckpt <tmp> --split valid --report <tmp>` 可运行。
+- 离线 `eval` 现在默认使用 streaming dataset：启动时只读取 manifest 与 shard 元信息，迭代时按 parquet shard 读取预编码特征和错例报告需要的动作 JSON，不再把整份 valid/test split 常驻内存。`eval.num_workers` 可单独配置；未配置时沿用 `train.valid_num_workers`。
 - 对最小 `turn` 与 `response` smoke checkpoint 实测，可输出：
   - `loss`
   - `top1 / top3 / top5 accuracy`

@@ -114,6 +114,17 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert streaming_batch["state_feats"].shape[1] == TURN_STATE_DIM
     assert streaming_batch["candidate_feats"].shape[2] == TURN_ACTION_DIM
 
+    streaming_eval_dataset = StreamingManifestTurnDataset(
+        manifest_path,
+        shuffle_rows=False,
+        include_legal_actions=True,
+        include_label_action=True,
+    )
+    streaming_eval_row = next(iter(streaming_eval_dataset))
+    assert streaming_eval_row["legal_actions"]
+    assert streaming_eval_row["label_action"]
+    assert "state" not in streaming_eval_row
+
     response_manifest = tmp_path / "response_only.jsonl"
     response_file = next(path for path in response_files if pq.read_metadata(path).num_rows > 0)
     response_manifest.write_text(
@@ -138,6 +149,18 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert all(row["candidate_count"] >= 2 for row in response_rows)
     assert response_batch["state_feats"].shape[1] == RESPONSE_STATE_DIM
     assert response_batch["candidate_feats"].shape[2] == RESPONSE_ACTION_DIM
+
+    response_eval_dataset = StreamingManifestResponseDataset(
+        response_manifest,
+        min_candidate_count=1,
+        shuffle_rows=False,
+        include_legal_actions=True,
+        include_label_action=True,
+    )
+    response_eval_row = next(iter(response_eval_dataset))
+    assert response_eval_row["legal_actions"]
+    assert response_eval_row["label_action"]
+    assert "state" not in response_eval_row
 
 
 def test_build_dataset_supports_parallel_workers(tmp_path: Path):

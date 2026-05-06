@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from mjai.data.datasets.parquet_dataset import (
+    StreamingManifestResponseDataset,
+    StreamingManifestTurnDataset,
+)
 from mjai.cli import main
+from mjai.eval.offline import _build_dataset as _build_eval_dataset
 from mjai.eval.response_calibration import _build_calibration_dataset
 
 
@@ -259,6 +264,10 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
     valid_line = (manifest_dir / "valid.jsonl").read_text(encoding="utf-8").splitlines()[0]
     train_manifest.write_text(train_line + "\n", encoding="utf-8")
     valid_manifest.write_text(valid_line + "\n", encoding="utf-8")
+    eval_dataset = _build_eval_dataset("turn", valid_manifest)
+    assert isinstance(eval_dataset, StreamingManifestTurnDataset)
+    assert eval_dataset.include_legal_actions is True
+    assert eval_dataset.include_label_action is True
 
     output_dir = tmp_path / "outputs" / "checkpoints" / "turn_eval_test"
     log_dir = tmp_path / "outputs" / "logs" / "turn_eval_test"
@@ -350,6 +359,10 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
     train_manifest.write_text(train_line + "\n", encoding="utf-8")
     valid_manifest.write_text(valid_line + "\n", encoding="utf-8")
     calibration_manifest.write_text(valid_line + "\n", encoding="utf-8")
+    eval_dataset = _build_eval_dataset("response", valid_manifest)
+    assert isinstance(eval_dataset, StreamingManifestResponseDataset)
+    assert eval_dataset.include_legal_actions is True
+    assert eval_dataset.include_label_action is True
 
     output_dir = tmp_path / "outputs" / "checkpoints" / "response_eval_test"
     log_dir = tmp_path / "outputs" / "logs" / "response_eval_test"

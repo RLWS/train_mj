@@ -363,7 +363,7 @@ python -m mjai.cli replay-eval --ckpt outputs/checkpoints/turn_small/best.pt --g
 说明：
 
 - `train`：统一训练入口，依赖配置决定当前 task
-- `eval`：离线指标评估
+- `eval`：离线指标评估；默认流式读取 manifest 中的 parquet shard，只保留 batch 级数据和有限错例报告，适合大数据 valid/test
 - `calibrate-response`：固定 response checkpoint 扫描 pass/call score margin
 - `replay-eval`：固定牌谱回放
 

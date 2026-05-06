@@ -298,6 +298,8 @@ response checkpoint 还会额外输出 `response` 诊断块，重点看：
 - `binary.missed_call_rate`：真实 chi/pon/ron 等响应但模型选择 pass 的比例。
 - `candidate_sets` 与 `confusion`：按候选集合和 `label->pred` 聚合错法。
 
+`eval` 默认按 manifest 中的 parquet shard 流式读取 valid/test split，不再在启动阶段把整份评估集加载到内存。报告能力保持不变：为了生成错例、top predictions 和 response 诊断，评估仍会读取 `legal_actions_json` 与 `label_action_json`，但不会读取更大的 `state_json`；需要看完整状态时继续用报告里的 `inspect-sample` 命令回查。大数据评估可以在配置里设置 `eval.num_workers`、`eval.prefetch_factor`、`eval.persistent_workers` 和 `eval.pin_memory`；未设置 `eval.num_workers` 时会沿用 `train.valid_num_workers`。
+
 其中 `misclassified_examples` 现在已经带有：
 
 - 样本定位信息：`sample_id / game_id / kyoku_index / step_index / actor`
