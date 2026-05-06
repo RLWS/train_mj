@@ -11,6 +11,7 @@ from mjai.data.builders.manifest_builder import ManifestBuilder
 from mjai.data.datasets.parquet_dataset import inspect_dataset_sample, inspect_dataset_sample_by_id
 from mjai.eval.case_dump import dump_case_to_json
 from mjai.eval.offline import evaluate_checkpoint
+from mjai.eval.response_calibration import calibrate_response_checkpoint
 from mjai.training.engine import train_turn_model
 from mjai.utils.config import load_resolved_yaml, load_yaml
 
@@ -180,6 +181,52 @@ def _run_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_calibrate_response(args: argparse.Namespace) -> int:
+    config_override = _load_optional_config(getattr(args, "config", None))
+    pass_biases = _parse_float_list(args.pass_biases, option_name="--pass-biases")
+    false_call_targets = _parse_rate_list(
+        args.false_call_targets,
+        option_name="--false-call-targets",
+    )
+    summary = calibrate_response_checkpoint(
+        ckpt_path=args.ckpt,
+        split=args.split,
+        pass_biases=pass_biases,
+        false_call_rate_targets=false_call_targets,
+        config_override=config_override,
+        report_path=getattr(args, "report", None),
+        manifest_path=getattr(args, "manifest", None),
+        progress_callback=_print_calibration_progress,
+        progress_every_n_batches=max(0, int(args.log_every_n_batches)),
+    )
+    print(
+        f"calibrated task={summary.task} split={summary.split} "
+        f"points={len(summary.points)} samples={summary.points[0].samples if summary.points else 0} "
+        f"device={summary.used_device}"
+    )
+    print(f"manifest={summary.manifest_path}")
+    print(f"report={summary.report_path}")
+    for selection in summary.selections:
+        if selection.selected_pass_bias is None:
+            print(
+                "calibration_selection="
+                f"target_false_call_rate={selection.false_call_rate_target:.4f} "
+                "selected_pass_bias=None"
+            )
+            continue
+        print(
+            "calibration_selection="
+            f"target_false_call_rate={selection.false_call_rate_target:.4f} "
+            f"selected_pass_bias={selection.selected_pass_bias:.4f} "
+            f"false_call_rate={selection.selected_false_call_rate:.4f} "
+            f"missed_call_rate={selection.selected_missed_call_rate:.4f} "
+            f"non_pass_precision={selection.selected_non_pass_precision:.4f} "
+            f"non_pass_recall={selection.selected_non_pass_recall:.4f} "
+            f"non_pass_f1={selection.selected_non_pass_f1:.4f}"
+        )
+    return 0
+
+
 def _run_inspect_sample(args: argparse.Namespace) -> int:
     _load_optional_config(getattr(args, "config", None))
     if args.sample_id is None and args.index is None:
@@ -209,6 +256,51 @@ def _run_dump_case(args: argparse.Namespace) -> int:
 def _print_warnings(warnings: tuple[str, ...]) -> None:
     for warning in warnings:
         print(f"warning: {warning}")
+
+
+def _print_calibration_progress(batch_index: int, total_batches: int, samples_processed: int) -> None:
+    print(
+        "calibration_progress="
+        f"batch={batch_index}/{total_batches} "
+        f"samples={samples_processed}",
+        flush=True,
+    )
+
+
+def _parse_float_list(raw_value: str, *, option_name: str) -> list[float]:
+    values: list[float] = []
+    for item in raw_value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            values.append(float(item))
+        except ValueError as exc:
+            raise ValueError(f"{option_name} contains a non-float value: {item}") from exc
+    if not values:
+        raise ValueError(f"{option_name} requires at least one value")
+    return values
+
+
+def _parse_rate_list(raw_value: str, *, option_name: str) -> list[float]:
+    values: list[float] = []
+    for item in raw_value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            if item.endswith("%"):
+                value = float(item[:-1].strip()) / 100.0
+            else:
+                value = float(item)
+        except ValueError as exc:
+            raise ValueError(f"{option_name} contains a non-rate value: {item}") from exc
+        if value < 0.0 or value > 1.0:
+            raise ValueError(f"{option_name} values must be in [0, 1] after percent parsing: {item}")
+        values.append(value)
+    if not values:
+        raise ValueError(f"{option_name} requires at least one value")
+    return values
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -255,6 +347,36 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--split", default="valid", choices=["train", "valid", "test"])
     eval_parser.add_argument("--report", default=None, help="Optional output report path.")
     _add_config_arg(eval_parser)
+
+    calibrate_response = subparsers.add_parser(
+        "calibrate-response",
+        help="Scan response pass/call score margins for false-call-rate targets.",
+    )
+    calibrate_response.add_argument("--ckpt", required=True, help="Response checkpoint path.")
+    calibrate_response.add_argument("--split", default="valid", choices=["train", "valid", "test"])
+    calibrate_response.add_argument(
+        "--manifest",
+        default=None,
+        help="Optional manifest override for the selected split.",
+    )
+    calibrate_response.add_argument("--report", default=None, help="Optional output report path.")
+    calibrate_response.add_argument(
+        "--pass-biases",
+        default="0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00",
+        help="Comma-separated pass bias / call margin values in logit units.",
+    )
+    calibrate_response.add_argument(
+        "--false-call-targets",
+        default="0.010,0.008,0.005",
+        help="Comma-separated false-call-rate targets; percent values like 1%% are accepted.",
+    )
+    calibrate_response.add_argument(
+        "--log-every-n-batches",
+        type=int,
+        default=100,
+        help="Print calibration progress every N batches; use 0 to disable.",
+    )
+    _add_config_arg(calibrate_response)
 
     replay_eval = subparsers.add_parser("replay-eval", help="Run fixed-game replay evaluation.")
     replay_eval.add_argument("--ckpt", required=True, help="Checkpoint path.")
@@ -307,6 +429,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_train(args)
     if args.command == "eval":
         return _run_eval(args)
+    if args.command == "calibrate-response":
+        return _run_calibrate_response(args)
     if args.command == "inspect-sample":
         return _run_inspect_sample(args)
     if args.command == "dump-case":

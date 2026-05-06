@@ -21,7 +21,7 @@
 
 当前已验证结果：
 
-- `pytest` 结果为 `84 passed`
+- `pytest` 结果为 `97 passed`
 - 使用 `tests/fixtures/tenhou` 实测可完成 `20` 局 XML 预处理、`6281` 条事件写入、`20/20` 个事件分片校验通过，并生成 `2996` 条 `turn` 样本、`8910` 条 `response` 样本
 - `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 
@@ -356,6 +356,7 @@ python -m mjai.cli train --config configs/turn_small.yaml
 python -m mjai.cli train --config configs/response_small.yaml
 python -m mjai.cli train --config configs/policy_multitask.yaml
 python -m mjai.cli eval --ckpt outputs/checkpoints/turn_small/best.pt --split valid
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_small/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_small/response_calibration_valid.json
 python -m mjai.cli replay-eval --ckpt outputs/checkpoints/turn_small/best.pt --games data/manifests/replay_cases.txt
 ```
 
@@ -363,6 +364,7 @@ python -m mjai.cli replay-eval --ckpt outputs/checkpoints/turn_small/best.pt --g
 
 - `train`：统一训练入口，依赖配置决定当前 task
 - `eval`：离线指标评估
+- `calibrate-response`：固定 response checkpoint 扫描 pass/call score margin
 - `replay-eval`：固定牌谱回放
 
 ## 5.3 推理与调试

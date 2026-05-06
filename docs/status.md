@@ -9,13 +9,13 @@
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
 - `Phase 1` 已推进到大数据单任务 baseline：`turn/response` 都已经有 P800 训练结果、valid/test eval report 和可对照的指标基线。
 
-换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练并分析 baseline”的阶段，但训练体系还远没完整；多任务、DDP、校准和系统化错例分析仍未完成。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练并分析 baseline”的阶段，但训练体系还远没完整；response 校准命令已落地但 P800 校准报告待跑，多任务、DDP 和系统化错例分析仍未完成。
 
 ## 2. 已验证结果
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `97 passed`。
+- `pytest` 全量通过，当前结果为 `97 passed`；新增 response 校准路径后，`python -m compileall -q mjai tests` 和 `tests/test_train_smoke.py::test_eval_response_smoke_from_generated_checkpoint` 已通过。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -54,6 +54,7 @@
   - 首批错例样本的 label、top-k 预测、legal actions，以及可直接执行的 `inspect-sample` / `dump-case` 跳转命令
   - JSON 评估报告
 - response 评估报告已补充 response 专用诊断：`single_candidate` / `multi_candidate`、`pass` vs `non_pass` precision / recall / F1、`false_call_rate`、`missed_call_rate`、候选集合聚合与 `label->pred` confusion。
+- `python -m mjai.cli calibrate-response --ckpt <response_ckpt> --split valid --manifest <manifest> --report <report>` 可运行；它会扫描 pass/call score margin，并为 `false_call_rate <= 0.010 / 0.008 / 0.005` 等目标选择 `non_pass_f1` 最好的 operating point。
 - 2026-05-03 response action feature 增强后复训已完成并记录在 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：训练过滤后保留 `141423 / 1490034` 条 response 训练样本；最新 `best.pt` 在 valid/test 上分别达到 `multi_candidate top1=0.8521/0.8502`、`multi_candidate macro top1=0.7882/0.8697`、`non_pass_f1=0.7215/0.7189`、`false_call_rate=0.0111/0.0111`、`missed_call_rate=0.1425/0.1466`。
 - 2026-05-06 P800 大数据单任务 baseline 已完成，训练产物位于 `outputs/checkpoints/turn_p800`、`outputs/checkpoints/response_p800`，分析记录见 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md) 第 10 节。
   - `turn_p800/best.pt`：train `83077288` 条、valid `10404270` 条、test `10393095` 条；test `top1=0.7008`、`top3=0.9446`、`top5=0.9853`、`macro_top1=0.9134`，其中 `discard top1=0.6958`、`riichi_discard top1=0.8534`。
@@ -131,6 +132,7 @@
   - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
   - 已支持按动作类别、主类/非主类分组、候选规模分桶与首批错例导出。
   - response checkpoint 额外输出 `candidate_count > 1` 子集、pass/non-pass 二分类、false call / missed call 和候选集合维度指标；turn checkpoint 的 `response` 诊断字段为 `null`。
+  - 已新增 response pass/call 校准扫描：固定 checkpoint，在一组 `pass_bias` 下输出 false call、missed call、non-pass precision/recall/F1、multi-candidate top1 和按动作类别 top1，并按 false call 目标挑选 operating point。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
   - `turn/response` smoke train、offline eval、`inspect-sample` 与 `dump-case` 都有回归测试。
@@ -139,7 +141,7 @@
 
 - `mjai/cli.py`
   - 子命令框架完整。
-  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`inspect-sample`、`dump-case` 已可用。
+  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`calibrate-response`、`inspect-sample`、`dump-case` 已可用。
   - `replay-eval`、`infer-on-state` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
@@ -266,8 +268,8 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. 固定 `outputs/checkpoints/response_p800/best.pt`，在 valid split 上扫描 `pass` logit bias 或 score margin
-2. 输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`
+1. 固定 `outputs/checkpoints/response_p800/best.pt`，在 valid split 上运行 `calibrate-response --manifest runs/2026-05-06_p800_baseline/valid.jsonl` 扫描 `pass` logit bias / score margin
+2. 输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`，并将报告放入 `runs/2026-05-06_p800_baseline/`
 3. 至少比较 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档
 4. 对 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各抽样 `100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源
 

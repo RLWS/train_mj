@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from mjai.cli import main
+from mjai.eval.response_calibration import _build_calibration_dataset
 
 
 FIXTURE_DIR = Path("tests/fixtures/tenhou")
@@ -332,7 +333,7 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
         assert "dump-case --bronze-dir" in example["case_locator"]["dump_case_command"]
 
 
-def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
+def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"
@@ -343,15 +344,18 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
 
     train_manifest = manifest_dir / "train_small.jsonl"
     valid_manifest = manifest_dir / "valid_small.jsonl"
+    calibration_manifest = manifest_dir / "valid_calibration.jsonl"
     train_line = (manifest_dir / "train.jsonl").read_text(encoding="utf-8").splitlines()[0]
     valid_line = (manifest_dir / "valid.jsonl").read_text(encoding="utf-8").splitlines()[0]
     train_manifest.write_text(train_line + "\n", encoding="utf-8")
     valid_manifest.write_text(valid_line + "\n", encoding="utf-8")
+    calibration_manifest.write_text(valid_line + "\n", encoding="utf-8")
 
     output_dir = tmp_path / "outputs" / "checkpoints" / "response_eval_test"
     log_dir = tmp_path / "outputs" / "logs" / "response_eval_test"
     config_path = tmp_path / "response_eval.yaml"
     report_path = tmp_path / "reports" / "response_valid_eval.json"
+    calibration_report_path = tmp_path / "reports" / "response_valid_calibration.json"
     config_path.write_text(
         "\n".join(
             [
@@ -400,6 +404,23 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
             str(report_path),
         ]
     ) == 0
+    assert main(
+        [
+            "calibrate-response",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--split",
+            "valid",
+            "--manifest",
+            str(calibration_manifest),
+            "--report",
+            str(calibration_report_path),
+            "--pass-biases",
+            "0,0.1,0.2",
+            "--false-call-targets",
+            "100%,0.5%",
+        ]
+    ) == 0
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["task"] == "response"
@@ -423,3 +444,27 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path):
         assert example["sample_locator"]["sample_id"] == example["sample_id"]
         assert "inspect-sample --dataset" in example["inspect_locator"]["inspect_sample_command"]
         assert "dump-case --bronze-dir" in example["case_locator"]["dump_case_command"]
+
+    calibration_report = json.loads(calibration_report_path.read_text(encoding="utf-8"))
+    calibration_dataset = _build_calibration_dataset(calibration_manifest)
+    assert calibration_dataset.include_legal_actions is True
+    assert calibration_dataset.shuffle_rows is False
+    assert calibration_dataset.shuffle_shards is False
+    assert calibration_report["task"] == "response"
+    assert calibration_report["split"] == "valid"
+    assert calibration_report["manifest_path"] == str(calibration_manifest)
+    assert calibration_report["pass_biases"] == [0.0, 0.1, 0.2]
+    assert calibration_report["false_call_rate_targets"] == [1.0, 0.005]
+    assert len(calibration_report["points"]) == 3
+    assert len(calibration_report["selections"]) == 2
+    assert calibration_report["selections"][0]["selected_pass_bias"] is not None
+    first_point = calibration_report["points"][0]
+    assert first_point["samples"] > 0
+    assert 0.0 <= first_point["top1_accuracy"] <= 1.0
+    assert 0.0 <= first_point["false_call_rate"] <= 1.0
+    assert 0.0 <= first_point["missed_call_rate"] <= 1.0
+    assert "pass" in first_point["per_kind_samples"]
+
+    captured = capsys.readouterr()
+    assert "calibrated task=response split=valid" in captured.out
+    assert "calibration_selection=target_false_call_rate=1.0000" in captured.out

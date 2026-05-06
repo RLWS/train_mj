@@ -306,6 +306,16 @@ response checkpoint 还会额外输出 `response` 诊断块，重点看：
 
 也就是说，评估报告里的错例已经可以直接跳回样本和原始事件上下文。
 
+### response pass/call 校准
+
+如果 response 的 false call 绝对量偏高，可以固定 checkpoint 做校准扫描，不需要重新训练：
+
+```powershell
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --pass-biases 0,0.05,0.10,0.20,0.40 --false-call-targets 1%,0.8%,0.5%
+```
+
+报告里的 `points` 是每个 `pass_bias` 的完整指标，`selections` 是每个 false call 目标下推荐的 operating point。这个命令只改变“叫牌分数必须比 pass 高多少才叫”的推理阈值，不会改 checkpoint 权重。
+
 ## 10. 一套建议你自己手动跑的完整命令
 
 如果你就是想完整熟悉当前项目，建议按下面顺序走一遍：
@@ -321,6 +331,8 @@ python -m mjai.cli train --config configs/response_local_smoke.yaml
 
 python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
 python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-id 0 --step-id 2
+python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --report outputs/checkpoints/response_local_smoke/eval_valid.json
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json
 ```
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。

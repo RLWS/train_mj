@@ -772,9 +772,38 @@ checkpoint 选择方面，`best.pt` / `best_response.pt` 仍按 `non_pass_f1 - f
 优先级从高到低：
 
 1. 后续继续使用 `runs/<date>_<exp>/` 结构，并增加一个轻量 `run_summary.md` 或 `run_summary.json`，记录数据摘要、checkpoint 路径、配置路径和 eval report 路径；大文件本身继续不进 git。
-2. 对 response 做 pass/call 校准实验。固定当前 `response_p800/best.pt`，在 valid 上扫描 `pass` logit bias 或 score margin，输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`。建议至少看 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档。
+2. 对 response 做 pass/call 校准实验。固定当前 `response_p800/best.pt`，在 valid 上扫描 `pass` logit bias 或 score margin，输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`。建议至少看 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档；当前仓库已提供 `calibrate-response` 命令，下一步应直接在 P800 baseline checkpoint 上跑 valid/test 校准报告。
 3. 对 response 错例做抽样。分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，用 `inspect-sample` 和 `dump-case` 判断误差来自玩家风格、点况/防守信息缺失，还是 action feature 仍不足。
 4. 对 turn 做 top-k 错例聚合。重点抽 label rank 为 `2/3` 的 discard 样本，而不是泛泛抽所有错误；这些样本最能说明缺哪些排序特征。
 5. 再补 turn 特征，不先换复杂模型。优先补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和局面阶段。每加一组特征，固定当前训练配置复跑，观察 `discard top1` 是否提升而 `top3` 基本稳定。
 6. 对 P800 配置做一次小范围吞吐试验。response 当前运行产物使用 `batch_size=8192`，仓库配置已倾向更大 batch；可以试 `16384/32768`，只以 `samples_per_s`、显存和 eval 指标为依据。
 7. 多任务、DDP 和复杂模型继续后置。等 turn 特征和 response 校准有明确结论后，再实现 `task: multitask`、step eval/save、grad accumulation 和 DDP，避免把工程变量和模型质量变量混在同一轮。
+
+### 10.8 response 校准执行规范
+
+本轮新增的 `calibrate-response` 不重训模型，只改变推理时的 pass/call operating point：每个响应窗口先取最高分 `pass` 和最高分 non-pass，只有当
+
+```text
+best_non_pass_score > pass_score + pass_bias
+```
+
+才选择叫牌。`pass_bias` 越大，模型越保守，false call 通常下降，但 missed call 会升高。因此它适合回答“当前 checkpoint 在不同误叫目标下还能保留多少叫牌召回”，并为后续混合训练或推理默认阈值提供约束。
+
+P800 baseline 的第一步命令：
+
+```powershell
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --report runs/2026-05-06_p800_baseline/response_calibration_valid_best.json --pass-biases 0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00 --false-call-targets 1%,0.8%,0.5%
+```
+
+报告会写出：
+
+- `points`：每个 `pass_bias` 下的 `false_call_rate`、`missed_call_rate`、`non_pass_precision/recall/F1`、`multi_candidate_top1_accuracy` 和按 label kind 的 top1。
+- `selections`：对每个 false call 目标，先过滤 `false_call_rate <= target`，再选择 `non_pass_f1` 最高的 bias。
+
+valid 上选出 bias 后，再在 test 上复核一次，不用重新训练：
+
+```powershell
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/best.pt --split test --manifest runs/2026-05-06_p800_baseline/test.jsonl --report runs/2026-05-06_p800_baseline/response_calibration_test_best.json --pass-biases <valid_selected_biases> --false-call-targets 1%,0.8%,0.5%
+```
+
+这一步产物仍属于本地 run 证据，`runs/` 目录继续由 `.gitignore` 忽略；文档只记录结论、命令和关键指标。

@@ -23,8 +23,8 @@ def test_load_resolved_p800_configs():
     response_config = load_resolved_yaml("configs/response_p800.yaml")
 
     assert turn_config["task"]["task"] == "turn"
-    assert turn_config["train"]["device"] == "xpu"
+    assert turn_config["train"]["device"] == "cuda"
     assert turn_config["data"]["train_manifest"] == "data/manifests/train.jsonl"
     assert response_config["task"]["task"] == "response"
-    assert response_config["train"]["device"] == "xpu"
+    assert response_config["train"]["device"] == "cuda"
     assert response_config["data"]["candidate_limit"] == 16
