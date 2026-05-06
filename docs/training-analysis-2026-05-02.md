@@ -807,3 +807,62 @@ python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/b
 ```
 
 这一步产物仍属于本地 run 证据，`runs/` 目录继续由 `.gitignore` 忽略；文档只记录结论、命令和关键指标。
+
+### 10.9 response 校准 valid 结果
+
+`runs/2026-05-06_p800_baseline/response_calibration_valid_best.json` 已生成。报告覆盖 P800 valid 全量 `30,955,527` 条 response 样本，其中 `actual_pass=30,432,678`、`actual_non_pass=522,849`、`multi_candidate_samples=2,898,544`。
+
+关键扫描点如下：
+
+| pass_bias | false call | missed call | non-pass P/R/F1 | multi top1 | chi top1 | pon top1 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `0.0` | `1.18%` | `6.51%` | `57.7 / 93.5 / 71.4` | `86.2%` | `83.4%` | `95.3%` |
+| `0.2` | `1.06%` | `7.65%` | `59.9 / 92.3 / 72.7` | `87.3%` | `81.4%` | `94.4%` |
+| `0.4` | `0.95%` | `8.92%` | `62.2 / 91.1 / 73.9` | `88.2%` | `79.2%` | `93.4%` |
+| `0.6` | `0.85%` | `10.34%` | `64.5 / 89.7 / 75.0` | `89.0%` | `76.9%` | `92.1%` |
+| `0.8` | `0.75%` | `11.89%` | `66.9 / 88.1 / 76.0` | `89.8%` | `74.5%` | `90.7%` |
+| `1.0` | `0.66%` | `13.68%` | `69.2 / 86.3 / 76.8` | `90.4%` | `71.7%` | `89.0%` |
+
+结论：
+
+- `pass_bias=0.4` 是第一个进入 `false_call_rate <= 1.0%` 的点：false call 从 `358,501` 降到 `289,237`，但 missed call 从 `34,018` 增到 `46,613`；`chi/pon top1` 仍保留在 `79.2% / 93.4%`。这是当前最合理的“平衡默认值”候选。
+- `pass_bias=0.8` 是第一个进入 `false_call_rate <= 0.8%` 的点：false call 降到 `228,212`，missed call 增到 `62,177`，`chi/pon top1` 降到 `74.5% / 90.7%`。这是偏保守但仍可接受的候选。
+- 报告的 `selections` 对 `1.0%` 和 `0.8%` 都选了 `pass_bias=1.0`，因为当前选择策略只在满足 false call 目标后最大化二分类 `non_pass_f1`。这个点 false call 最低、F1 最高，但相对 `pass_bias=0.0` 会让 `chi top1` 下降约 `11.7` 个百分点、`pon top1` 下降约 `6.3` 个百分点；不应直接当作唯一默认值。
+- 当前扫描到 `pass_bias=1.0` 仍未达到 `false_call_rate <= 0.5%`。如果必须评估 `0.5%` 档，需要追加 `1.2 / 1.4 / 1.6 / 2.0` 等更高 bias 扫描，但预期会进一步增加 missed call 并压低 `chi/pon` exact top1。
+
+test split 复核命令：
+
+```powershell
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/best.pt --split test --manifest runs/2026-05-06_p800_baseline/test.jsonl --report runs/2026-05-06_p800_baseline/response_calibration_test_selected.json --pass-biases 0,0.4,0.8,1.0 --false-call-targets 1%,0.8%,0.5%
+```
+
+### 10.10 response 校准 test 复核结果
+
+`runs/2026-05-06_p800_baseline/response_calibration_test_selected.json` 已生成。报告覆盖 P800 test 全量 `30,923,082` 条 response 样本，其中 `actual_pass=30,400,805`、`actual_non_pass=522,277`、`multi_candidate_samples=2,895,681`。
+
+test 四个复核点如下：
+
+| pass_bias | false call | missed call | non-pass P/R/F1 | multi top1 | chi top1 | pon top1 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `0.0` | `1.183%` | `6.44%` | `57.6 / 93.6 / 71.3` | `86.2%` | `83.6%` | `95.3%` |
+| `0.4` | `0.952%` | `8.83%` | `62.2 / 91.2 / 74.0` | `88.2%` | `79.5%` | `93.3%` |
+| `0.8` | `0.751%` | `11.84%` | `66.9 / 88.2 / 76.0` | `89.8%` | `74.5%` | `90.7%` |
+| `1.0` | `0.660%` | `13.60%` | `69.2 / 86.4 / 76.9` | `90.4%` | `71.8%` | `89.0%` |
+
+valid/test 对比非常稳定：
+
+| pass_bias | valid false call | test false call | valid missed | test missed | valid chi/pon | test chi/pon |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `0.0` | `1.178%` | `1.183%` | `6.51%` | `6.44%` | `83.4 / 95.3` | `83.6 / 95.3` |
+| `0.4` | `0.950%` | `0.952%` | `8.92%` | `8.83%` | `79.2 / 93.4` | `79.5 / 93.3` |
+| `0.8` | `0.750%` | `0.751%` | `11.89%` | `11.84%` | `74.5 / 90.7` | `74.5 / 90.7` |
+| `1.0` | `0.659%` | `0.660%` | `13.68%` | `13.60%` | `71.7 / 89.0` | `71.8 / 89.0` |
+
+最终建议：
+
+- 默认 operating point 建议先用 `pass_bias=0.4`。它在 valid/test 都稳定压到 `false_call≈0.95%`，比无 bias 少约 `7` 万条 false call，同时 `chi/pon top1` 仍在 `79% / 93%` 量级。
+- 如果目标是更保守的副露风格，可以使用 `pass_bias=0.8`。代价是 missed call 接近 `12%`，`chi top1` 降到 `74.5%`。
+- `pass_bias=1.0` 不建议作为默认值。虽然二分类 `non_pass_f1` 最高、false call 最低，但对 `chi/pon` exact action 的损失已经明显。
+- 当前没有必要为了 `0.5%` false call 继续把默认点推得更保守；只有在推理实战确认仍明显误叫时，再单独追加高 bias 扫描。
+
+下一步主线应转为 response 错例抽样：优先抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，判断误差是玩家风格差异、防守/点况信息缺失，还是 action feature 仍不够。

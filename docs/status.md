@@ -225,7 +225,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - response action feature 维度已变化，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配当前 `RESPONSE_ACTION_DIM`。下一轮 response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
 - 20 万局量级的 `response_p800.yaml` 和 `turn_p800.yaml` 单任务 baseline 已经跑完，且 valid/test 指标稳定；下一轮不要把 response 校准、turn 特征、DDP、多任务和复杂模型混在同一次实验里。
 - 当前缺口不是“能否训练”：`runs/2026-05-06_p800_baseline/` 中的 preprocess/validation/build/manifest 摘要已和训练样本数对齐。后续应继续按 `runs/<date>_<exp>/` 固化每轮数据与模型证据，并尽量把非法标签复核结果固化成文件。
-- response 已通过原先验收线，但绝对 false call 数仍大，下一步应扫描 pass/call 阈值或 logit bias，在 `false_call_rate <= 0.010 / 0.008 / 0.005` 等目标下评估 precision/recall/F1 与 `chi/pon` 保持情况。
+- response 已完成 P800 valid/test pass/call 校准扫描。test 上 `pass_bias=0.4` 达到 `false_call_rate=0.952%`、`missed_call_rate=8.83%`、`chi/pon top1=79.5%/93.3%`；`pass_bias=0.8` 达到 `false_call_rate=0.751%`、`missed_call_rate=11.84%`、`chi/pon top1=74.5%/90.7%`。valid/test 曲线几乎重合，默认 operating point 建议先用 `0.4`，保守候选用 `0.8`，暂不把 `1.0` 作为默认值。
 
 ## 5. 阶段结论
 
@@ -269,10 +269,10 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. 固定 `outputs/checkpoints/response_p800/best.pt`，在 valid split 上运行 `calibrate-response --manifest runs/2026-05-06_p800_baseline/valid.jsonl` 扫描 `pass` logit bias / score margin
-2. 输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`，并将报告放入 `runs/2026-05-06_p800_baseline/`
-3. 至少比较 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档
-4. 对 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各抽样 `100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源
+1. 将 `pass_bias=0.4` 作为 response 推理默认候选记录到后续推理/服务配置设计中，保留 `0.8` 作为保守候选
+2. 如果仍要求 `false_call_rate <= 0.5%`，再追加高 bias 扫描，但必须同时记录 missed call 和 `chi/pon` exact top1 下降
+3. 对 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各抽样 `100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源
+4. 后续混合训练评估时同时报告无 bias、`0.4` 和 `0.8` 三个 operating point，避免只看单一 checkpoint top1
 
 ### 任务 3：turn discard top-k 错例与特征增强
 
