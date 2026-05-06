@@ -1,8 +1,8 @@
 # Turn / Response 训练分析记录
 
-更新时间：`2026-05-03`
+更新时间：`2026-05-06`
 
-本文记录当前 `outputs/checkpoints/turn_local_smoke` 与 `outputs/checkpoints/response_local_smoke` 两次训练的结果分析，以及下一轮使用 20 万局数据和 8 张 P800 的改进方向。
+本文记录 `turn/response` 从 4k local smoke、response 训练与特征增强，到 2026-05-06 P800 大数据单任务 baseline 的训练结果分析，以及当前下一步改进方向。
 
 ## 1. 数据与实验背景
 
@@ -579,3 +579,202 @@ P800 上 `build-dataset --workers` 可从 `32` 起步，再根据 CLI 输出的 
 5. 在 20 万局单任务 baseline 稳定后，再实现真正的 `task: multitask`、DDP、grad accumulation 和 step eval/save。
 
 短期不要继续在 4k 局上反复调 response 权重。当前 4k 结果已经足够支持进入 20 万局 baseline；继续小数据调参会开始过度贴合当前 split。
+
+## 10. 2026-05-06 P800 大数据 baseline 结果
+
+本节记录本轮已经拷贝到 `outputs/` 的 P800 训练产物：
+
+- `outputs/checkpoints/turn_p800`
+- `outputs/checkpoints/response_p800`
+- `outputs/turn_p800.log`
+- `outputs/response_p800.log`
+
+本轮数据版本摘要已归档到 `runs/2026-05-06_p800_baseline/`：
+
+- `runs/2026-05-06_p800_baseline/preprocess_summary.json`
+- `runs/2026-05-06_p800_baseline/event_validation_20w.json`
+- `runs/2026-05-06_p800_baseline/build_summary.json`
+- `runs/2026-05-06_p800_baseline/manifest_summary.json`
+- `runs/2026-05-06_p800_baseline/train.jsonl`
+- `runs/2026-05-06_p800_baseline/valid.jsonl`
+- `runs/2026-05-06_p800_baseline/test.jsonl`
+
+下面的数据规模、校验结果、split 和动作分布来自该 run 目录，并已和 P800 训练日志、`train_metrics.json`、valid/test eval report 交叉核对。
+
+### 10.1 数据版本与 split 核对
+
+`preprocess_summary.json`：
+
+- games：`212163`
+- events：`215224122`
+- 平均每个 game 事件数：约 `1014.4`
+- warnings：空
+
+`event_validation_20w.json`：
+
+- `files_seen=212163`
+- `files_valid=212163`
+- `files_failed=0`
+- `total_events=215224122`
+- `total_kyokus=2142692`
+- `total_discards=102949870`
+- `total_melds=4313044`
+- `error_counts={}`
+- warnings：空
+
+`build_summary.json`：
+
+- turn 样本：`103874653`
+- response 样本：`309055971`
+- 构建耗时：约 `2.72` 小时
+- 构建吞吐：`42109.5 samples/s`，`21.64 games/s`
+- `games_with_zero_turn_samples=0`
+- `games_with_zero_response_samples=0`
+- warning 只有 `replay validation skipped during dataset build`，符合先单独 validate、构建时 `--skip-validation` 的流程
+
+`manifest_summary.json`：
+
+| split | games | turn samples | response samples |
+|---|---:|---:|---:|
+| train | `169728` | `83077288` | `247177362` |
+| valid | `21225` | `10404270` | `30955527` |
+| test | `21210` | `10393095` | `30923082` |
+
+三份 manifest 逐行累加后的 `turn_rows` / `response_rows` 与 `manifest_summary.json` 完全一致，且 `build_summary` 总样本数等于 train/valid/test 三个 split 之和：
+
+- turn：`103874653 = 83077288 + 10404270 + 10393095`
+- response：`309055971 = 247177362 + 30955527 + 30923082`
+- games：`212163 = 169728 + 21225 + 21210`
+
+这也和 `turn_p800` / `response_p800` 训练日志、`train_metrics.json` 记录的样本数完全对上。因此本轮 checkpoint 已经能追溯到明确的数据版本。
+
+### 10.2 动作分布
+
+本轮大数据动作分布：
+
+| turn label | count | pct |
+|---|---:|---:|
+| discard | `101380656` | `97.5990%` |
+| riichi_discard | `1569214` | `1.5107%` |
+| tsumo | `734347` | `0.7070%` |
+| ankan | `98535` | `0.0949%` |
+| kakan | `68787` | `0.0662%` |
+| kyuushu_kyuuhai | `23114` | `0.0223%` |
+
+| response label | count | pct |
+|---|---:|---:|
+| pass | `303845321` | `98.3140%` |
+| pon | `2394152` | `0.7747%` |
+| chi | `1738957` | `0.5627%` |
+| ron | `1064608` | `0.3445%` |
+| daiminkan | `12613` | `0.0041%` |
+| chankan | `320` | `0.0001%` |
+
+和 4k local 数据相比，turn 分布整体接近，但 response 的 `pass` 占比从 `97.9326%` 升到 `98.3140%`，`ron/pon/chi` 占比都有所下降。这解释了为什么本轮 response 的 recall 变高但 precision 仍有压力：真实可叫样本更稀，false call 的绝对数会被海量 pass 放大。
+
+另一个需要记住的差异是样本密度：旧 `4233` 数据每 game 约 `149.1` 条 turn、`443.4` 条 response；本轮每 game 约 `489.6` 条 turn、`1456.7` 条 response。新数据更接近完整对局尺度，旧 4k local 不适合作为每局长度分布的代表，只适合作为小规模功能和相对指标基线。
+
+### 10.3 本轮训练规模与配置
+
+| 任务 | checkpoint | 训练配置要点 | 有效 train 样本 | valid 样本 | test 样本 |
+|---|---|---|---:|---:|---:|
+| turn | `outputs/checkpoints/turn_p800/best.pt` | `hidden_size=512`，`batch_size=8192`，`epochs=10`，`candidate_limit=64`，`bf16` | `83077288` | `10404270` | `10393095` |
+| response | `outputs/checkpoints/response_p800/best.pt` | `hidden_size=256`，`batch_size=8192`，`epochs=10`，`candidate_limit=16`，`bf16`，训练过滤 `candidate_count >= 2` | `23120538` | `30955527` | `30923082` |
+
+response 的原始 train 样本为 `247177362`，训练过滤掉 `224056824` 条 pass-only 单候选样本，实际保留 `23120538` 条，保留率约 `9.35%`。这是符合预期的：valid/test 仍保留全量样本，其中单候选 pass-only 约占 `90.64%`，所以 response 的 overall accuracy 仍然不能单独作为质量判断。
+
+P800 单卡吞吐基本正常：
+
+- turn 训练窗口大多在 `49k-55k samples/s`，`data_wait` 通常远低于 `compute_time`。
+- response 训练窗口大多在 `65k samples/s` 左右，除每个 epoch 首 batch 初始化外，DataLoader 也不是主要瓶颈。
+
+因此下一步性能调优不应优先继续加 DataLoader worker；如果要提速，优先试更大的 batch、mmap/更少小文件开销，或提高模型计算密度。
+
+### 10.4 Turn 结果
+
+`turn_p800/best.pt` 的离线 eval 结果：
+
+| 指标 | 4k local valid | P800 valid | P800 test |
+|---|---:|---:|---:|
+| loss | `1.0986` | `0.8204` | `0.8206` |
+| top1 | `0.6318` | `0.7007` | `0.7008` |
+| top3 | `0.9088` | `0.9444` | `0.9446` |
+| top5 | `0.9682` | `0.9853` | `0.9853` |
+| macro top1 | `0.7662` | `0.9134` | `0.9134` |
+| discard top1 | `0.6266` | `0.6957` | `0.6958` |
+| riichi_discard top1 | `0.7819` | `0.8542` | `0.8534` |
+| ankan top1 | `0.3889` | `0.9629` | `0.9602` |
+| kakan top1 | `0.8000` | `0.9689` | `0.9726` |
+| tsumo top1 | `1.0000` | `0.9986` | `0.9983` |
+
+结论：
+
+- 大数据 baseline 对 turn 明显有效。相对 4k local，exact top1 提升约 `6.9` 个百分点，top3 提升约 `3.6` 个百分点，macro top1 提升约 `14.7` 个百分点。
+- valid/test 几乎重合，说明这轮没有明显只吃 valid split；相比 4k local 的过拟合状态，大数据已经让训练更稳定。
+- 少数类明显稳定，尤其 `ankan/kakan/riichi_discard`。这说明之前少数类波动主要是数据量不足，不是规则或 head 完全不可学。
+- 主要瓶颈仍是 discard exact tile。valid `discard top1=0.6957`，但 `discard top3=0.9432`、`top5=0.9849`，说明模型多数时候能把合理弃牌排进前几名，缺的是把 top2/top3 推到 top1 的上下文信息。
+
+候选规模也支持这个判断。valid 中最大量的是 `9-16` 候选桶，样本 `9145517`，top1 只有 `0.6884`，但 top3 已有 `0.9408`。这类样本基本就是“多个可弃牌候选很接近”的决策面，继续只调 loss 或训练轮数，收益会有限。
+
+下一轮 turn 的重点不应先上复杂结构，而应围绕 discard 决策补上下文特征和错例聚合：
+
+1. 抽样 label rank 为 `2-3` 的 discard 错例，按局面阶段、候选牌种、是否 dora/赤、是否安全牌、是否影响向听/有效牌聚合。
+2. 补牌河顺序、摸切/手出、各家现物/筋/one-chance、他家立直/副露威胁、点况和剩余巡目等特征。
+3. 对 `best_loss.pt`、`best_accuracy.pt`、`best_macro.pt` 固定导出 valid/test report，确认当前 `best.pt` 选择是否也是 turn 的最优实战折中。
+
+### 10.5 Response 结果
+
+`response_p800/best.pt` 的离线 eval 结果：
+
+| 指标 | 4k feature test | P800 valid | P800 test |
+|---|---:|---:|---:|
+| overall top1 | `0.9859` | `0.9871` | `0.9871` |
+| macro top1 | `0.8925` | `0.8944` | `0.8974` |
+| multi-candidate top1 | `0.8502` | `0.8623` | `0.8619` |
+| multi-candidate macro top1 | `0.8697` | `0.8712` | `0.8742` |
+| non-pass precision | `0.6210` | `0.5769` | `0.5761` |
+| non-pass recall | `0.8534` | `0.9349` | `0.9356` |
+| non-pass F1 | `0.7189` | `0.7135` | `0.7131` |
+| false call rate | `0.0111` | `0.0118` | `0.0118` |
+| missed call rate | `0.1466` | `0.0651` | `0.0644` |
+| chi top1 | `0.6303` | `0.8352` | `0.8376` |
+| pon top1 | `0.8895` | `0.9531` | `0.9528` |
+| ron top1 | `1.0000` | `0.9985` | `0.9984` |
+| daiminkan top1 | 未重点看 | `0.5914` | `0.6076` |
+
+结论：
+
+- 本轮 response 已通过之前设定的 20 万局 baseline 验收线：valid/test `multi_candidate top1 >= 0.84`、`non_pass_f1 >= 0.70`、`false_call_rate <= 0.015`、`missed_call_rate <= 0.16`、`chi top1 >= 0.62`、`pon top1 >= 0.88`。
+- 大数据最明显的收益是 `chi/pon` recall 和 exact action：test `chi top1` 从 `0.6303` 提到 `0.8376`，`pon top1` 从 `0.8895` 提到 `0.9528`，missed call rate 从 `14.66%` 降到 `6.44%`。
+- 代价是 non-pass precision 下降：test 从 `0.6210` 降到 `0.5761`。也就是说模型更愿意叫牌，漏叫显著减少，但误叫压力没有消失。
+- false call rate 仍然只有约 `1.18%`，看起来不高；但因为 pass 样本极多，test 绝对量是 `359516` 条 false call，其中主要是 `pass->chi=181825`、`pass->pon=168229`。如果直接接入推理，这会变成明显偏激进的副露风格。
+- `ron` 仍接近满分，说明规则层提供的和牌机会信号已经足够强。`daiminkan` 仍弱，但样本很少，短期不应让它支配主线决策。
+
+checkpoint 选择方面，`best.pt` / `best_response.pt` 仍按 `non_pass_f1 - false_call_rate` 选择。本轮 valid epoch 8 的 response score 最高，虽然 epoch 10 的 loss 更低、missed call 更低，但 false call 更高、F1 略低。因此当前 best 选择是合理的；如果后续想要更保守或更激进，应显式做阈值/偏置扫描，而不是隐式换 epoch。
+
+### 10.6 当前总体判断
+
+这轮 P800 大数据 baseline 是成功的：
+
+- turn：解决了 4k local 下明显过拟合和少数类不稳定的问题，建立了 `top1≈0.70 / top3≈0.944 / macro≈0.913` 的稳定基线。
+- response：在 pass-only 过滤和 action feature 增强基础上，进一步显著改善 `chi/pon`，并保持 valid/test 一致。
+- 数据版本：`runs/2026-05-06_p800_baseline/` 中的 preprocess/validation/build/manifest 摘要与 checkpoint 训练样本数完全一致。
+- 训练工程：单卡 `bf16` 路径可用，吞吐稳定，日志足够判断 DataLoader 不是主要瓶颈。
+
+但它还不是可以直接进入复杂模型或多任务训练的信号。现在最有价值的问题已经从“能不能学到”变成：
+
+- turn 如何把 discard top3 内的候选重新排序到 top1。
+- response 如何在保持高 recall 的同时控制 pass hard negative 上的 false call。
+- 后续 run 管理如何把 summary、manifest、config、checkpoint 索引和 eval report 固定放在同一个目录，避免再次靠人工对齐。
+
+### 10.7 下一步建议
+
+优先级从高到低：
+
+1. 后续继续使用 `runs/<date>_<exp>/` 结构，并增加一个轻量 `run_summary.md` 或 `run_summary.json`，记录数据摘要、checkpoint 路径、配置路径和 eval report 路径；大文件本身继续不进 git。
+2. 对 response 做 pass/call 校准实验。固定当前 `response_p800/best.pt`，在 valid 上扫描 `pass` logit bias 或 score margin，输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`。建议至少看 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档。
+3. 对 response 错例做抽样。分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，用 `inspect-sample` 和 `dump-case` 判断误差来自玩家风格、点况/防守信息缺失，还是 action feature 仍不足。
+4. 对 turn 做 top-k 错例聚合。重点抽 label rank 为 `2/3` 的 discard 样本，而不是泛泛抽所有错误；这些样本最能说明缺哪些排序特征。
+5. 再补 turn 特征，不先换复杂模型。优先补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和局面阶段。每加一组特征，固定当前训练配置复跑，观察 `discard top1` 是否提升而 `top3` 基本稳定。
+6. 对 P800 配置做一次小范围吞吐试验。response 当前运行产物使用 `batch_size=8192`，仓库配置已倾向更大 batch；可以试 `16384/32768`，只以 `samples_per_s`、显存和 eval 指标为依据。
+7. 多任务、DDP 和复杂模型继续后置。等 turn 特征和 response 校准有明确结论后，再实现 `task: multitask`、step eval/save、grad accumulation 和 DDP，避免把工程变量和模型质量变量混在同一轮。

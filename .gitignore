@@ -67,3 +67,5 @@ data/*
 !data/.gitkeep
 outputs/*
 !outputs/.gitkeep
+run/
+runs/

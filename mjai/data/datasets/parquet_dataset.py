@@ -46,6 +46,25 @@ SAMPLE_SCHEMA = pa.schema(
     ]
 )
 
+TURN_LABEL_KIND_ORDER = (
+    "discard",
+    "riichi_discard",
+    "tsumo",
+    "ankan",
+    "kakan",
+    "kyuushu_kyuuhai",
+    "unknown",
+)
+RESPONSE_LABEL_KIND_ORDER = (
+    "pass",
+    "chi",
+    "pon",
+    "daiminkan",
+    "ron",
+    "chankan",
+    "unknown",
+)
+
 
 def serialize_sample(sample: TurnSample) -> dict[str, object]:
     # Training does not recompute feature encoders per epoch. The builder writes
@@ -386,6 +405,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
     candidate_feats = torch.zeros((batch_size, max_candidates, TURN_ACTION_DIM), dtype=torch.float32)
     candidate_mask = torch.zeros((batch_size, max_candidates), dtype=torch.bool)
     labels = torch.zeros((batch_size,), dtype=torch.long)
+    label_kind_ids = torch.zeros((batch_size,), dtype=torch.long)
     label_kinds: list[str] = []
     sample_ids: list[str] = []
     game_ids: list[str] = []
@@ -401,6 +421,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
             expected_values=TURN_STATE_DIM,
         )
         labels[batch_index] = _row_label_index(row)
+        label_kind_ids[batch_index] = _row_label_kind_id(row, TURN_LABEL_KIND_ORDER)
         candidate_count = _row_candidate_count(row)
 
         if candidate_count > 0:
@@ -423,6 +444,7 @@ def build_turn_batch(rows: list[dict], candidate_limit: int = 64) -> dict[str, t
         "candidate_feats": candidate_feats,
         "candidate_mask": candidate_mask,
         "labels": labels,
+        "label_kind_ids": label_kind_ids,
         "label_kinds": label_kinds,
         "sample_ids": sample_ids,
         "label_actions": [row.get("label_action", {}) for row in rows],
@@ -448,6 +470,7 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
     candidate_feats = torch.zeros((batch_size, max_candidates, RESPONSE_ACTION_DIM), dtype=torch.float32)
     candidate_mask = torch.zeros((batch_size, max_candidates), dtype=torch.bool)
     labels = torch.zeros((batch_size,), dtype=torch.long)
+    label_kind_ids = torch.zeros((batch_size,), dtype=torch.long)
     label_kinds: list[str] = []
     sample_ids: list[str] = []
     game_ids: list[str] = []
@@ -463,6 +486,7 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
             expected_values=RESPONSE_STATE_DIM,
         )
         labels[batch_index] = _row_label_index(row)
+        label_kind_ids[batch_index] = _row_label_kind_id(row, RESPONSE_LABEL_KIND_ORDER)
         candidate_count = _row_candidate_count(row)
 
         if candidate_count > 0:
@@ -485,6 +509,7 @@ def build_response_batch(rows: list[dict], candidate_limit: int = 64) -> dict[st
         "candidate_feats": candidate_feats,
         "candidate_mask": candidate_mask,
         "labels": labels,
+        "label_kind_ids": label_kind_ids,
         "label_kinds": label_kinds,
         "sample_ids": sample_ids,
         "label_actions": [row.get("label_action", {}) for row in rows],
@@ -692,6 +717,14 @@ def _row_candidate_count(row: dict) -> int:
     if candidate_count is not None:
         return int(candidate_count)
     return len(row["legal_actions"])
+
+
+def _row_label_kind_id(row: dict, kind_order: tuple[str, ...]) -> int:
+    label_kind = str(row["label_kind"])
+    try:
+        return kind_order.index(label_kind)
+    except ValueError:
+        return kind_order.index("unknown")
 
 
 def _candidate_count_from_feature_bytes(

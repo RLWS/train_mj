@@ -16,9 +16,11 @@ from torch.utils.data import DataLoader, IterableDataset
 from mjai.data.datasets.parquet_dataset import (
     ManifestResponseDataset,
     ManifestTurnDataset,
+    RESPONSE_LABEL_KIND_ORDER,
     ResponseBatchCollator,
     StreamingManifestResponseDataset,
     StreamingManifestTurnDataset,
+    TURN_LABEL_KIND_ORDER,
     TurnBatchCollator,
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
@@ -423,16 +425,18 @@ def _run_epoch(
         )
         correct = predictions == prepared_batch["labels"]
         loss_value = float(loss.detach().item())
-        correct_list = correct.detach().to("cpu").tolist()
-        per_sample_loss_list = per_sample_losses.detach().to("cpu").tolist()
         if response_metrics is not None:
             assert label_ranks is not None
+            correct_list = correct.detach().to("cpu").tolist()
+            per_sample_loss_list = per_sample_losses.detach().to("cpu").tolist()
             prediction_list = predictions.detach().to("cpu").tolist()
             label_rank_list = label_ranks.detach().to("cpu").tolist()
         else:
+            correct_list = []
+            per_sample_loss_list = []
             prediction_list = []
             label_rank_list = []
-        batch_correct = int(sum(int(value) for value in correct_list))
+        batch_correct = int(correct.sum().detach().item())
         total_loss += loss_value * batch_size
         total_correct += batch_correct
         total_samples += batch_size
@@ -444,19 +448,31 @@ def _run_epoch(
         running_time += batch_elapsed
         running_data_wait_time += data_wait_elapsed
         running_compute_time += compute_elapsed
+        if response_metrics is None:
+            _update_fast_label_summaries(
+                task_name=task_name,
+                label_kind_ids=prepared_batch["label_kind_ids"],
+                correct=correct,
+                per_sample_losses=per_sample_losses,
+                kind_totals=kind_totals,
+                kind_correct=kind_correct,
+                kind_loss_totals=kind_loss_totals,
+                group_totals=group_totals,
+                group_correct=group_correct,
+                group_loss_totals=group_loss_totals,
+            )
+        else:
+            for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
+                is_correct = int(correct_list[batch_index])
+                sample_loss = float(per_sample_loss_list[batch_index])
+                kind_totals[label_kind] = kind_totals.get(label_kind, 0) + 1
+                kind_correct[label_kind] = kind_correct.get(label_kind, 0) + is_correct
+                kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + sample_loss
 
-        for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
-            is_correct = int(correct_list[batch_index])
-            sample_loss = float(per_sample_loss_list[batch_index])
-            kind_totals[label_kind] = kind_totals.get(label_kind, 0) + 1
-            kind_correct[label_kind] = kind_correct.get(label_kind, 0) + is_correct
-            kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + sample_loss
-
-            group_name = class_group_name(task_name, label_kind)
-            group_totals[group_name] = group_totals.get(group_name, 0) + 1
-            group_correct[group_name] = group_correct.get(group_name, 0) + is_correct
-            group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
-            if response_metrics is not None:
+                group_name = class_group_name(task_name, label_kind)
+                group_totals[group_name] = group_totals.get(group_name, 0) + 1
+                group_correct[group_name] = group_correct.get(group_name, 0) + is_correct
+                group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
                 legal_actions = prepared_batch["legal_actions"][batch_index]
                 predicted_index = int(prediction_list[batch_index])
                 predicted_action = legal_actions[predicted_index]
@@ -532,6 +548,58 @@ def _compute_label_ranks(logits: torch.Tensor, labels: torch.Tensor) -> torch.Te
     label_scores = logits.gather(1, labels.unsqueeze(1)).squeeze(1)
     higher_scores = (logits > label_scores.unsqueeze(1)).sum(dim=1)
     return higher_scores + 1
+
+
+def _update_fast_label_summaries(
+    *,
+    task_name: str,
+    label_kind_ids: torch.Tensor,
+    correct: torch.Tensor,
+    per_sample_losses: torch.Tensor,
+    kind_totals: dict[str, int],
+    kind_correct: dict[str, int],
+    kind_loss_totals: dict[str, float],
+    group_totals: dict[str, int],
+    group_correct: dict[str, int],
+    group_loss_totals: dict[str, float],
+) -> None:
+    kind_order = _label_kind_order(task_name)
+    label_kind_ids_cpu = label_kind_ids.detach().to("cpu", dtype=torch.long)
+    correct_cpu = correct.detach().to("cpu", dtype=torch.float32)
+    losses_cpu = per_sample_losses.detach().to("cpu", dtype=torch.float32)
+    minlength = len(kind_order)
+
+    kind_count_values = torch.bincount(label_kind_ids_cpu, minlength=minlength).tolist()
+    kind_correct_values = torch.bincount(
+        label_kind_ids_cpu,
+        weights=correct_cpu,
+        minlength=minlength,
+    ).tolist()
+    kind_loss_values = torch.bincount(
+        label_kind_ids_cpu,
+        weights=losses_cpu,
+        minlength=minlength,
+    ).tolist()
+    for kind_index, label_kind in enumerate(kind_order):
+        count = int(kind_count_values[kind_index])
+        if count == 0:
+            continue
+        correct_count = int(kind_correct_values[kind_index])
+        loss_total = float(kind_loss_values[kind_index])
+        kind_totals[label_kind] = kind_totals.get(label_kind, 0) + count
+        kind_correct[label_kind] = kind_correct.get(label_kind, 0) + correct_count
+        kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + loss_total
+
+        group_name = class_group_name(task_name, label_kind)
+        group_totals[group_name] = group_totals.get(group_name, 0) + count
+        group_correct[group_name] = group_correct.get(group_name, 0) + correct_count
+        group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + loss_total
+
+
+def _label_kind_order(task_name: str) -> tuple[str, ...]:
+    if task_name == "response":
+        return RESPONSE_LABEL_KIND_ORDER
+    return TURN_LABEL_KIND_ORDER
 
 
 def _xpu_is_available() -> bool:

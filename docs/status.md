@@ -1,15 +1,15 @@
 # 项目进度状态
 
-更新时间：`2026-05-03`
+更新时间：`2026-05-06`
 
 ## 1. 总体判断
 
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
-- `Phase 1` 已启动：`turn/response` 单任务 baseline 都已能本地 smoke train，并可做第一版离线评估。
+- `Phase 1` 已推进到大数据单任务 baseline：`turn/response` 都已经有 P800 训练结果、valid/test eval report 和可对照的指标基线。
 
-换句话说，仓库当前已经从“只能产样本”进入“能产样本并训练最小 baseline”，但训练体系还远没完整。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练并分析 baseline”的阶段，但训练体系还远没完整；多任务、DDP、校准和系统化错例分析仍未完成。
 
 ## 2. 已验证结果
 
@@ -55,6 +55,10 @@
   - JSON 评估报告
 - response 评估报告已补充 response 专用诊断：`single_candidate` / `multi_candidate`、`pass` vs `non_pass` precision / recall / F1、`false_call_rate`、`missed_call_rate`、候选集合聚合与 `label->pred` confusion。
 - 2026-05-03 response action feature 增强后复训已完成并记录在 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：训练过滤后保留 `141423 / 1490034` 条 response 训练样本；最新 `best.pt` 在 valid/test 上分别达到 `multi_candidate top1=0.8521/0.8502`、`multi_candidate macro top1=0.7882/0.8697`、`non_pass_f1=0.7215/0.7189`、`false_call_rate=0.0111/0.0111`、`missed_call_rate=0.1425/0.1466`。
+- 2026-05-06 P800 大数据单任务 baseline 已完成，训练产物位于 `outputs/checkpoints/turn_p800`、`outputs/checkpoints/response_p800`，分析记录见 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md) 第 10 节。
+  - `turn_p800/best.pt`：train `83077288` 条、valid `10404270` 条、test `10393095` 条；test `top1=0.7008`、`top3=0.9446`、`top5=0.9853`、`macro_top1=0.9134`，其中 `discard top1=0.6958`、`riichi_discard top1=0.8534`。
+  - `response_p800/best.pt`：原始 train `247177362` 条，过滤 pass-only 后有效 train `23120538` 条；test `multi_candidate top1=0.8619`、`multi_candidate macro top1=0.8742`、`non_pass_f1=0.7131`、`false_call_rate=0.0118`、`missed_call_rate=0.0644`、`chi top1=0.8376`、`pon top1=0.9528`。
+  - 本轮 P800 数据版本已归档到 `runs/2026-05-06_p800_baseline/`：`preprocess_summary.json` 记录 `212163` 个 game、`215224122` 条事件；`event_validation_20w.json` 记录 `files_seen=212163`、`files_valid=212163`、`files_failed=0`、`error_counts={}`；`build_summary.json` 记录 `103874653` 条 turn、`309055971` 条 response；`manifest_summary.json` 与 `train/valid/test.jsonl` 逐行累加结果完全一致，并和 P800 训练日志样本数对齐。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
@@ -115,11 +119,13 @@
   - 已有最小训练循环、`turn/response` 标签样本加权 loss、总体与宏平均 accuracy、按动作类别和主类/非主类分组的训练指标、checkpoint 落盘。
   - response 训练已支持 `train.response_min_train_candidate_count`，当前 response smoke / P800 配置默认用 `2` 过滤训练集中的 pass-only 单候选样本；valid/test 评估仍保留全量样本。
   - response 的 `best.pt` / `best_response.pt` 现在按 `non_pass_f1 - false_call_rate` 选择，避免只被 overall accuracy 或 pass-only 样本支配；`best_accuracy.pt`、`best_loss.pt`、`best_macro.pt` 仍保留。
-  - 2026-05-03 action feature 增强后复训显示 response 已经达到进入更大数据 baseline 的门槛：false call 与 missed call 同时下降，`chi/pon` top1 也有明确提升。下一轮先在 20 万局数据上验证当前配置，不要同时改 checkpoint selection、类别权重或模型结构。
+  - 2026-05-03 action feature 增强后复训显示 response 已经达到进入更大数据 baseline 的门槛：false call 与 missed call 同时下降，`chi/pon` top1 也有明确提升。
+  - 2026-05-06 P800 大数据 baseline 进一步确认当前配置有效：response 的 `chi/pon` exact action 明显提升，missed call 大幅下降；下一步重点转为 pass/call 校准和 hard negative 错例分析，而不是继续盲目调权重。
   - 已支持 `pin_memory`、`persistent_workers`、`prefetch_factor` 和 CUDA `non_blocking` 传输；Windows 本地 smoke 配置默认 `num_workers: 0`，避免 spawn worker 复制整份内存数据集。
   - 训练循环已接入 `train.precision` 的 CUDA/XPU autocast；P800 配置默认 `bf16`，CUDA 路径默认开启 TF32，并在启动日志中打印实际精度设置。
   - 训练指标聚合已减少 batch 内逐样本 `.item()` 同步：每个 batch 将 `correct`、per-sample loss、response rank/prediction 一次性搬到 CPU 后聚合，降低小 MLP ranker 训练时的 GPU 同步碎片。
   - response 训练 split 默认关闭完整 response 诊断，跳过 `legal_actions_json` 读取/解析和 label-rank/candidate-set 统计；valid/test 诊断仍保留，用于 `best_response.pt` 选择和离线评估。
+  - train split 的按标签/主类分组指标已改为 `label_kind_ids` + `torch.bincount` 批量聚合，避免 `batch_size=8192/16384` 时 Python 逐样本循环拖慢训练。
   - 已支持由 `train.log_every_n_steps` 控制的 batch 进度日志，输出 batch 进度、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA。
 - `mjai/eval/`
   - 已有第一版离线评估入口，可基于 checkpoint 复用训练配置做 split 级评估与 JSON 报告导出。
@@ -211,11 +217,12 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 更高吞吐的数据格式后续方向：当前已经完成 state/action 特征离线预编码，下一步应根据 `data_wait`、GPU 利用率和内存占用决定是否继续推进 mmap/Arrow streaming 数据集，而不是回到训练期规则特征重算。
 - 根据错例聚合决定是否回补规则
 
-数据兼容性与 20 万局训练提醒：
+数据兼容性与 P800 大数据训练提醒：
 
 - response action feature 维度已变化，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配当前 `RESPONSE_ACTION_DIM`。下一轮 response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
-- 可以开始 20 万局训练，但第一阶段应限定为“全量数据构建 + 当前单任务 baseline”。先跑 `response_p800.yaml` 和 `turn_p800.yaml` 建立基线；不要在同一轮混入 8 卡 DDP、多任务联合训练或复杂模型结构改造。
-- 20 万局 response baseline 的优先验收指标是：`label_action not in legal_actions = 0`、valid/test `multi_candidate top1` 接近当前 `0.85` 基线、`non_pass_f1 >= 0.70`、`false_call_rate <= 0.015`、`missed_call_rate <= 0.16`。
+- 20 万局量级的 `response_p800.yaml` 和 `turn_p800.yaml` 单任务 baseline 已经跑完，且 valid/test 指标稳定；下一轮不要把 response 校准、turn 特征、DDP、多任务和复杂模型混在同一次实验里。
+- 当前缺口不是“能否训练”：`runs/2026-05-06_p800_baseline/` 中的 preprocess/validation/build/manifest 摘要已和训练样本数对齐。后续应继续按 `runs/<date>_<exp>/` 固化每轮数据与模型证据，并尽量把非法标签复核结果固化成文件。
+- response 已通过原先验收线，但绝对 false call 数仍大，下一步应扫描 pass/call 阈值或 logit bias，在 `false_call_rate <= 0.010 / 0.008 / 0.005` 等目标下评估 precision/recall/F1 与 `chi/pon` 保持情况。
 
 ## 5. 阶段结论
 
@@ -227,44 +234,53 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `Task 4` 回放与合法动作生成：已完成第一版
 - `Task 5` 样本构建：已完成第一版
 - `preprocess / validate-events`：已完成第一版
-- `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版
+- `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版，并已跑通 P800 大数据单任务 baseline
 - `Task 7` 离线评估：已完成第一版
 - `Task 8` 多任务训练：未开始
-- `Task 9` 训练机适配：只完成配置骨架，未验证训练链路
+- `Task 9` 训练机适配：P800 单卡 baseline 已验证；8 卡 DDP 仍未实现/验证
 
 ## 6. 建议的下一步任务
 
 建议按下面顺序推进：训练先行，规则边界按证据回补。
 
-### 任务 1：20 万局数据构建与质量闸门
+### 任务 1：规范 run 归档与质量闸门
 
 目标：
 
-- 在更多真实牌谱上跑完整数据链路，确认当前规则集对训练数据的污染率是否可接受。
+- 让每一轮 P800 checkpoint 都能对应到完整数据版本、配置、日志和评估报告。
 
 建议范围：
 
-1. 扩大输入牌谱到 20 万局，跑通 `preprocess / validate-events / build-dataset --workers N / make-manifest`
-2. 汇总构建失败率、非法标签率、动作分布、候选规模分布和 split 样本数
-3. 对失败样本只保留轻量定位信息，依赖 `inspect-sample` 和 `dump-case` 回溯上下文
+1. 后续统一使用 `runs/<date>_<exp>/` 或类似结构，保存数据摘要、validation report、manifest、配置、日志、checkpoint 索引和 eval report
+2. 本轮 `runs/2026-05-06_p800_baseline/` 已包含 `preprocess_summary.json`、`event_validation_20w.json`、`build_summary.json`、`manifest_summary.json` 和三份 manifest
+3. 固化非法标签复核结果，至少记录 `label_action not in legal_actions` 的 turn/response 计数
+4. 在 run summary 中记录动作分布、候选规模分布、split 样本数和 checkpoint 路径
 
 最低验收标准：
 
-- 更大数据集能稳定产出 `turn/response` manifest。
-- 非法标签率和构建失败率有明确统计。
-- 发现的高频失败能定位到具体 `game_id / kyoku_index / step_index`。
+- 每个 checkpoint 都能追溯到数据构建 summary 和 manifest 统计。
+- 构建失败率、非法标签率、validation 结果和主要动作分布有明确记录。
+- 如果存在失败样本，能定位到具体 `game_id / kyoku_index / step_index`。
 
-### 任务 2：训练当前 `turn/response` 20 万局 baseline
+### 任务 2：response pass/call 校准与错例抽样
 
 建议范围：
 
-1. 先保持当前 `turn_p800.yaml` / `response_p800.yaml` 配置，分别训练 `turn` 与 `response`
-2. 固定输出 `train_metrics.json`、checkpoint、valid eval report 和 test eval report
-3. response 先对照当前 4k 基线：`multi_candidate top1≈0.85`、`non_pass_f1≈0.72`、`false_call_rate≈0.011`
-4. turn 先建立大数据 exact top1 / top3 / macro top1 基线，再决定是否扩大 hidden size 或加特征
-5. 记录可复现实验配置，避免只看单次 smoke 结果
+1. 固定 `outputs/checkpoints/response_p800/best.pt`，在 valid split 上扫描 `pass` logit bias 或 score margin
+2. 输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`
+3. 至少比较 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档
+4. 对 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各抽样 `100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源
 
-### 任务 3：规则边界按训练反馈回补
+### 任务 3：turn discard top-k 错例与特征增强
+
+建议范围：
+
+1. 以 `turn_p800/best.pt` 为基线，优先抽 label rank 为 `2/3` 的 discard 错例
+2. 按候选牌、向听变化、有效牌变化、dora/赤、危险度、局面阶段和点况聚合
+3. 先补特征再考虑复杂模型，重点是牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和剩余巡目
+4. 每组特征单独复跑，观察 `discard top1` 是否提升，同时 `top3` 基本稳定
+
+### 任务 4：规则边界按训练反馈回补
 
 建议方向：
 

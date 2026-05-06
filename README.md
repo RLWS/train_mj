@@ -10,7 +10,7 @@
 
 - 已完成第一阶段的数据闭环：天凤 XML 解析、`bronze_events` 持久化、回放校验、合法动作生成、`turn/response` 样本构建、Parquet 写出、按 `game_id` 的 manifest 切分。
 - 已补上第一版诊断输出：事件分布、失败原因聚合、动作标签分布、split 样本数和空 split warning。
-- 已打通第一版最小训练闭环：`turn/response` manifest 读取、状态/动作特征、候选排序模型、单 epoch smoke train、类别加权 loss、总体/宏平均/按动作类别指标、checkpoint 与指标落盘。
+- 已打通第一版训练闭环：`turn/response` manifest 读取、状态/动作特征、候选排序模型、类别加权 loss、总体/宏平均/按动作类别指标、checkpoint 与指标落盘；2026-05-06 已有 P800 大数据单任务 baseline。
 - 已补上第一版离线评估：可从 checkpoint 对 `turn/response` 的 `train/valid/test` split 做 `loss`、`top-k accuracy`、`macro top-k`、按动作类别与主类/非主类分组聚合评估，并导出 JSON 报告。
 - 已补上第一版样本抽查：可直接从 `silver_samples` 目录按全局索引读取样本，查看 label、合法动作和状态快照。
 - 已补上第一版 case 定位：可从 `eval` 错例跳转到 `inspect-sample`，再按 `game_id / kyoku_index / step_index` 回溯 `bronze_events` 上下文。
@@ -69,7 +69,7 @@ pytest
 
 - 规则引擎还不是完整日麻规则实现；虽然已补上自家舍牌振听、同巡振听、立直后振听、`kyuushu_kyuuhai` 和第一版 `chankan`，但仍缺少更完整的和牌机会放弃语义、其他途中流局边界与完整计分结算等能力。
 - 诊断输出已经有第一版，并已打通 `eval -> inspect-sample -> dump-case` 的轻量跳转链路，但还缺少更细的错例聚合、固定 case 集合和更丰富的数据质量报告。
-- 当前训练与评估只覆盖最小 `turn/response` baseline；类别权重仍是手工配置，自动权重估计、采样均衡、多任务、错误分析工具和推理服务都还没开始。
+- 当前训练与评估已覆盖 `turn/response` 单任务 baseline，并已有 P800 大数据结果；类别权重仍是手工配置，自动权重估计、采样均衡、多任务、系统化错误分析工具和推理服务都还没开始。
 
 ## 文档索引
 
@@ -82,6 +82,6 @@ pytest
 
 ## 建议的下一步
 
-1. 先切到训练主线：用更大的真实牌谱跑 `preprocess -> validate-events -> build-dataset --workers N -> make-manifest`，确认失败率、非法标签率、动作分布和 split 规模。
-2. 在当前规则集上做更深入的 `turn/response` 监督训练，扩大数据量、训练轮数和模型配置，并稳定保存 eval report。
-3. 规则边界改为训练反馈驱动：只有当大规模数据构建或错例聚合显示某类规则缺口高频污染标签时，再优先回补。
+1. 规范 run 归档：本轮 `runs/2026-05-06_p800_baseline/` 已补齐 preprocess、validation、build、manifest 摘要并能对齐 checkpoint 样本数；后续把非法标签复核、配置、日志和 eval report 也统一放到同一轮记录里。
+2. 做 response pass/call 校准与错例抽样，控制 false call 绝对量，同时观察 `chi/pon` recall 和 `non_pass_f1`。
+3. 做 turn discard top-k 错例聚合，再按证据补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、点况等特征。

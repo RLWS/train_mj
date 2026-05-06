@@ -88,6 +88,8 @@ P800/CUDA 单卡训练现在会读取 `train.precision`、`train.allow_tf32` 和
 
 `response` 训练还要额外注意诊断开销。训练 split 默认 `response_train_diagnostics: false`，不会读取/解析 `legal_actions_json`，也不会逐样本计算 response candidate-set 诊断；valid split 默认 `response_eval_diagnostics: true`，仍会输出 `non_pass_f1`、false/missed call 等指标，并继续用于选择 `best_response.pt`。如果为了排查训练集诊断临时打开 `response_train_diagnostics: true`，GPU 利用率会明显下降。
 
+`response` 的候选数通常远少于 `turn`，即使 DataLoader 不阻塞，单个 batch 的 GPU 计算也更轻。P800 默认 response `batch_size` 设为 `16384`，比 turn 的 `8192` 更大；如果显存允许，可以继续试 `32768`。同时训练 split 的类别指标使用批量聚合，避免大 batch 下 Python 逐样本循环成为瓶颈。
+
 ## 4. 第二步：跑 turn smoke train
 
 命令：

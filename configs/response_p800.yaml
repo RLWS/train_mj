@@ -21,7 +21,7 @@ train:
   precision: bf16
   allow_tf32: true
   float32_matmul_precision: high
-  batch_size: 8192
+  batch_size: 16384
   num_workers: 16
   valid_num_workers: 4
   log_every_n_steps: 500
