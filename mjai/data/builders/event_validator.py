@@ -27,9 +27,33 @@ class EventValidator:
     """Validate persisted bronze event shards via replay."""
 
     def __init__(self) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.validator = ReplayValidator()
 
     def validate_dir(self, input_dir: str | Path, report_path: str | Path) -> ValidationSummary:
+        """校验输入数据的一致性和合法性。
+        
+        参数:
+            self (Self): 当前对象实例。
+            input_dir (str | Path): 输入目录路径。
+            report_path (str | Path): 报告输出路径。
+        
+        返回:
+            ValidationSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         input_root = Path(input_dir)
         report_file = Path(report_path)
         report_file.parent.mkdir(parents=True, exist_ok=True)
@@ -114,5 +138,16 @@ class EventValidator:
 
 
 def _classify_error_message(message: str) -> str:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        message (str): 错误消息文本。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     prefix, _, _ = message.partition(":")
     return prefix.strip() or "unknown"

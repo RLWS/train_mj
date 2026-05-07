@@ -11,6 +11,17 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_build_response_samples_from_real_fixtures():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = ResponseSampleBuilder()
 
@@ -23,6 +34,17 @@ def test_build_response_samples_from_real_fixtures():
 
 
 def test_response_sample_label_is_in_legal_actions():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = ResponseSampleBuilder()
     path = FIXTURE_DIR / "2023010100gm-00e1-0000-8a80056a.xml"
@@ -34,6 +56,17 @@ def test_response_sample_label_is_in_legal_actions():
 
 
 def test_response_sample_label_after_open_meld_clears_temporary_furiten():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = ResponseSampleBuilder()
     path = FIXTURE_DIR / "2023011001gm-00a9-0000-ef310a72.xml"
@@ -51,6 +84,17 @@ def test_response_sample_label_after_open_meld_clears_temporary_furiten():
 
 
 def test_response_samples_include_non_pass_labels():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = ResponseSampleBuilder()
     path = FIXTURE_DIR / "2023010100gm-00e1-0000-8a80056a.xml"
@@ -62,6 +106,17 @@ def test_response_samples_include_non_pass_labels():
 
 
 def test_response_samples_include_ron_labels_on_real_fixtures():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = ResponseSampleBuilder()
 
@@ -74,6 +129,17 @@ def test_response_samples_include_ron_labels_on_real_fixtures():
 
 
 def test_response_sample_furiten_omits_ron_from_legal_actions():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = ResponseSampleBuilder()
     events = [
         Event(
@@ -139,6 +205,17 @@ def test_response_sample_furiten_omits_ron_from_legal_actions():
 
 
 def test_response_samples_mark_temporary_furiten_after_passing_ron():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = ResponseSampleBuilder()
     events = [
         Event(
@@ -208,6 +285,17 @@ def test_response_samples_mark_temporary_furiten_after_passing_ron():
 
 
 def test_response_samples_clear_temporary_furiten_after_self_draw():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = ResponseSampleBuilder()
     events = [
         Event(
@@ -289,6 +377,17 @@ def test_response_samples_clear_temporary_furiten_after_self_draw():
 
 
 def test_response_samples_mark_riichi_furiten_after_passing_ron():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = ResponseSampleBuilder()
     events = [
         Event(
@@ -389,6 +488,17 @@ def test_response_samples_mark_riichi_furiten_after_passing_ron():
 
 
 def test_response_samples_include_chankan_on_kakan_window():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = ResponseSampleBuilder()
     events = [
         Event(
@@ -522,6 +632,17 @@ def test_response_samples_include_chankan_on_kakan_window():
 
 
 def test_response_samples_skip_applying_kakan_when_chankan_resolves():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = ResponseSampleBuilder()
     events = [
         Event(

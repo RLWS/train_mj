@@ -24,6 +24,17 @@ from mjai.features.action_features import (
 
 
 def test_encode_turn_action_supports_tsumo():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     vector = encode_turn_action({"kind": "tsumo"})
 
     assert len(vector) > len(TURN_ACTION_KINDS) + TURN_DISCARD_FEATURE_DIM
@@ -31,6 +42,17 @@ def test_encode_turn_action_supports_tsumo():
 
 
 def test_encode_turn_action_supports_ankan_and_kakan():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     ankan_vector = encode_turn_action({"kind": "ankan", "tile": "1p"})
     kakan_vector = encode_turn_action({"kind": "kakan", "tile": "5m"})
 
@@ -39,12 +61,34 @@ def test_encode_turn_action_supports_ankan_and_kakan():
 
 
 def test_encode_turn_action_supports_kyuushu_kyuuhai():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     vector = encode_turn_action({"kind": "kyuushu_kyuuhai"})
 
     assert vector[TURN_ACTION_KINDS.index("kyuushu_kyuuhai")] == 1.0
 
 
 def test_encode_response_action_supports_chankan():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     vector = encode_response_action({"kind": "chankan", "tile": "5m", "source": 1})
 
     assert vector[RESPONSE_ACTION_KINDS.index("chankan")] == 1.0
@@ -52,6 +96,17 @@ def test_encode_response_action_supports_chankan():
 
 
 def test_encode_response_action_adds_call_shape_features():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = {
         "actor": 0,
         "hand": {
@@ -95,6 +150,17 @@ def test_encode_response_action_adds_call_shape_features():
 
 
 def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = {
         "actor": 1,
         "hand": {"0p": 1, "5p": 1, "5z": 2, "1m": 1, "2m": 1, "3m": 1},
@@ -130,6 +196,17 @@ def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
 
 
 def test_encode_turn_state_includes_furiten_flags():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = {
         "actor": 1,
         "hand": {"1m": 1},
@@ -152,6 +229,17 @@ def test_encode_turn_state_includes_furiten_flags():
 
 
 def test_encode_response_state_includes_furiten_flags():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = {
         "actor": 2,
         "hand": {"1m": 1},
@@ -174,6 +262,17 @@ def test_encode_response_state_includes_furiten_flags():
 
 
 def test_encode_turn_action_adds_discard_candidate_features():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = {
         "actor": 0,
         "hand": {
@@ -207,6 +306,17 @@ def test_encode_turn_action_adds_discard_candidate_features():
 
 
 def test_encode_turn_state_includes_round_context():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = {
         "actor": 0,
         "hand": {"1m": 1},
@@ -234,6 +344,17 @@ def test_encode_turn_state_includes_round_context():
 
 
 def _furiten_offset() -> int:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        无。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     return (
         HAND_COUNTS_DIM
         + ALL_DISCARD_COUNTS_DIM

@@ -22,6 +22,21 @@ class MahjongPolicyNet(nn.Module):
         hidden_size: int,
         dropout: float,
     ) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            state_dim (int): 函数执行所需的输入参数。
+            action_dim (int): 函数执行所需的输入参数。
+            hidden_size (int): 隐藏层维度。
+            dropout (float): 随机失活比例。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         super().__init__()
         self.encoder = MahjongEncoder(
             state_dim=state_dim,
@@ -34,6 +49,18 @@ class MahjongPolicyNet(nn.Module):
 
     def forward_turn(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         # Returns logits over legal turn candidates with shape [B, C].
+        """执行自摸巡策略头前向传播。
+        
+        参数:
+            self (Self): 当前对象实例。
+            batch (dict[str, torch.Tensor]): 模型批次字典。
+        
+        返回:
+            torch.Tensor: 张量结果。
+        
+        异常:
+            无。
+        """
         state_hidden, candidate_hidden = self.encoder(
             batch["state_feats"],
             batch["candidate_feats"],
@@ -46,6 +73,18 @@ class MahjongPolicyNet(nn.Module):
 
     def forward_response(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         # Same candidate-ranking contract as turn, but using response dimensions.
+        """执行响应策略头前向传播。
+        
+        参数:
+            self (Self): 当前对象实例。
+            batch (dict[str, torch.Tensor]): 模型批次字典。
+        
+        返回:
+            torch.Tensor: 张量结果。
+        
+        异常:
+            无。
+        """
         state_hidden, candidate_hidden = self.encoder(
             batch["state_feats"],
             batch["candidate_feats"],

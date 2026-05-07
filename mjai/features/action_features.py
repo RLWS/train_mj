@@ -32,6 +32,19 @@ def encode_turn_action(
 ) -> list[float]:
     # Layout: action kind one-hot | action tile one-hot | discard-candidate features.
     # Non-discard turn actions leave the discard-candidate block as zero.
+    """将自摸巡候选动作编码为定长特征向量。
+    
+    参数:
+        action (dict): 动作字典或动作对象。
+        state (dict | None): 游戏状态或样本状态。
+        context (dict | None): 预计算特征上下文。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     vector = [0.0] * TURN_ACTION_DIM
 
     kind = str(action.get("kind", "unknown"))
@@ -50,7 +63,18 @@ def encode_turn_action(
 
 
 def encode_turn_candidate_actions(actions: list[dict], state: dict) -> list[list[float]]:
-    """Encode all turn candidates for one sample, sharing shanten context once."""
+    """批量编码一个样本的自摸巡候选动作。
+    
+    参数:
+        actions (list[dict]): 动作列表。
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[list[float]]: 列表结果。
+    
+    异常:
+        无。
+    """
     context = build_turn_discard_feature_context(state)
     return [encode_turn_action(action, state, context) for action in actions]
 
@@ -63,6 +87,19 @@ def encode_response_action(
     # Layout: response kind one-hot | target tile one-hot | source actor one-hot
     # | call/context features. Pass/ron/chankan still receive context features
     # so they can be compared with call candidates in the same legal set.
+    """将响应候选动作编码为定长特征向量。
+    
+    参数:
+        action (dict): 动作字典或动作对象。
+        state (dict | None): 游戏状态或样本状态。
+        context (dict | None): 预计算特征上下文。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     vector = [0.0] * RESPONSE_ACTION_DIM
 
     kind = str(action.get("kind", "unknown"))
@@ -86,12 +123,34 @@ def encode_response_action(
 
 
 def encode_response_candidate_actions(actions: list[dict], state: dict) -> list[list[float]]:
-    """Encode all response candidates for one sample, sharing hand-shape context once."""
+    """批量编码一个样本的响应候选动作。
+    
+    参数:
+        actions (list[dict]): 动作列表。
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[list[float]]: 列表结果。
+    
+    异常:
+        无。
+    """
     context = build_response_call_feature_context(state)
     return [encode_response_action(action, state, context) for action in actions]
 
 
 def build_turn_discard_feature_context(state: dict | None) -> dict | None:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        state (dict | None): 游戏状态或样本状态。
+    
+    返回:
+        dict | None: 字典结果。
+    
+    异常:
+        无。
+    """
     if state is None:
         return None
     counts = _hand_counts_from_state(state)
@@ -105,6 +164,17 @@ def build_turn_discard_feature_context(state: dict | None) -> dict | None:
 
 
 def build_response_call_feature_context(state: dict | None) -> dict | None:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        state (dict | None): 游戏状态或样本状态。
+    
+    返回:
+        dict | None: 字典结果。
+    
+    异常:
+        无。
+    """
     if state is None:
         return None
     counts = _hand_counts_from_state(state)
@@ -125,7 +195,19 @@ def encode_response_call_features(
     state: dict | None,
     context: dict | None = None,
 ) -> list[float]:
-    """Encode response candidate features that describe call value and cost."""
+    """编码响应动作的鸣牌价值与代价特征。
+    
+    参数:
+        action (dict): 动作字典或动作对象。
+        state (dict | None): 游戏状态或样本状态。
+        context (dict | None): 预计算特征上下文。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     features = [0.0] * RESPONSE_CALL_FEATURE_DIM
     if state is None:
         return features
@@ -206,7 +288,19 @@ def encode_turn_discard_features(
     state: dict | None,
     context: dict | None = None,
 ) -> list[float]:
-    """Encode candidate-specific hand-shape features for discard-like actions."""
+    """编码弃牌类自摸巡动作的候选特征。
+    
+    参数:
+        action (dict): 动作字典或动作对象。
+        state (dict | None): 游戏状态或样本状态。
+        context (dict | None): 预计算特征上下文。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     features = [0.0] * TURN_DISCARD_FEATURE_DIM
     kind = str(action.get("kind", "unknown"))
     tile = action.get("tile")
@@ -263,6 +357,17 @@ def encode_turn_discard_features(
 
 
 def _hand_counts_from_state(state: dict) -> list[int]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[int]: 列表结果。
+    
+    异常:
+        无。
+    """
     counts = [0] * 34
     for tile, count in state.get("hand", {}).items():
         counts[tile_to_base_index(str(tile))] += int(count)
@@ -270,6 +375,18 @@ def _hand_counts_from_state(state: dict) -> list[int]:
 
 
 def _can_apply_response_call(counts: list[int], consumed_tiles: list[str]) -> bool:
+    """判断与函数名对应的操作是否可执行。
+    
+    参数:
+        counts (list[int]): 三十四种牌计数。
+        consumed_tiles (list[str]): 副露消耗牌列表。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if not consumed_tiles:
         return False
     available_counts = list(counts)
@@ -282,27 +399,98 @@ def _can_apply_response_call(counts: list[int], consumed_tiles: list[str]) -> bo
 
 
 def _fixed_melds_after_response_call(state: dict) -> int:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     return min(4, len(state.get("own_melds", [])) + 1)
 
 
 def _effective_tile_copies(counts: list[int], effective_tiles) -> int:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        counts (list[int]): 三十四种牌计数。
+        effective_tiles (list[Any]): 相关数据列表。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     return sum(max(0, 4 - counts[index]) for index in effective_tiles)
 
 
 def _scale_delta(value: int | float, denominator: float) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        value (int | float): 输入值。
+        denominator (float): 函数执行所需的输入参数。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     return max(-1.0, min(1.0, float(value) / denominator))
 
 
 def _action_consumes_dora(consumed_tiles: list[str], dora_bases: set[int]) -> bool:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        consumed_tiles (list[str]): 副露消耗牌列表。
+        dora_bases (set[int]): 相关数据列表。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     return any(tile_to_base_index(tile) in dora_bases or tile.startswith("0") for tile in consumed_tiles)
 
 
 def _consumes_pair(counts: list[int], consumed_tiles: list[str]) -> bool:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        counts (list[int]): 三十四种牌计数。
+        consumed_tiles (list[str]): 副露消耗牌列表。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     consumed_bases = {tile_to_base_index(tile) for tile in consumed_tiles}
     return any(counts[base_index] >= 2 for base_index in consumed_bases)
 
 
 def _breaks_taatsu(counts: list[int], consumed_tiles: list[str]) -> bool:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        counts (list[int]): 三十四种牌计数。
+        consumed_tiles (list[str]): 副露消耗牌列表。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     consumed_bases = {tile_to_base_index(tile) for tile in consumed_tiles}
     for base_index in consumed_bases:
         if base_index >= 27:
@@ -315,6 +503,18 @@ def _breaks_taatsu(counts: list[int], consumed_tiles: list[str]) -> bool:
 
 
 def _is_yakuhai(state: dict, base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if base_index < 27:
         return False
     honor = base_index - 27
@@ -332,6 +532,17 @@ def _is_yakuhai(state: dict, base_index: int) -> bool:
 
 
 def _chi_shape(action: dict) -> str:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        action (dict): 动作字典或动作对象。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     if str(action.get("kind", "")) != "chi":
         return "none"
     tiles = [action.get("tile"), *action.get("consumed_tiles", [])]
@@ -356,6 +567,17 @@ def _chi_shape(action: dict) -> str:
 
 
 def _shape_summary(counts: list[int]) -> dict[str, int]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        counts (list[int]): 三十四种牌计数。
+    
+    返回:
+        dict[str, int]: 字典结果。
+    
+    异常:
+        无。
+    """
     complete_sets = 0
     pairs = 0
     ryanmen = 0
@@ -397,6 +619,18 @@ def _shape_summary(counts: list[int]) -> dict[str, int]:
 
 
 def _is_isolated(counts: list[int], base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        counts (list[int]): 三十四种牌计数。
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if counts[base_index] >= 2:
         return False
     if base_index >= 27:
@@ -409,18 +643,63 @@ def _is_isolated(counts: list[int], base_index: int) -> bool:
 
 
 def _scale_shanten(shanten: int) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        shanten (int): 函数执行所需的输入参数。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     return max(-1.0, min(1.0, shanten / 6.0))
 
 
 def _is_terminal(base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     return base_index < 27 and base_index % 9 in {0, 8}
 
 
 def _is_honor(base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     return base_index >= 27
 
 
 def _is_genbutsu(state: dict, base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     actor = int(state.get("actor", 0))
     for tile in _iter_other_discards(state, actor):
         if tile_to_base_index(str(tile)) == base_index:
@@ -429,6 +708,19 @@ def _is_genbutsu(state: dict, base_index: int) -> bool:
 
 
 def _visible_count(state: dict, base_index: int, include_hand: bool = True) -> int:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+        base_index (int): 三十四种牌基础索引。
+        include_hand (bool): 函数执行所需的输入参数。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     visible = 0
     if include_hand:
         for tile, count in state.get("hand", {}).items():
@@ -446,6 +738,18 @@ def _visible_count(state: dict, base_index: int, include_hand: bool = True) -> i
 
 
 def _is_suji_safe(state: dict, base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if base_index >= 27:
         return False
     rank = base_index % 9
@@ -463,6 +767,19 @@ def _is_suji_safe(state: dict, base_index: int) -> bool:
 
 
 def _is_one_chance(state: dict, after_counts: list[int], base_index: int) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+        after_counts (list[int]): 相关数据列表。
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if base_index >= 27:
         return False
     neighbor_bases = []
@@ -477,6 +794,18 @@ def _is_one_chance(state: dict, after_counts: list[int], base_index: int) -> boo
 
 
 def _iter_other_discards(state: dict, actor: int):
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+        actor (int): 玩家座位索引。
+    
+    返回:
+        Iterator[Any]: 逐条生成的迭代结果。
+    
+    异常:
+        无。
+    """
     for player_index, player_discards in enumerate(state.get("all_discards", [])):
         if player_index == actor:
             continue
@@ -484,6 +813,17 @@ def _iter_other_discards(state: dict, actor: int):
 
 
 def _dora_base_indices(state: dict) -> set[int]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        set[int]: 集合结果。
+    
+    异常:
+        无。
+    """
     configured = state.get("dora_base_indices")
     if configured is not None:
         return {int(base_index) for base_index in configured}

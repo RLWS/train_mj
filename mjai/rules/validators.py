@@ -22,6 +22,18 @@ class ReplayValidator:
     """Validate parsed replay events against a minimal four-player state."""
 
     def validate_events(self, events: list[Event]) -> ReplaySummary:
+        """回放并校验规范化事件序列。
+        
+        参数:
+            self (Self): 当前对象实例。
+            events (list[Event]): 规范化事件列表。
+        
+        返回:
+            ReplaySummary: 函数执行结果。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         if not events:
             raise ValueError("cannot validate an empty event list")
 
@@ -79,6 +91,18 @@ class ReplayValidator:
         )
 
     def _validate_init_state(self, state: GameState) -> None:
+        """校验输入数据的一致性和合法性。
+        
+        参数:
+            self (Self): 当前对象实例。
+            state (GameState): 游戏状态或样本状态。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         for actor, hand in enumerate(state.hands):
             if hand.total_tiles() != 13:
                 raise ValueError(
@@ -87,6 +111,20 @@ class ReplayValidator:
                 )
 
     def _validate_discard_is_legal(self, state: GameState, actor: int, tile: str) -> None:
+        """校验输入数据的一致性和合法性。
+        
+        参数:
+            self (Self): 当前对象实例。
+            state (GameState): 游戏状态或样本状态。
+            actor (int): 玩家座位索引。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         if not state.hands[actor].has_tile(tile):
             raise ValueError(
                 f"illegal discard: kyoku={state.kyoku_index} actor={actor} tile={tile} "
@@ -94,6 +132,20 @@ class ReplayValidator:
             )
 
     def _validate_meld_shape(self, state: GameState, actor: int, payload: dict) -> None:
+        """校验输入数据的一致性和合法性。
+        
+        参数:
+            self (Self): 当前对象实例。
+            state (GameState): 游戏状态或样本状态。
+            actor (int): 玩家座位索引。
+            payload (dict): 函数执行所需的输入参数。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         kind = payload["kind"]
         called_tile = payload["called_tile"]
         consumed_tiles = payload["consumed_tiles"]

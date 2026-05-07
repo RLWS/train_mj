@@ -16,6 +16,17 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"
@@ -92,6 +103,18 @@ def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
 
 
 def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"
@@ -167,6 +190,17 @@ def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, caps
 
 
 def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"
@@ -250,6 +284,17 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
 
 
 def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"
@@ -343,6 +388,18 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
 
 
 def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"

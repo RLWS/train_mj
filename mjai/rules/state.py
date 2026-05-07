@@ -20,18 +20,64 @@ class HandState:
 
     @classmethod
     def from_tiles(cls, tiles: list[str]) -> "HandState":
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            cls (type[Self]): 当前类对象。
+            tiles (list[str]): 精确牌字符串列表。
+        
+        返回:
+            'HandState': 函数执行结果。
+        
+        异常:
+            无。
+        """
         hand = cls()
         for tile in tiles:
             hand.add_tile(tile)
         return hand
 
     def copy(self) -> "HandState":
+        """复制当前对象或数据。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            'HandState': 函数执行结果。
+        
+        异常:
+            无。
+        """
         return HandState(counts=self.counts.copy(), aka_counts=self.aka_counts.copy())
 
     def total_tiles(self) -> int:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            int: 整数结果。
+        
+        异常:
+            无。
+        """
         return sum(self.counts)
 
     def count_exact(self, tile: str) -> int:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            int: 整数结果。
+        
+        异常:
+            无。
+        """
         parsed = parse_tile(tile)
         if parsed.is_aka:
             return self.aka_counts.get(parsed.base_index, 0)
@@ -40,12 +86,36 @@ class HandState:
         return self.counts[parsed.base_index]
 
     def add_tile(self, tile: str) -> None:
+        """向当前状态添加输入数据。
+        
+        参数:
+            self (Self): 当前对象实例。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         parsed = parse_tile(tile)
         self.counts[parsed.base_index] += 1
         if parsed.is_aka:
             self.aka_counts[parsed.base_index] = self.aka_counts.get(parsed.base_index, 0) + 1
 
     def remove_tile(self, tile: str) -> None:
+        """从当前状态移除输入数据。
+        
+        参数:
+            self (Self): 当前对象实例。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         parsed = parse_tile(tile)
         if self.count_exact(tile) <= 0:
             raise ValueError(f"tile not available in hand: {tile}")
@@ -61,10 +131,33 @@ class HandState:
                 self.aka_counts[parsed.base_index] = remaining
 
     def has_tile(self, tile: str) -> bool:
+        """判断与函数名对应的状态是否存在。
+        
+        参数:
+            self (Self): 当前对象实例。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            bool: 判断结果。
+        
+        异常:
+            无。
+        """
         return self.count_exact(tile) > 0
 
     def exact_tiles_for_base(self, base_index: int) -> list[str]:
-        """Return exact tiles in hand for one base tile, preserving multiplicity."""
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            base_index (int): 三十四种牌基础索引。
+        
+        返回:
+            list[str]: 列表结果。
+        
+        异常:
+            无。
+        """
         count = self.counts[base_index]
         if count <= 0:
             return []
@@ -79,7 +172,17 @@ class HandState:
         return exact_tiles
 
     def snapshot(self) -> dict[str, int]:
-        """Return an exact-tile multiset for debugging and tests."""
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            dict[str, int]: 字典结果。
+        
+        异常:
+            无。
+        """
         tiles: dict[str, int] = {}
         for index, count in enumerate(self.counts):
             if count <= 0:
@@ -104,6 +207,17 @@ class MeldState:
 
     @property
     def base_index(self) -> int:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            int: 整数结果。
+        
+        异常:
+            无。
+        """
         return tile_to_base_index(self.called_tile)
 
 
@@ -130,6 +244,19 @@ class GameState:
 
     @classmethod
     def from_init_payload(cls, kyoku_index: int, payload: dict) -> "GameState":
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            cls (type[Self]): 当前类对象。
+            kyoku_index (int): 相关索引值。
+            payload (dict): 函数执行所需的输入参数。
+        
+        返回:
+            'GameState': 函数执行结果。
+        
+        异常:
+            无。
+        """
         hands = [
             HandState.from_tiles(payload["hai0"]),
             HandState.from_tiles(payload["hai1"]),
@@ -153,10 +280,36 @@ class GameState:
         )
 
     def apply_draw(self, actor: int, tile: str) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.temporary_furiten[actor] = False
         self.hands[actor].add_tile(tile)
 
     def apply_discard(self, actor: int, tile: str) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.hands[actor].remove_tile(tile)
         self.discards[actor].append(tile)
         self.furiten_discard_bases[actor].add(tile_to_base_index(tile))
@@ -164,6 +317,19 @@ class GameState:
         self.last_discard_tile = tile
 
     def apply_reach(self, actor: int, step: int) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            step (int): 函数执行所需的输入参数。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         if step == 1:
             self.riichi_pending[actor] = True
         if step == 2 and self.scores[actor] >= 10:
@@ -179,6 +345,22 @@ class GameState:
         called_tile: str,
         consumed_tiles: list[str],
     ) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            kind (str): 函数执行所需的输入参数。
+            source (int): 动作来源玩家座位索引。
+            called_tile (str): 被鸣牌或杠牌的精确牌字符串。
+            consumed_tiles (list[str]): 副露消耗牌列表。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         if kind in {"chi", "pon", "daiminkan"}:
             if self.last_discard_actor != source:
                 raise ValueError(
@@ -227,6 +409,20 @@ class GameState:
         raise ValueError(f"unsupported meld kind: {kind}")
 
     def _upgrade_pon_to_kakan(self, actor: int, called_tile: str, consumed_tiles: list[str]) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            called_tile (str): 被鸣牌或杠牌的精确牌字符串。
+            consumed_tiles (list[str]): 副露消耗牌列表。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            ValueError: 当输入数据不满足函数约束时抛出。
+        """
         if not consumed_tiles:
             raise ValueError("kakan is missing consumed tiles")
 
@@ -248,9 +444,33 @@ class GameState:
         raise ValueError(f"kakan without existing pon: actor={actor} tile={called_tile}")
 
     def has_open_melds(self, actor: int) -> bool:
+        """判断与函数名对应的状态是否存在。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+        
+        返回:
+            bool: 判断结果。
+        
+        异常:
+            无。
+        """
         return any(meld.kind in {"chi", "pon", "daiminkan", "kakan"} for meld in self.melds[actor])
 
     def can_declare_riichi(self, actor: int) -> bool:
+        """判断与函数名对应的操作是否可执行。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+        
+        返回:
+            bool: 判断结果。
+        
+        异常:
+            无。
+        """
         return (
             not self.riichi_declared[actor]
             and not self.riichi_pending[actor]
@@ -259,9 +479,35 @@ class GameState:
         )
 
     def has_discard_furiten(self, actor: int, winning_tile_bases: set[int]) -> bool:
+        """判断与函数名对应的状态是否存在。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            winning_tile_bases (set[int]): 相关数据列表。
+        
+        返回:
+            bool: 判断结果。
+        
+        异常:
+            无。
+        """
         return any(base_index in self.furiten_discard_bases[actor] for base_index in winning_tile_bases)
 
     def is_furiten(self, actor: int, winning_tile: str) -> bool:
+        """判断与函数名对应的条件是否成立。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+            winning_tile (str): 函数执行所需的输入参数。
+        
+        返回:
+            bool: 判断结果。
+        
+        异常:
+            无。
+        """
         winning_base = tile_to_base_index(winning_tile)
         return (
             self.has_discard_furiten(actor, {winning_base})
@@ -270,12 +516,47 @@ class GameState:
         )
 
     def mark_missed_ron(self, actor: int) -> None:
+        """根据业务规则标记相关状态。
+        
+        参数:
+            self (Self): 当前对象实例。
+            actor (int): 玩家座位索引。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.temporary_furiten[actor] = True
         if self.riichi_declared[actor]:
             self.riichi_furiten[actor] = True
 
     def add_dora_indicator(self, tile: str) -> None:
+        """向当前状态添加输入数据。
+        
+        参数:
+            self (Self): 当前对象实例。
+            tile (str): 精确牌字符串。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.dora_indicators.append(tile)
 
     def dora_base_indices(self) -> set[int]:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            set[int]: 集合结果。
+        
+        异常:
+            无。
+        """
         return {tile_to_base_index(dora_from_indicator(tile)) for tile in self.dora_indicators}

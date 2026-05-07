@@ -17,6 +17,18 @@ NON_MAJORITY_GROUP_BY_TASK = {
 
 
 def class_weight_map(task_name: str, train_config: dict[str, Any]) -> dict[str, float]:
+    """读取指定任务的类别权重配置。
+    
+    参数:
+        task_name (str): 任务名称。
+        train_config (dict[str, Any]): 训练配置字典。
+    
+    返回:
+        dict[str, float]: 字典结果。
+    
+    异常:
+        TypeError: 当输入类型不符合要求时抛出。
+    """
     weight_key = f"{task_name}_class_weights"
     raw_weights = train_config.get(weight_key, {})
     if raw_weights is None:
@@ -31,6 +43,19 @@ def build_sample_weights(
     weights: dict[str, float],
     device: torch.device,
 ) -> torch.Tensor | None:
+    """根据标签类型构建样本权重张量。
+    
+    参数:
+        label_kinds (list[str]): 标签动作类型列表。
+        weights (dict[str, float]): 相关数据列表。
+        device (torch.device): 计算设备。
+    
+    返回:
+        torch.Tensor | None: 张量结果。
+    
+    异常:
+        无。
+    """
     if not weights:
         return None
     return torch.tensor(
@@ -41,6 +66,18 @@ def build_sample_weights(
 
 
 def class_group_name(task_name: str, label_kind: str) -> str:
+    """将标签类型映射到类别分组名称。
+    
+    参数:
+        task_name (str): 任务名称。
+        label_kind (str): 标签动作类型。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     majority_label = MAJORITY_LABEL_BY_TASK.get(task_name)
     if majority_label is None:
         return label_kind

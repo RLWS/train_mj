@@ -28,6 +28,19 @@ class ManifestBuilder:
     """Create simple game-level manifests from parquet shard directories."""
 
     def build(self, input_dir: str | Path, output_dir: str | Path) -> ManifestSummary:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            input_dir (str | Path): 输入目录路径。
+            output_dir (str | Path): 输出目录路径。
+        
+        返回:
+            ManifestSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         input_root = Path(input_dir)
         output_root = ensure_dir(output_dir)
 
@@ -93,6 +106,17 @@ class ManifestBuilder:
 
 
 def _split_game_ids(game_ids: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        game_ids (list[str]): 相关数据列表。
+    
+    返回:
+        tuple[list[str], list[str], list[str]]: 元组结果。
+    
+    异常:
+        无。
+    """
     train_ids: list[str] = []
     valid_ids: list[str] = []
     test_ids: list[str] = []

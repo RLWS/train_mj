@@ -18,12 +18,17 @@ class Meld:
 
 
 def decode_meld(actor: int, value: int) -> Meld:
-    """Decode Tenhou's packed meld integer.
-
-    Tenhou encodes the relative source player in the low two bits:
-    0 = self, 1 = player on the right, 2 = opposite, 3 = player on the left.
-    The exact bit layout differs by meld type. This decoder currently supports
-    chi, pon, added kan, daiminkan, and ankan in the standard four-player log.
+    """解码天凤压缩副露整数。
+    
+    参数:
+        actor (int): 玩家座位索引。
+        value (int): 输入值。
+    
+    返回:
+        Meld: 函数执行结果。
+    
+    异常:
+        无。
     """
     source = (actor + (value & 0x3)) % 4
 
@@ -37,6 +42,19 @@ def decode_meld(actor: int, value: int) -> Meld:
 
 
 def _decode_chi(actor: int, source: int, value: int) -> Meld:
+    """解码输入数据并返回结构化结果。
+    
+    参数:
+        actor (int): 玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        value (int): 输入值。
+    
+    返回:
+        Meld: 函数执行结果。
+    
+    异常:
+        无。
+    """
     base_and_called = value >> 10
     sequence_index = base_and_called // 3
     suit = sequence_index // 7
@@ -67,6 +85,19 @@ def _decode_chi(actor: int, source: int, value: int) -> Meld:
 
 
 def _decode_pon_or_kakan(actor: int, source: int, value: int) -> Meld:
+    """解码输入数据并返回结构化结果。
+    
+    参数:
+        actor (int): 玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        value (int): 输入值。
+    
+    返回:
+        Meld: 函数执行结果。
+    
+    异常:
+        无。
+    """
     added = (value >> 5) & 0x3
     base_and_called = value >> 9
     tile_base = base_and_called // 3
@@ -108,6 +139,19 @@ def _decode_pon_or_kakan(actor: int, source: int, value: int) -> Meld:
 
 
 def _decode_kan(actor: int, source: int, value: int) -> Meld:
+    """解码输入数据并返回结构化结果。
+    
+    参数:
+        actor (int): 玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        value (int): 输入值。
+    
+    返回:
+        Meld: 函数执行结果。
+    
+    异常:
+        无。
+    """
     anchor_tile136 = value >> 8
     tile_base = anchor_tile136 // 4
     tile_ids = [tile_base * 4 + offset for offset in range(4)]
@@ -136,6 +180,19 @@ def _decode_kan(actor: int, source: int, value: int) -> Meld:
 
 
 def _decode_nuki(actor: int, source: int, value: int) -> Meld:
+    """解码输入数据并返回结构化结果。
+    
+    参数:
+        actor (int): 玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        value (int): 输入值。
+    
+    返回:
+        Meld: 函数执行结果。
+    
+    异常:
+        无。
+    """
     tile = tile136_to_string(value >> 8)
     return Meld(
         kind="nuki",

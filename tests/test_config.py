@@ -4,6 +4,17 @@ from mjai.utils.config import load_resolved_yaml, load_yaml
 
 
 def test_load_base_config():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     config = load_yaml("configs/base.yaml")
 
     assert config["seed"] == 20260423
@@ -11,6 +22,17 @@ def test_load_base_config():
 
 
 def test_load_resolved_base_config():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     config = load_resolved_yaml("configs/base.yaml")
 
     assert config["data"]["ruleset"] == "tenhou_4p_red"
@@ -19,6 +41,17 @@ def test_load_resolved_base_config():
 
 
 def test_load_resolved_p800_configs():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     turn_config = load_resolved_yaml("configs/turn_p800.yaml")
     response_config = load_resolved_yaml("configs/response_p800.yaml")
 

@@ -10,6 +10,17 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_build_turn_samples_from_real_fixtures():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
 
@@ -23,6 +34,17 @@ def test_build_turn_samples_from_real_fixtures():
 
 
 def test_turn_sample_label_is_in_legal_actions():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
     path = FIXTURE_DIR / "2023010100gm-00e1-0000-8a80056a.xml"
@@ -34,6 +56,17 @@ def test_turn_sample_label_is_in_legal_actions():
 
 
 def test_turn_samples_include_riichi_discard_labels_on_real_fixture():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
 
@@ -46,6 +79,17 @@ def test_turn_samples_include_riichi_discard_labels_on_real_fixture():
 
 
 def test_riichi_discard_labels_are_present_in_legal_actions_on_real_fixtures():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
 
@@ -57,6 +101,17 @@ def test_riichi_discard_labels_are_present_in_legal_actions_on_real_fixtures():
 
 
 def test_turn_samples_include_tsumo_and_ankan_labels_on_real_fixtures():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
 
@@ -75,6 +130,17 @@ def test_turn_samples_include_tsumo_and_ankan_labels_on_real_fixtures():
 
 
 def test_turn_samples_keep_special_turn_labels_in_legal_actions():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
 
@@ -100,6 +166,17 @@ def test_turn_samples_keep_special_turn_labels_in_legal_actions():
 
 
 def test_turn_samples_include_kyuushu_kyuuhai_on_real_fixture():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     builder = TurnSampleBuilder()
     path = FIXTURE_DIR / "2023010200gm-00a9-0000-1c334444.xml"

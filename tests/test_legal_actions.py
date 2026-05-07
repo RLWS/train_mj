@@ -5,6 +5,17 @@ from mjai.rules.state import GameState, HandState, MeldState
 
 
 def test_legal_discards_include_red_and_normal_five_when_both_exist():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["0m", "5m", "6m", "1z"])
 
     discards = legal_discards(hand)
@@ -17,6 +28,17 @@ def test_legal_discards_include_red_and_normal_five_when_both_exist():
 
 
 def test_legal_discards_do_not_include_missing_tiles():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["1m", "1m", "3p"])
 
     discards = legal_discards(hand)
@@ -29,6 +51,17 @@ def test_legal_discards_do_not_include_missing_tiles():
 
 
 def test_legal_responses_include_pass_pon_and_daiminkan():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["0m", "5m", "5m", "2p"])
 
     actions = legal_responses(hand=hand, actor=1, source=0, tile="5m")
@@ -41,6 +74,17 @@ def test_legal_responses_include_pass_pon_and_daiminkan():
 
 
 def test_legal_responses_include_chi_only_from_upper_player():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["3m", "0m", "6m", "7m"])
 
     upper_actions = legal_responses(hand=hand, actor=0, source=3, tile="4m")
@@ -55,6 +99,17 @@ def test_legal_responses_include_chi_only_from_upper_player():
 
 
 def test_legal_responses_include_ron_when_hand_is_complete():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
     )
@@ -66,6 +121,17 @@ def test_legal_responses_include_ron_when_hand_is_complete():
 
 
 def test_legal_responses_exclude_ron_when_actor_is_furiten():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
     )
@@ -79,6 +145,17 @@ def test_legal_responses_exclude_ron_when_actor_is_furiten():
 
 
 def test_legal_responses_exclude_ron_when_actor_is_temporarily_furiten():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
     )
@@ -92,6 +169,17 @@ def test_legal_responses_exclude_ron_when_actor_is_temporarily_furiten():
 
 
 def test_legal_responses_exclude_ron_when_actor_is_riichi_furiten():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
     )
@@ -105,6 +193,17 @@ def test_legal_responses_exclude_ron_when_actor_is_riichi_furiten():
 
 
 def test_legal_responses_include_chankan_when_enabled():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z"]
     )
@@ -116,6 +215,17 @@ def test_legal_responses_include_chankan_when_enabled():
 
 
 def test_legal_responses_chankan_window_excludes_call_actions():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["3m", "4m", "6m", "7m", "5z"] * 2 + ["1p", "2p", "3p"])
 
     actions = legal_responses(hand=hand, actor=1, source=0, tile="5z", allow_chankan=True)
@@ -128,6 +238,17 @@ def test_legal_responses_chankan_window_excludes_call_actions():
 
 
 def test_legal_turn_actions_include_tsumo_for_complete_hand():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "2p", "3p", "4p", "5z", "5z"]
     )
@@ -139,6 +260,17 @@ def test_legal_turn_actions_include_tsumo_for_complete_hand():
 
 
 def test_legal_turn_actions_include_ankan_when_four_of_a_kind_exists():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["1p", "1p", "1p", "1p", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "1z", "1z"])
 
     actions = legal_turn_actions(hand, state=GameState(), actor=0)
@@ -149,6 +281,17 @@ def test_legal_turn_actions_include_ankan_when_four_of_a_kind_exists():
 
 
 def test_legal_turn_actions_include_kakan_when_matching_pon_exists():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["5m", "2m", "3m", "4m", "6m", "7m", "8m", "1p", "2p", "3p", "4s"])
     state = GameState(
         hands=[hand, HandState(), HandState(), HandState()],
@@ -167,6 +310,17 @@ def test_legal_turn_actions_include_kakan_when_matching_pon_exists():
 
 
 def test_legal_turn_actions_include_kyuushu_kyuuhai_on_first_draw_with_nine_terminals():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "9m", "1p", "9p", "1s", "9s", "1z", "2z", "3z", "4z", "5z", "6z", "7z", "5m"]
     )
@@ -179,6 +333,17 @@ def test_legal_turn_actions_include_kyuushu_kyuuhai_on_first_draw_with_nine_term
 
 
 def test_legal_turn_actions_exclude_kyuushu_kyuuhai_after_actor_has_discarded():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(
         ["1m", "9m", "1p", "9p", "1s", "9s", "1z", "2z", "3z", "4z", "5z", "6z", "7z", "5m"]
     )

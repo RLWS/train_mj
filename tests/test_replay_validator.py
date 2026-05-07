@@ -10,6 +10,17 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_validate_all_real_fixtures():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     validator = ReplayValidator()
 
@@ -24,6 +35,17 @@ def test_validate_all_real_fixtures():
 
 
 def test_validate_fixture_with_melds_reports_nonzero_melds():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     validator = ReplayValidator()
     path = FIXTURE_DIR / "2023010100gm-00e1-0000-8a80056a.xml"

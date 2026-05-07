@@ -18,7 +18,17 @@ class Tile:
 
 
 def tile_to_base_index(tile: str) -> int:
-    """Convert an exact tile string to a 34-tile base index."""
+    """将精确牌字符串转换为三十四种牌基础索引。
+    
+    参数:
+        tile (str): 精确牌字符串。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     if len(tile) != 2:
         raise ValueError(f"invalid tile format: {tile}")
 
@@ -42,7 +52,17 @@ def tile_to_base_index(tile: str) -> int:
 
 
 def base_index_to_tile(index: int) -> str:
-    """Convert a 34-tile base index to the non-red tile string."""
+    """将三十四种牌基础索引转换为非赤牌字符串。
+    
+    参数:
+        index (int): 索引值。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     if not 0 <= index < 34:
         raise ValueError(f"tile index out of range: {index}")
 
@@ -56,26 +76,78 @@ def base_index_to_tile(index: int) -> str:
 
 
 def is_aka_tile(tile: str) -> bool:
+    """判断精确牌字符串是否表示赤五。
+    
+    参数:
+        tile (str): 精确牌字符串。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     return tile in AKA_TILE_STRINGS
 
 
 def is_aka_index(index: int) -> bool:
+    """判断基础索引是否对应五牌位置。
+    
+    参数:
+        index (int): 索引值。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     return index in AKA_BASE_INDICES
 
 
 def parse_tile(tile: str) -> Tile:
-    """Parse an exact tile string into an immutable tile object."""
+    """解析精确牌字符串并生成牌对象。
+    
+    参数:
+        tile (str): 精确牌字符串。
+    
+    返回:
+        Tile: 函数执行结果。
+    
+    异常:
+        无。
+    """
     base_index = tile_to_base_index(tile)
     return Tile(text=tile, base_index=base_index, is_aka=is_aka_tile(tile))
 
 
 def normalize_tile(tile: str) -> str:
-    """Convert an exact tile string to the corresponding non-red tile string."""
+    """将精确牌字符串规范化为非赤牌字符串。
+    
+    参数:
+        tile (str): 精确牌字符串。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     return base_index_to_tile(tile_to_base_index(tile))
 
 
 def dora_from_indicator(indicator: str) -> str:
-    """Return the non-red dora tile for a Tenhou dora indicator."""
+    """根据宝牌指示牌计算实际宝牌。
+    
+    参数:
+        indicator (str): 函数执行所需的输入参数。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     base_index = tile_to_base_index(indicator)
     if base_index < 27:
         suit_offset = (base_index // 9) * 9
@@ -89,19 +161,49 @@ def dora_from_indicator(indicator: str) -> str:
 
 
 def tile136_to_base_index(tile136: int) -> int:
-    """Convert a Tenhou 136-tile identifier to a 34-tile base index."""
+    """将天凤一百三十六牌编号转换为基础索引。
+    
+    参数:
+        tile136 (int): 函数执行所需的输入参数。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     if not 0 <= tile136 < 136:
         raise ValueError(f"tile136 out of range: {tile136}")
     return tile136 // 4
 
 
 def is_aka_tile136(tile136: int) -> bool:
-    """Return whether a Tenhou 136-tile identifier is a red five."""
+    """判断天凤一百三十六牌编号是否表示赤五。
+    
+    参数:
+        tile136 (int): 函数执行所需的输入参数。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     return tile136 in AKA_TILE136
 
 
 def tile136_to_string(tile136: int) -> str:
-    """Convert a Tenhou 136-tile identifier to an exact tile string."""
+    """将天凤一百三十六牌编号转换为精确牌字符串。
+    
+    参数:
+        tile136 (int): 函数执行所需的输入参数。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     if tile136 in AKA_TILE136:
         return AKA_TILE136[tile136]
     return base_index_to_tile(tile136_to_base_index(tile136))

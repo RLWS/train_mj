@@ -35,6 +35,17 @@ class DatasetBuilder:
     """Build parquet-backed supervised datasets directly from Tenhou XML fixtures."""
 
     def __init__(self) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.parser = TenhouParser()
         self.validator = ReplayValidator()
         self.turn_builder = TurnSampleBuilder()
@@ -47,6 +58,21 @@ class DatasetBuilder:
         workers: int = 1,
         validate: bool = True,
     ) -> BuildSummary:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            input_dir (str | Path): 输入目录路径。
+            output_dir (str | Path): 输出目录路径。
+            workers (int): 并行工作单元数量。
+            validate (bool): 是否执行回放校验。
+        
+        返回:
+            BuildSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         input_root = Path(input_dir)
         return self._build_from_sources(
             output_dir=output_dir,
@@ -64,6 +90,21 @@ class DatasetBuilder:
         workers: int = 1,
         validate: bool = True,
     ) -> BuildSummary:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            input_dir (str | Path): 输入目录路径。
+            output_dir (str | Path): 输出目录路径。
+            workers (int): 并行工作单元数量。
+            validate (bool): 是否执行回放校验。
+        
+        返回:
+            BuildSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         input_root = Path(input_dir)
         return self._build_from_sources(
             output_dir=output_dir,
@@ -83,6 +124,23 @@ class DatasetBuilder:
         validate: bool,
         empty_warning: str,
     ) -> BuildSummary:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            output_dir (str | Path): 输出目录路径。
+            source_paths (list[Path]): 相关数据列表。
+            build_func (Any): 函数执行所需的输入参数。
+            workers (int): 并行工作单元数量。
+            validate (bool): 是否执行回放校验。
+            empty_warning (str): 函数执行所需的输入参数。
+        
+        返回:
+            BuildSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         output_root = Path(output_dir)
         ensure_dir(output_root / "turn")
         ensure_dir(output_root / "response")
@@ -165,6 +223,21 @@ def _run_build_workers(
     workers: int,
     validate: bool,
 ) -> list[_ShardBuildResult]:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        source_paths (list[Path]): 相关数据列表。
+        output_root (Path): 相关目录路径。
+        build_func (Any): 函数执行所需的输入参数。
+        workers (int): 并行工作单元数量。
+        validate (bool): 是否执行回放校验。
+    
+    返回:
+        list[_ShardBuildResult]: 列表结果。
+    
+    异常:
+        Exception: 当函数执行过程中检测到未分类错误时抛出。
+    """
     if not source_paths:
         return []
 
@@ -206,6 +279,22 @@ def _run_process_build_workers(
     workers: int,
     chunksize: int,
 ) -> list[_ShardBuildResult]:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        build_func (Any): 函数执行所需的输入参数。
+        source_paths (list[str]): 相关数据列表。
+        output_roots (list[str]): 相关数据列表。
+        validate_flags (list[bool]): 相关数据列表。
+        workers (int): 并行工作单元数量。
+        chunksize (int): 函数执行所需的输入参数。
+    
+    返回:
+        list[_ShardBuildResult]: 列表结果。
+    
+    异常:
+        无。
+    """
     with ProcessPoolExecutor(max_workers=workers) as executor:
         return list(
             executor.map(
@@ -225,23 +314,74 @@ def _run_thread_build_workers(
     validate_flags: list[bool],
     workers: int,
 ) -> list[_ShardBuildResult]:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        build_func (Any): 函数执行所需的输入参数。
+        source_paths (list[str]): 相关数据列表。
+        output_roots (list[str]): 相关数据列表。
+        validate_flags (list[bool]): 相关数据列表。
+        workers (int): 并行工作单元数量。
+    
+    返回:
+        list[_ShardBuildResult]: 列表结果。
+    
+    异常:
+        无。
+    """
     with ThreadPoolExecutor(max_workers=workers) as executor:
         return list(executor.map(build_func, source_paths, output_roots, validate_flags))
 
 
 def _should_fallback_to_threads(exc: BaseException) -> bool:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        exc (BaseException): 函数执行所需的输入参数。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if isinstance(exc, BrokenProcessPool):
         return True
     return isinstance(exc, PermissionError) and getattr(exc, "winerror", None) == 5
 
 
 def _build_worker_chunksize(source_count: int, workers: int) -> int:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        source_count (int): 相关数量。
+        workers (int): 并行工作单元数量。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     if source_count <= workers * 16:
         return 1
     return max(1, min(8, source_count // (workers * 16)))
 
 
 def _build_one_xml_file(xml_path: str, output_root: str, validate: bool) -> _ShardBuildResult:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        xml_path (str): 相关文件路径。
+        output_root (str): 相关目录路径。
+        validate (bool): 是否执行回放校验。
+    
+    返回:
+        _ShardBuildResult: 函数执行结果。
+    
+    异常:
+        无。
+    """
     parser = TenhouParser()
     path = Path(xml_path)
     events = parser.parse_file(path)
@@ -249,12 +389,39 @@ def _build_one_xml_file(xml_path: str, output_root: str, validate: bool) -> _Sha
 
 
 def _build_one_event_shard(shard_path: str, output_root: str, validate: bool) -> _ShardBuildResult:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        shard_path (str): 相关文件路径。
+        output_root (str): 相关目录路径。
+        validate (bool): 是否执行回放校验。
+    
+    返回:
+        _ShardBuildResult: 函数执行结果。
+    
+    异常:
+        无。
+    """
     path = Path(shard_path)
     events = read_events_from_parquet(path)
     return _build_one_game(path.stem, events, Path(output_root), validate=validate)
 
 
 def _build_one_game(game_id: str, events: list, output_root: Path, validate: bool) -> _ShardBuildResult:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        game_id (str): 函数执行所需的输入参数。
+        events (list): 规范化事件列表。
+        output_root (Path): 相关目录路径。
+        validate (bool): 是否执行回放校验。
+    
+    返回:
+        _ShardBuildResult: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if validate:
         ReplayValidator().validate_events(events)
 

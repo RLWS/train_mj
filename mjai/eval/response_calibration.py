@@ -81,6 +81,26 @@ def calibrate_response_checkpoint(
     progress_callback: Callable[[int, int, int], None] | None = None,
     progress_every_n_batches: int = 0,
 ) -> ResponseCalibrationSummary:
+    """扫描响应模型跳过偏置并生成校准结果。
+    
+    参数:
+        ckpt_path (str | Path): 模型检查点路径。
+        split (str): 数据划分名称。
+        pass_biases (list[float]): 跳过动作偏置列表。
+        false_call_rate_targets (list[float]): 误鸣率目标列表。
+        config_override (dict[str, Any] | None): 配置覆盖字典。
+        report_path (str | Path | None): 报告输出路径。
+        manifest_path (str | Path | None): 清单文件路径。
+        progress_callback (Callable[[int, int, int], None] | None): 函数执行所需的输入参数。
+        progress_every_n_batches (int): 相关数据列表。
+    
+    返回:
+        ResponseCalibrationSummary: 函数执行结果。
+    
+    异常:
+        TypeError: 当输入类型不符合要求时抛出。
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     pass_biases = _normalize_pass_biases(pass_biases)
     false_call_rate_targets = _normalize_false_call_rate_targets(false_call_rate_targets)
 
@@ -168,6 +188,18 @@ def calibrate_response_checkpoint(
 
 class _ResponseCalibrationScanner:
     def __init__(self, *, pass_biases: list[float]) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            pass_biases (list[float]): 跳过动作偏置列表。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.pass_biases = [float(bias) for bias in pass_biases]
         self._bias_count = len(pass_biases)
         self._samples = 0
@@ -186,6 +218,19 @@ class _ResponseCalibrationScanner:
         self._per_kind_top1_hits: dict[str, list[int]] = {}
 
     def update(self, *, logits: torch.Tensor, batch: dict[str, Any]) -> None:
+        """更新统计或状态累积结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            logits (torch.Tensor): 候选动作分数张量。
+            batch (dict[str, Any]): 模型批次字典。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         device = logits.device
         labels = batch["labels"]
         candidate_mask = batch["candidate_mask"]
@@ -268,6 +313,17 @@ class _ResponseCalibrationScanner:
             )
 
     def points(self) -> list[ResponseCalibrationPoint]:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            list[ResponseCalibrationPoint]: 列表结果。
+        
+        异常:
+            无。
+        """
         points: list[ResponseCalibrationPoint] = []
         for index, pass_bias in enumerate(self.pass_biases):
             pass_precision = _safe_divide(self._pass_tp[index], self._predicted_pass[index])
@@ -313,6 +369,18 @@ class _ResponseCalibrationScanner:
 
     @staticmethod
     def _add_vector(target: list[int], values: torch.Tensor) -> None:
+        """向当前状态添加输入数据。
+        
+        参数:
+            target (list[int]): 函数执行所需的输入参数。
+            values (torch.Tensor): 相关数据列表。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         for index, value in enumerate(values.detach().to("cpu").tolist()):
             target[index] += int(value)
 
@@ -323,6 +391,19 @@ def _candidate_kind_ids(
     *,
     device: torch.device,
 ) -> torch.Tensor:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        legal_actions (list[list[dict[str, Any]]]): 合法动作列表。
+        candidate_width (int): 函数执行所需的输入参数。
+        device (torch.device): 计算设备。
+    
+    返回:
+        torch.Tensor: 张量结果。
+    
+    异常:
+        无。
+    """
     unknown_id = RESPONSE_KIND_RANK["unknown"]
     rows: list[list[int]] = []
     for actions in legal_actions:
@@ -339,6 +420,18 @@ def _select_operating_points(
     points: list[ResponseCalibrationPoint],
     false_call_rate_targets: list[float],
 ) -> list[ResponseCalibrationSelection]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        points (list[ResponseCalibrationPoint]): 相关数据列表。
+        false_call_rate_targets (list[float]): 误鸣率目标列表。
+    
+    返回:
+        list[ResponseCalibrationSelection]: 列表结果。
+    
+    异常:
+        无。
+    """
     selections: list[ResponseCalibrationSelection] = []
     for target in false_call_rate_targets:
         eligible = [point for point in points if point.false_call_rate <= target]
@@ -380,6 +473,17 @@ def _select_operating_points(
 
 
 def _build_calibration_dataset(manifest_path: Path) -> StreamingManifestResponseDataset:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        manifest_path (Path): 清单文件路径。
+    
+    返回:
+        StreamingManifestResponseDataset: 函数执行结果。
+    
+    异常:
+        无。
+    """
     return StreamingManifestResponseDataset(
         manifest_path,
         min_candidate_count=1,
@@ -391,6 +495,17 @@ def _build_calibration_dataset(manifest_path: Path) -> StreamingManifestResponse
 
 
 def _normalize_pass_biases(pass_biases: list[float]) -> list[float]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        pass_biases (list[float]): 跳过动作偏置列表。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     if not pass_biases:
         raise ValueError("calibration requires at least one pass bias")
     normalized = [float(bias) for bias in pass_biases]
@@ -401,6 +516,17 @@ def _normalize_pass_biases(pass_biases: list[float]) -> list[float]:
 
 
 def _normalize_false_call_rate_targets(targets: list[float]) -> list[float]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        targets (list[float]): 相关数据列表。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     if not targets:
         raise ValueError("calibration requires at least one false call rate target")
     normalized = [float(target) for target in targets]
@@ -415,6 +541,19 @@ def _resolve_calibration_report_path(
     split: str,
     report_path: str | Path | None,
 ) -> Path:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        checkpoint_path (Path): 模型检查点路径。
+        split (str): 数据划分名称。
+        report_path (str | Path | None): 报告输出路径。
+    
+    返回:
+        Path: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if report_path is not None:
         return Path(report_path)
     return checkpoint_path.parent / f"response_calibration_{split}.json"
@@ -425,6 +564,19 @@ def _resolve_calibration_manifest_path(
     split: str,
     manifest_path: str | Path | None,
 ) -> Path:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        config (dict[str, Any]): 配置字典。
+        split (str): 数据划分名称。
+        manifest_path (str | Path | None): 清单文件路径。
+    
+    返回:
+        Path: 函数执行结果。
+    
+    异常:
+        FileNotFoundError: 当所需文件或目录不存在时抛出。
+    """
     if manifest_path is None:
         return _resolve_manifest_path(config, split)
     resolved = Path(manifest_path)
@@ -434,18 +586,55 @@ def _resolve_calibration_manifest_path(
 
 
 def _should_report_progress(batch_index: int, total_batches: int, every_n_batches: int) -> bool:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        batch_index (int): 相关索引值。
+        total_batches (int): 相关数据列表。
+        every_n_batches (int): 相关数据列表。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if every_n_batches <= 0:
         return False
     return batch_index == 1 or batch_index == total_batches or batch_index % every_n_batches == 0
 
 
 def _safe_divide(numerator: int | float, denominator: int | float) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        numerator (int | float): 函数执行所需的输入参数。
+        denominator (int | float): 函数执行所需的输入参数。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     if denominator == 0:
         return 0.0
     return float(numerator) / float(denominator)
 
 
 def _f1(precision: float, recall: float) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        precision (float): 函数执行所需的输入参数。
+        recall (float): 函数执行所需的输入参数。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     if precision + recall == 0.0:
         return 0.0
     return 2.0 * precision * recall / (precision + recall)

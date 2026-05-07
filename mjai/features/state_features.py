@@ -1,6 +1,17 @@
 from __future__ import annotations
 
 def _build_exact_tile_vocab() -> list[str]:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        无。
+    
+    返回:
+        list[str]: 列表结果。
+    
+    异常:
+        无。
+    """
     vocab: list[str] = []
     for suit in ("m", "p", "s"):
         vocab.extend([f"{rank}{suit}" for rank in range(1, 6)])
@@ -63,6 +74,17 @@ RESPONSE_STATE_DIM = TURN_STATE_DIM + RESPONSE_TARGET_SOURCE_DIM + RESPONSE_TARG
 
 
 def encode_turn_state(state: dict) -> list[float]:
+    """将自摸巡状态字典编码为定长特征向量。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     features: list[float] = []
     # 37 exact-tile hand counts. Red fives use their own exact-tile slots.
     features.extend(_encode_exact_tile_counter(state.get("hand", {})))
@@ -95,6 +117,17 @@ def encode_turn_state(state: dict) -> list[float]:
 
 
 def encode_response_state(state: dict) -> list[float]:
+    """将响应状态字典编码为定长特征向量。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     features = encode_turn_state(state)
     # Response adds the pending discard/kakan target to the common turn-state
     # prefix so pass/chi/pon/ron candidates are scored against the same target.
@@ -105,6 +138,17 @@ def encode_response_state(state: dict) -> list[float]:
 
 
 def _encode_exact_tile_counter(counter: dict[str, int]) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        counter (dict[str, int]): 函数执行所需的输入参数。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     vector = [0.0] * len(EXACT_TILE_VOCAB)
     for tile, count in counter.items():
         index = EXACT_TILE_INDEX.get(tile)
@@ -114,6 +158,17 @@ def _encode_exact_tile_counter(counter: dict[str, int]) -> list[float]:
 
 
 def _encode_optional_tile(tile: str | None) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        tile (str | None): 精确牌字符串。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     vector = [0.0] * (len(EXACT_TILE_VOCAB) + 1)
     if tile is None:
         vector[-1] = 1.0
@@ -123,6 +178,17 @@ def _encode_optional_tile(tile: str | None) -> list[float]:
 
 
 def _encode_optional_actor(actor: int | None) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        actor (int | None): 玩家座位索引。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     vector = [0.0] * 5
     if actor is None:
         vector[-1] = 1.0
@@ -132,12 +198,34 @@ def _encode_optional_actor(actor: int | None) -> list[float]:
 
 
 def _encode_actor_onehot(actor: int) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        actor (int): 玩家座位索引。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     vector = [0.0] * 4
     vector[actor] = 1.0
     return vector
 
 
 def _encode_own_meld_counts(melds: list[dict]) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        melds (list[dict]): 相关数据列表。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     kinds = ["chi", "pon", "daiminkan", "ankan", "kakan"]
     counts = {kind: 0.0 for kind in kinds}
     for meld in melds:
@@ -148,6 +236,17 @@ def _encode_own_meld_counts(melds: list[dict]) -> list[float]:
 
 
 def _encode_dora_counts(state: dict) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     counts = [0.0] * len(EXACT_TILE_VOCAB)
     for base_index in state.get("dora_base_indices", []):
         tile = _base_index_to_feature_tile(int(base_index))
@@ -156,6 +255,17 @@ def _encode_dora_counts(state: dict) -> list[float]:
 
 
 def _encode_scores(scores: list[int]) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        scores (list[int]): 相关数据列表。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     encoded = [0.0] * 4
     for index, score in enumerate(scores[:4]):
         encoded[index] = float(score) / 1000.0
@@ -163,6 +273,17 @@ def _encode_scores(scores: list[int]) -> list[float]:
 
 
 def _encode_round_numeric(state: dict) -> list[float]:
+    """将输入数据编码为模型可用特征。
+    
+    参数:
+        state (dict): 游戏状态或样本状态。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        无。
+    """
     return [
         min(1.0, float(state.get("turn_number", 0)) / 18.0),
         min(1.0, float(state.get("remaining_draws_estimate", 0)) / 18.0),
@@ -172,6 +293,17 @@ def _encode_round_numeric(state: dict) -> list[float]:
 
 
 def _base_index_to_feature_tile(base_index: int) -> str:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        base_index (int): 三十四种牌基础索引。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     if base_index < 9:
         return f"{base_index + 1}m"
     if base_index < 18:

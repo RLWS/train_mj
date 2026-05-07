@@ -25,6 +25,17 @@ EVENT_SCHEMA = pa.schema(
 
 
 def serialize_event(event: Event) -> dict[str, object]:
+    """将事件对象序列化为列式存储行。
+    
+    参数:
+        event (Event): 单个规范化事件。
+    
+    返回:
+        dict[str, object]: 字典结果。
+    
+    异常:
+        无。
+    """
     return {
         "game_id": event.game_id,
         "kyoku_index": event.kyoku_index,
@@ -37,6 +48,17 @@ def serialize_event(event: Event) -> dict[str, object]:
 
 
 def deserialize_event(row: dict[str, object]) -> Event:
+    """将列式存储行反序列化为事件对象。
+    
+    参数:
+        row (dict[str, object]): 单条数据行。
+    
+    返回:
+        Event: 函数执行结果。
+    
+    异常:
+        无。
+    """
     return Event(
         game_id=str(row["game_id"]),
         kyoku_index=int(row["kyoku_index"]),
@@ -49,6 +71,18 @@ def deserialize_event(row: dict[str, object]) -> Event:
 
 
 def write_events_to_parquet(events: Iterable[Event], output_path: str | Path) -> int:
+    """将事件序列写入列式文件。
+    
+    参数:
+        events (Iterable[Event]): 规范化事件列表。
+        output_path (str | Path): 输出文件路径。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     rows = [serialize_event(event) for event in events]
     table = pa.Table.from_pylist(rows, schema=EVENT_SCHEMA)
     output_file = Path(output_path)
@@ -58,5 +92,16 @@ def write_events_to_parquet(events: Iterable[Event], output_path: str | Path) ->
 
 
 def read_events_from_parquet(path: str | Path) -> list[Event]:
+    """从列式文件读取事件序列。
+    
+    参数:
+        path (str | Path): 文件或目录路径。
+    
+    返回:
+        list[Event]: 列表结果。
+    
+    异常:
+        无。
+    """
     table = pq.read_table(path)
     return [deserialize_event(row) for row in table.to_pylist()]

@@ -17,16 +17,50 @@ from mjai.utils.config import load_resolved_yaml, load_yaml
 
 
 def _add_config_arg(parser: argparse.ArgumentParser) -> None:
+    """向当前状态添加输入数据。
+    
+    参数:
+        parser (argparse.ArgumentParser): 命令行解析器对象。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     parser.add_argument("--config", type=str, default=None, help="Path to a YAML config file.")
 
 
 def _load_optional_config(path: str | None) -> dict:
+    """加载与函数名对应的数据。
+    
+    参数:
+        path (str | None): 文件或目录路径。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     if path is None:
         return {}
     return load_yaml(path)
 
 
 def _not_implemented(command: str, config_path: str | None = None) -> int:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        command (str): 函数执行所需的输入参数。
+        config_path (str | None): 相关文件路径。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     config = _load_optional_config(config_path)
     print(f"mjai command '{command}' is registered.")
     if config_path:
@@ -36,6 +70,17 @@ def _not_implemented(command: str, config_path: str | None = None) -> int:
 
 
 def _run_preprocess(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     _load_optional_config(getattr(args, "config", None))
     builder = EventBuilder()
     summary = builder.build_from_xml_dir(args.input, args.output)
@@ -48,6 +93,17 @@ def _run_preprocess(args: argparse.Namespace) -> int:
 
 
 def _run_validate_events(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     _load_optional_config(getattr(args, "config", None))
     validator = EventValidator()
     summary = validator.validate_dir(args.input, args.report)
@@ -65,6 +121,17 @@ def _run_validate_events(args: argparse.Namespace) -> int:
 
 
 def _run_build_dataset(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     _load_optional_config(getattr(args, "config", None))
     builder = DatasetBuilder()
     summary = builder.build_from_event_dir(
@@ -86,6 +153,17 @@ def _run_build_dataset(args: argparse.Namespace) -> int:
 
 
 def _run_make_manifest(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     builder = ManifestBuilder()
     summary = builder.build(args.input, args.output)
     print(
@@ -103,6 +181,17 @@ def _run_make_manifest(args: argparse.Namespace) -> int:
 
 
 def _run_train(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     config = load_resolved_yaml(args.config)
     summary = train_turn_model(config)
     print(
@@ -134,6 +223,17 @@ def _run_train(args: argparse.Namespace) -> int:
 
 
 def _run_eval(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     config_override = _load_optional_config(getattr(args, "config", None))
     summary = evaluate_checkpoint(
         ckpt_path=args.ckpt,
@@ -182,6 +282,17 @@ def _run_eval(args: argparse.Namespace) -> int:
 
 
 def _run_calibrate_response(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     config_override = _load_optional_config(getattr(args, "config", None))
     pass_biases = _parse_float_list(args.pass_biases, option_name="--pass-biases")
     false_call_targets = _parse_rate_list(
@@ -228,6 +339,17 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
 
 
 def _run_inspect_sample(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     _load_optional_config(getattr(args, "config", None))
     if args.sample_id is None and args.index is None:
         raise ValueError("inspect-sample requires either --index or --sample-id")
@@ -240,6 +362,17 @@ def _run_inspect_sample(args: argparse.Namespace) -> int:
 
 
 def _run_dump_case(args: argparse.Namespace) -> int:
+    """运行与函数名对应的处理流程。
+    
+    参数:
+        args (argparse.Namespace): 命令行参数命名空间。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     _load_optional_config(getattr(args, "config", None))
     print(
         dump_case_to_json(
@@ -254,11 +387,35 @@ def _run_dump_case(args: argparse.Namespace) -> int:
 
 
 def _print_warnings(warnings: tuple[str, ...]) -> None:
+    """打印与函数名对应的进度或诊断信息。
+    
+    参数:
+        warnings (tuple[str, ...]): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     for warning in warnings:
         print(f"warning: {warning}")
 
 
 def _print_calibration_progress(batch_index: int, total_batches: int, samples_processed: int) -> None:
+    """打印与函数名对应的进度或诊断信息。
+    
+    参数:
+        batch_index (int): 相关索引值。
+        total_batches (int): 相关数据列表。
+        samples_processed (int): 函数执行所需的输入参数。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     print(
         "calibration_progress="
         f"batch={batch_index}/{total_batches} "
@@ -268,6 +425,18 @@ def _print_calibration_progress(batch_index: int, total_batches: int, samples_pr
 
 
 def _parse_float_list(raw_value: str, *, option_name: str) -> list[float]:
+    """解析输入数据并返回结构化结果。
+    
+    参数:
+        raw_value (str): 函数执行所需的输入参数。
+        option_name (str): 函数执行所需的输入参数。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     values: list[float] = []
     for item in raw_value.split(","):
         item = item.strip()
@@ -283,6 +452,18 @@ def _parse_float_list(raw_value: str, *, option_name: str) -> list[float]:
 
 
 def _parse_rate_list(raw_value: str, *, option_name: str) -> list[float]:
+    """解析输入数据并返回结构化结果。
+    
+    参数:
+        raw_value (str): 函数执行所需的输入参数。
+        option_name (str): 函数执行所需的输入参数。
+    
+    返回:
+        list[float]: 列表结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     values: list[float] = []
     for item in raw_value.split(","):
         item = item.strip()
@@ -304,6 +485,17 @@ def _parse_rate_list(raw_value: str, *, option_name: str) -> list[float]:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        无。
+    
+    返回:
+        argparse.ArgumentParser: 函数执行结果。
+    
+    异常:
+        无。
+    """
     parser = argparse.ArgumentParser(prog="mjai", description="Mahjong AI training pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -415,6 +607,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """执行命令行入口并返回进程退出码。
+    
+    参数:
+        argv (Sequence[str] | None): 命令行参数序列。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "preprocess":

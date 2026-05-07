@@ -24,6 +24,17 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_preprocess_writes_bronze_event_parquet(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     builder = EventBuilder()
     summary = builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
 
@@ -43,6 +54,17 @@ def test_preprocess_writes_bronze_event_parquet(tmp_path: Path):
 
 
 def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     event_builder = EventBuilder()
     event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
 
@@ -164,6 +186,17 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
 
 
 def test_build_dataset_supports_parallel_workers(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     event_builder = EventBuilder()
     event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
 
@@ -185,6 +218,17 @@ def test_build_dataset_supports_parallel_workers(tmp_path: Path):
 
 
 def test_make_manifest_writes_jsonl_splits(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     event_builder = EventBuilder()
     event_builder.build_from_xml_dir(FIXTURE_DIR, tmp_path / "bronze_events")
 

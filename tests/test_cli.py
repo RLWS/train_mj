@@ -10,6 +10,18 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_cli_preprocess_and_validate_events(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     report_path = tmp_path / "reports" / "event_validation.json"
 
@@ -37,6 +49,18 @@ def test_cli_preprocess_and_validate_events(tmp_path: Path, capsys):
 
 
 def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
 
@@ -62,6 +86,18 @@ def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
 
 
 def test_cli_build_dataset_can_skip_replay_validation(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
 
@@ -88,6 +124,18 @@ def test_cli_build_dataset_can_skip_replay_validation(tmp_path: Path, capsys):
 
 
 def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
     manifest_dir = tmp_path / "manifests"
@@ -109,6 +157,17 @@ def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, cap
 
 
 def test_cli_train_requires_real_inputs(tmp_path: Path):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        AssertionError: 当函数执行过程中检测到错误条件时抛出。
+    """
     config_path = tmp_path / "missing_data.yaml"
     missing_manifest = tmp_path / "missing_train.jsonl"
     config_path.write_text(
@@ -147,6 +206,18 @@ def test_cli_train_requires_real_inputs(tmp_path: Path):
 
 
 def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
 
@@ -171,6 +242,18 @@ def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
 
 
 def test_cli_inspect_sample_reads_by_sample_id(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
     silver_dir = tmp_path / "silver_samples"
 
@@ -199,6 +282,18 @@ def test_cli_inspect_sample_reads_by_sample_id(tmp_path: Path, capsys):
 
 
 def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        tmp_path (Path): 相关文件路径。
+        capsys (Any): 相关数据列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     bronze_dir = tmp_path / "bronze_events"
 
     assert main(["preprocess", "--input", str(FIXTURE_DIR), "--output", str(bronze_dir)]) == 0

@@ -6,7 +6,17 @@ import numpy as np
 
 
 def seed_everything(seed: int) -> None:
-    """Seed Python, NumPy, and torch when torch is available."""
+    """设置 Python、NumPy 与可用深度学习后端的随机种子。
+    
+    参数:
+        seed (int): 随机种子。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     random.seed(seed)
     np.random.seed(seed)
     try:

@@ -17,6 +17,18 @@ class TurnSampleBuilder:
     """Build turn decision samples from parsed replay events."""
 
     def build_samples(self, events: list[Event]) -> list[TurnSample]:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            events (list[Event]): 规范化事件列表。
+        
+        返回:
+            list[TurnSample]: 列表结果。
+        
+        异常:
+            无。
+        """
         state: GameState | None = None
         samples: list[TurnSample] = []
         pending_turn_labels: dict[int, str] = {}
@@ -143,6 +155,18 @@ class ResponseSampleBuilder:
     """
 
     def build_samples(self, events: list[Event]) -> list[TurnSample]:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            events (list[Event]): 规范化事件列表。
+        
+        返回:
+            list[TurnSample]: 列表结果。
+        
+        异常:
+            无。
+        """
         state: GameState | None = None
         samples: list[TurnSample] = []
 
@@ -272,6 +296,18 @@ class ResponseSampleBuilder:
 
 
 def _player_view_snapshot(state: GameState, actor: int) -> dict:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (GameState): 游戏状态或样本状态。
+        actor (int): 玩家座位索引。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     own_draws = len(state.discards[actor]) + (1 if state.hands[actor].total_tiles() % 3 == 2 else 0)
     return {
         "actor": actor,
@@ -305,6 +341,20 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
 
 
 def _response_view_snapshot(state: GameState, actor: int, source: int, tile: str) -> dict:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        state (GameState): 游戏状态或样本状态。
+        actor (int): 玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     snapshot = _player_view_snapshot(state, actor)
     snapshot["response_target"] = {"source": source, "tile": tile}
     return snapshot
@@ -316,6 +366,20 @@ def _build_turn_sample(
     actor: int,
     label_action: dict,
 ) -> TurnSample:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        state (GameState): 游戏状态或样本状态。
+        event (Event): 单个规范化事件。
+        actor (int): 玩家座位索引。
+        label_action (dict): 标签动作字典。
+    
+    返回:
+        TurnSample: 函数执行结果。
+    
+    异常:
+        无。
+    """
     legal_actions = [
         asdict(action)
         for action in legal_turn_actions(
@@ -338,6 +402,18 @@ def _build_turn_sample(
 
 
 def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        events (list[Event]): 规范化事件列表。
+        discard_index (int): 相关索引值。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     discard_event = events[discard_index]
 
     for future in events[discard_index + 1 :]:
@@ -374,6 +450,18 @@ def _resolve_discard_window(events: list[Event], discard_index: int) -> dict:
 
 
 def _resolve_kakan_window(events: list[Event], meld_index: int) -> dict:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        events (list[Event]): 规范化事件列表。
+        meld_index (int): 相关索引值。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     meld_event = events[meld_index]
 
     for future in events[meld_index + 1 :]:
@@ -396,6 +484,19 @@ def _resolve_kakan_window(events: list[Event], meld_index: int) -> dict:
 
 
 def _response_label_for_actor(responder: int, discard_event: Event, resolution: dict) -> dict:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        responder (int): 响应玩家座位索引。
+        discard_event (Event): 函数执行所需的输入参数。
+        resolution (dict): 函数执行所需的输入参数。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     if resolution["kind"] == "ron" and resolution["actor"] == responder:
         return asdict(Action(kind="ron", tile=discard_event.payload["tile"], source=discard_event.actor))
     if resolution["kind"] == "meld" and resolution["actor"] == responder:
@@ -404,6 +505,20 @@ def _response_label_for_actor(responder: int, discard_event: Event, resolution: 
 
 
 def _kakan_response_label_for_actor(responder: int, actor: int, tile: str, resolution: dict) -> dict:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        responder (int): 响应玩家座位索引。
+        actor (int): 玩家座位索引。
+        tile (str): 精确牌字符串。
+        resolution (dict): 函数执行所需的输入参数。
+    
+    返回:
+        dict: 字典结果。
+    
+    异常:
+        无。
+    """
     if resolution["kind"] == "chankan" and resolution["actor"] == responder:
         return asdict(Action(kind="chankan", tile=tile, source=actor))
     return asdict(Action(kind="pass"))
@@ -417,6 +532,22 @@ def _mark_missed_ron_if_needed(
     label_action: dict,
     legal_actions: list[Action],
 ) -> None:
+    """根据业务规则标记相关状态。
+    
+    参数:
+        state (GameState): 游戏状态或样本状态。
+        responder (int): 响应玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+        label_action (dict): 标签动作字典。
+        legal_actions (list[Action]): 合法动作列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     if label_action["kind"] != "pass":
         return
 
@@ -435,6 +566,22 @@ def _mark_missed_chankan_if_needed(
     label_action: dict,
     legal_actions: list[Action],
 ) -> None:
+    """根据业务规则标记相关状态。
+    
+    参数:
+        state (GameState): 游戏状态或样本状态。
+        responder (int): 响应玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+        label_action (dict): 标签动作字典。
+        legal_actions (list[Action]): 合法动作列表。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     if label_action["kind"] != "pass":
         return
 

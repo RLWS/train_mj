@@ -8,6 +8,18 @@ import torch
 
 
 def top1_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
+    """计算前一准确率。
+    
+    参数:
+        logits (torch.Tensor): 候选动作分数张量。
+        labels (torch.Tensor): 标签索引张量。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     predictions = logits.argmax(dim=1)
     return float((predictions == labels).float().mean().item())
 
@@ -58,6 +70,17 @@ class ResponseMetricsAccumulator:
     """Collect response-specific metrics that are hidden by pass-only accuracy."""
 
     def __init__(self) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self._single_candidate = _TopKAccumulator()
         self._multi_candidate = _TopKAccumulator()
         self._candidate_sets: dict[str, _TopKAccumulator] = {}
@@ -80,6 +103,22 @@ class ResponseMetricsAccumulator:
         candidate_count: int,
         label_rank: int,
     ) -> None:
+        """更新统计或状态累积结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            label_kind (str): 标签动作类型。
+            predicted_kind (str): 函数执行所需的输入参数。
+            candidate_kinds (Iterable[str]): 相关数据列表。
+            candidate_count (int): 相关数量。
+            label_rank (int): 函数执行所需的输入参数。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         if candidate_count <= 1:
             self._single_candidate.update(label_kind=label_kind, label_rank=label_rank)
         else:
@@ -114,6 +153,17 @@ class ResponseMetricsAccumulator:
         self._confusion[f"{label_kind}->{predicted_kind}"] += 1
 
     def summary(self) -> ResponseDiagnostics:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            ResponseDiagnostics: 函数执行结果。
+        
+        异常:
+            无。
+        """
         pass_precision = _safe_divide(self._pass_tp, self._predicted_pass)
         pass_recall = _safe_divide(self._pass_tp, self._actual_pass)
         non_pass_precision = _safe_divide(self._non_pass_tp, self._predicted_non_pass)
@@ -148,12 +198,36 @@ class ResponseMetricsAccumulator:
 
 class _TopKAccumulator:
     def __init__(self) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.samples = 0
         self.topk_hits = {1: 0, 3: 0, 5: 0}
         self.kind_totals: dict[str, int] = {}
         self.kind_topk_hits: dict[str, dict[int, int]] = {}
 
     def update(self, *, label_kind: str, label_rank: int) -> None:
+        """更新统计或状态累积结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            label_kind (str): 标签动作类型。
+            label_rank (int): 函数执行所需的输入参数。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.samples += 1
         self.kind_totals[label_kind] = self.kind_totals.get(label_kind, 0) + 1
         self.kind_topk_hits.setdefault(label_kind, {1: 0, 3: 0, 5: 0})
@@ -163,6 +237,17 @@ class _TopKAccumulator:
             self.kind_topk_hits[label_kind][top_k] += hit
 
     def summary(self) -> ResponseTopKSummary:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            ResponseTopKSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         return ResponseTopKSummary(
             samples=self.samples,
             top1_accuracy=_safe_divide(self.topk_hits[1], self.samples),
@@ -174,6 +259,18 @@ class _TopKAccumulator:
         )
 
     def _macro_topk_accuracy(self, top_k: int) -> float:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+            top_k (int): 前若干候选数量。
+        
+        返回:
+            float: 浮点数结果。
+        
+        异常:
+            无。
+        """
         if not self.kind_totals:
             return 0.0
         return sum(
@@ -183,6 +280,17 @@ class _TopKAccumulator:
 
 
 def response_candidate_set_name(candidate_kinds: Iterable[str]) -> str:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        candidate_kinds (Iterable[str]): 相关数据列表。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     unique_kinds = sorted(
         {str(kind) for kind in candidate_kinds},
         key=lambda kind: RESPONSE_KIND_RANK.get(kind, len(RESPONSE_KIND_ORDER)),
@@ -193,6 +301,17 @@ def response_candidate_set_name(candidate_kinds: Iterable[str]) -> str:
 
 
 def response_selection_score(diagnostics: ResponseDiagnostics | None) -> float | None:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        diagnostics (ResponseDiagnostics | None): 相关数据列表。
+    
+    返回:
+        float | None: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if diagnostics is None:
         return None
     binary = diagnostics.binary
@@ -201,12 +320,36 @@ def response_selection_score(diagnostics: ResponseDiagnostics | None) -> float |
 
 
 def _safe_divide(numerator: int | float, denominator: int | float) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        numerator (int | float): 函数执行所需的输入参数。
+        denominator (int | float): 函数执行所需的输入参数。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     if denominator == 0:
         return 0.0
     return float(numerator) / float(denominator)
 
 
 def _f1(precision: float, recall: float) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        precision (float): 函数执行所需的输入参数。
+        recall (float): 函数执行所需的输入参数。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     if precision + recall == 0.0:
         return 0.0
     return 2.0 * precision * recall / (precision + recall)

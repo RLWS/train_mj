@@ -7,7 +7,17 @@ import yaml
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
-    """Load a YAML file and return an empty dict for empty documents."""
+    """加载 YAML 文件并返回配置字典。
+    
+    参数:
+        path (str | Path): 文件或目录路径。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        TypeError: 当输入类型不符合要求时抛出。
+    """
     with Path(path).open("r", encoding="utf-8") as file:
         data = yaml.safe_load(file)
     if data is None:
@@ -18,7 +28,17 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
 
 
 def load_resolved_yaml(path: str | Path) -> dict[str, Any]:
-    """Load one config file and resolve optional defaults into nested sections."""
+    """加载配置文件并解析默认配置与占位符。
+    
+    参数:
+        path (str | Path): 文件或目录路径。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        TypeError: 当输入类型不符合要求时抛出。
+    """
     config_path = Path(path)
     root = load_yaml(config_path)
     defaults = root.pop("defaults", [])
@@ -36,11 +56,35 @@ def load_resolved_yaml(path: str | Path) -> dict[str, Any]:
 
 
 def dump_yaml(path: str | Path, data: dict[str, Any]) -> None:
+    """将配置字典写入 YAML 文件。
+    
+    参数:
+        path (str | Path): 文件或目录路径。
+        data (dict[str, Any]): 函数执行所需的输入参数。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     with Path(path).open("w", encoding="utf-8") as file:
         yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
 
 
 def _merge_dicts(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        base (dict[str, Any]): 函数执行所需的输入参数。
+        update (dict[str, Any]): 函数执行所需的输入参数。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        无。
+    """
     merged = dict(base)
     for key, value in update.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -51,6 +95,17 @@ def _merge_dicts(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]
 
 
 def _interpolate_top_level_strings(config: dict[str, Any]) -> dict[str, Any]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        config (dict[str, Any]): 配置字典。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        无。
+    """
     interpolated: dict[str, Any] = {}
     replacements = {
         key: str(value)
@@ -69,6 +124,18 @@ def _interpolate_top_level_strings(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _interpolate_nested_dict(data: dict[str, Any], replacements: dict[str, str]) -> dict[str, Any]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        data (dict[str, Any]): 函数执行所需的输入参数。
+        replacements (dict[str, str]): 相关数据列表。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        无。
+    """
     resolved: dict[str, Any] = {}
     for key, value in data.items():
         if isinstance(value, str):
@@ -81,6 +148,18 @@ def _interpolate_nested_dict(data: dict[str, Any], replacements: dict[str, str])
 
 
 def _replace_placeholders(value: str, replacements: dict[str, str]) -> str:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        value (str): 输入值。
+        replacements (dict[str, str]): 相关数据列表。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     resolved = value
     for key, replacement in replacements.items():
         resolved = resolved.replace(f"${{{key}}}", replacement)

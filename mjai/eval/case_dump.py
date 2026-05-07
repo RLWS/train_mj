@@ -29,6 +29,22 @@ def dump_decision_case(
     step_index: int,
     context_radius: int = 5,
 ) -> DumpedCase:
+    """导出指定决策点及其同局上下文。
+    
+    参数:
+        bronze_dir (str | Path): 青铜层事件目录路径。
+        game_id (str): 函数执行所需的输入参数。
+        kyoku_index (int): 相关索引值。
+        step_index (int): 相关索引值。
+        context_radius (int): 相关数据列表。
+    
+    返回:
+        DumpedCase: 函数执行结果。
+    
+    异常:
+        FileNotFoundError: 当所需文件或目录不存在时抛出。
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     bronze_root = Path(bronze_dir)
     shard_path = bronze_root / f"{game_id}.parquet"
     if not shard_path.exists():
@@ -71,6 +87,21 @@ def dump_case_to_json(
     step_index: int,
     context_radius: int = 5,
 ) -> str:
+    """导出指定决策案例并编码为 JSON 字符串。
+    
+    参数:
+        bronze_dir (str | Path): 青铜层事件目录路径。
+        game_id (str): 函数执行所需的输入参数。
+        kyoku_index (int): 相关索引值。
+        step_index (int): 相关索引值。
+        context_radius (int): 相关数据列表。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     dumped_case = dump_decision_case(
         bronze_dir=bronze_dir,
         game_id=game_id,
@@ -82,6 +113,17 @@ def dump_case_to_json(
 
 
 def _serialize_event(event: Event) -> dict[str, Any]:
+    """序列化输入对象。
+    
+    参数:
+        event (Event): 单个规范化事件。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        无。
+    """
     return {
         "game_id": event.game_id,
         "kyoku_index": event.kyoku_index,

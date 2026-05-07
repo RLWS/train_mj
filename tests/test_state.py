@@ -7,6 +7,17 @@ from mjai.rules.tiles import tile_to_base_index
 
 
 def test_hand_state_counts_red_and_normal_five_separately():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["0m", "5m", "5m", "1z"])
 
     assert hand.total_tiles() == 4
@@ -16,6 +27,17 @@ def test_hand_state_counts_red_and_normal_five_separately():
 
 
 def test_remove_tile_updates_red_bookkeeping():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["0p", "5p", "2m"])
     hand.remove_tile("0p")
 
@@ -25,6 +47,17 @@ def test_remove_tile_updates_red_bookkeeping():
 
 
 def test_remove_missing_tile_raises():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["1m"])
 
     with pytest.raises(ValueError):
@@ -32,6 +65,17 @@ def test_remove_missing_tile_raises():
 
 
 def test_riichi_pending_becomes_declared_on_step_two():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState()
 
     state.apply_reach(actor=0, step=1)
@@ -44,6 +88,17 @@ def test_riichi_pending_becomes_declared_on_step_two():
 
 
 def test_can_declare_riichi_is_blocked_while_pending():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState()
 
     assert state.can_declare_riichi(0) is True
@@ -52,6 +107,17 @@ def test_can_declare_riichi_is_blocked_while_pending():
 
 
 def test_discard_records_furiten_base_tile():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     hand = HandState.from_tiles(["5z"])
     state = GameState(hands=[hand, HandState(), HandState(), HandState()])
 
@@ -61,6 +127,17 @@ def test_discard_records_furiten_base_tile():
 
 
 def test_draw_clears_temporary_furiten_only():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState()
     state.temporary_furiten[0] = True
     state.riichi_furiten[0] = True
@@ -72,6 +149,17 @@ def test_draw_clears_temporary_furiten_only():
 
 
 def test_open_meld_clears_temporary_furiten_only():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState(
         hands=[
             HandState.from_tiles(["5m", "5m"]),
@@ -97,6 +185,17 @@ def test_open_meld_clears_temporary_furiten_only():
 
 
 def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState()
     state.riichi_declared[0] = True
 
@@ -107,6 +206,17 @@ def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
 
 
 def test_game_state_tracks_round_context_and_dora():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState.from_init_payload(
         0,
         {
@@ -128,6 +238,17 @@ def test_game_state_tracks_round_context_and_dora():
 
 
 def test_kakan_upgrades_existing_pon_and_consumes_added_tile():
+    """验证目标测试场景的行为符合预期。
+    
+    参数:
+        无。
+    
+    返回:
+        None: 无返回值。
+    
+    异常:
+        无。
+    """
     state = GameState(
         hands=[HandState.from_tiles(["5m"]), HandState(), HandState(), HandState()],
         melds=[

@@ -111,6 +111,21 @@ def evaluate_checkpoint(
     config_override: dict[str, Any] | None = None,
     report_path: str | Path | None = None,
 ) -> EvalSummary:
+    """加载检查点并执行离线评估。
+    
+    参数:
+        ckpt_path (str | Path): 模型检查点路径。
+        split (str): 数据划分名称。
+        config_override (dict[str, Any] | None): 配置覆盖字典。
+        report_path (str | Path | None): 报告输出路径。
+    
+    返回:
+        EvalSummary: 函数执行结果。
+    
+    异常:
+        TypeError: 当输入类型不符合要求时抛出。
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     checkpoint_path = Path(ckpt_path)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     base_config = checkpoint.get("config")
@@ -327,6 +342,18 @@ def evaluate_checkpoint(
 
 
 def _resolve_manifest_path(config: dict[str, Any], split: str) -> Path:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        config (dict[str, Any]): 配置字典。
+        split (str): 数据划分名称。
+    
+    返回:
+        Path: 函数执行结果。
+    
+    异常:
+        FileNotFoundError: 当所需文件或目录不存在时抛出。
+    """
     data_config = config.get("data", {})
     if split == "train":
         manifest = data_config.get("train_manifest")
@@ -353,12 +380,37 @@ def _resolve_report_path(
     split: str,
     report_path: str | Path | None,
 ) -> Path:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        checkpoint_path (Path): 模型检查点路径。
+        split (str): 数据划分名称。
+        report_path (str | Path | None): 报告输出路径。
+    
+    返回:
+        Path: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if report_path is not None:
         return Path(report_path)
     return checkpoint_path.parent / f"eval_{split}.json"
 
 
 def _resolve_dataset_dir(manifest_path: Path, task_name: str) -> Path:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        manifest_path (Path): 清单文件路径。
+        task_name (str): 任务名称。
+    
+    返回:
+        Path: 函数执行结果。
+    
+    异常:
+        无。
+    """
     first_record = _read_first_manifest_record(manifest_path)
     sample_path_key = "turn_path" if task_name == "turn" else "response_path"
     sample_path = Path(str(first_record[sample_path_key]))
@@ -366,11 +418,33 @@ def _resolve_dataset_dir(manifest_path: Path, task_name: str) -> Path:
 
 
 def _resolve_bronze_dir(config: dict[str, Any]) -> Path:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        config (dict[str, Any]): 配置字典。
+    
+    返回:
+        Path: 函数执行结果。
+    
+    异常:
+        无。
+    """
     bronze_dir = config.get("data", {}).get("input_root", "data/bronze_events")
     return Path(str(bronze_dir))
 
 
 def _read_first_manifest_record(manifest_path: Path) -> dict[str, Any]:
+    """读取与函数名对应的数据。
+    
+    参数:
+        manifest_path (Path): 清单文件路径。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        ValueError: 当输入数据不满足函数约束时抛出。
+    """
     with manifest_path.open("r", encoding="utf-8") as manifest_file:
         for line in manifest_file:
             if line.strip():
@@ -379,12 +453,35 @@ def _read_first_manifest_record(manifest_path: Path) -> dict[str, Any]:
 
 
 def _compute_label_ranks(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        logits (torch.Tensor): 候选动作分数张量。
+        labels (torch.Tensor): 标签索引张量。
+    
+    返回:
+        torch.Tensor: 张量结果。
+    
+    异常:
+        无。
+    """
     label_scores = logits.gather(1, labels.unsqueeze(1)).squeeze(1)
     higher_scores = (logits > label_scores.unsqueeze(1)).sum(dim=1)
     return higher_scores + 1
 
 
 def _resolve_device(config_device: str | None) -> torch.device:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        config_device (str | None): 函数执行所需的输入参数。
+    
+    返回:
+        torch.device: 函数执行结果。
+    
+    异常:
+        无。
+    """
     normalized = normalize_device_name(config_device)
     if normalized in {"auto", "cuda"} and torch.cuda.is_available():
         return torch.device("cuda")
@@ -392,6 +489,17 @@ def _resolve_device(config_device: str | None) -> torch.device:
 
 
 def _candidate_bucket_name(candidate_count: int) -> str:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        candidate_count (int): 相关数量。
+    
+    返回:
+        str: 字符串结果。
+    
+    异常:
+        无。
+    """
     if candidate_count <= 4:
         return "1-4"
     if candidate_count <= 8:
@@ -406,6 +514,19 @@ def _build_top_predictions(
     legal_actions: list[dict[str, Any]],
     top_k: int = 5,
 ) -> list[dict[str, Any]]:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        logits (torch.Tensor): 候选动作分数张量。
+        legal_actions (list[dict[str, Any]]): 合法动作列表。
+        top_k (int): 前若干候选数量。
+    
+    返回:
+        list[dict[str, Any]]: 列表结果。
+    
+    异常:
+        无。
+    """
     k = min(top_k, len(legal_actions))
     scores, indices = torch.topk(logits, k=k)
     predictions: list[dict[str, Any]] = []
@@ -423,6 +544,18 @@ def _build_top_predictions(
 def _build_dataset(task_name: str, manifest_path: Path):
     # 大数据评估默认流式读取 parquet shard，不再把整个 valid/test split 载入内存。
     # 错例报告仍需要动作 JSON，因此只额外读取 legal_actions/label_action，不读取 state_json。
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        task_name (str): 任务名称。
+        manifest_path (Path): 清单文件路径。
+    
+    返回:
+        Any: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if task_name == "turn":
         return StreamingManifestTurnDataset(
             manifest_path,
@@ -444,18 +577,53 @@ def _build_dataset(task_name: str, manifest_path: Path):
 
 
 def _build_collate_fn(task_name: str, candidate_limit: int):
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        task_name (str): 任务名称。
+        candidate_limit (int): 批次允许的最大候选数量。
+    
+    返回:
+        Any: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if task_name == "turn":
         return TurnBatchCollator(candidate_limit=candidate_limit)
     return ResponseBatchCollator(candidate_limit=candidate_limit)
 
 
 def _resolve_eval_num_workers(config: dict[str, Any]) -> int:
+    """解析输入配置或路径并返回规范化结果。
+    
+    参数:
+        config (dict[str, Any]): 配置字典。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     eval_config = config.get("eval", {})
     train_config = config.get("train", {})
     return int(eval_config.get("num_workers", train_config.get("valid_num_workers", 0)))
 
 
 def _worker_loader_kwargs(config: dict[str, Any], num_workers: int) -> dict[str, Any]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        config (dict[str, Any]): 配置字典。
+        num_workers (int): 相关数据列表。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        无。
+    """
     if num_workers <= 0:
         return {}
     eval_config = config.get("eval", {})
@@ -474,6 +642,19 @@ def _build_eval_kind_summaries(
     hits: dict[str, dict[int, int]],
     loss_totals: dict[str, float],
 ) -> dict[str, EvalKindSummary]:
+    """构建与函数名对应的数据结构或处理结果。
+    
+    参数:
+        totals (dict[str, int]): 相关数据列表。
+        hits (dict[str, dict[int, int]]): 相关数据列表。
+        loss_totals (dict[str, float]): 相关数据列表。
+    
+    返回:
+        dict[str, EvalKindSummary]: 字典结果。
+    
+    异常:
+        无。
+    """
     return {
         kind: EvalKindSummary(
             samples=count,
@@ -487,6 +668,18 @@ def _build_eval_kind_summaries(
 
 
 def _macro_topk_accuracy(per_kind: dict[str, EvalKindSummary], top_k: int) -> float:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        per_kind (dict[str, EvalKindSummary]): 函数执行所需的输入参数。
+        top_k (int): 前若干候选数量。
+    
+    返回:
+        float: 浮点数结果。
+    
+    异常:
+        无。
+    """
     if not per_kind:
         return 0.0
     metric_name = f"top{top_k}_accuracy"
@@ -494,6 +687,18 @@ def _macro_topk_accuracy(per_kind: dict[str, EvalKindSummary], top_k: int) -> fl
 
 
 def _merge_dicts(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        base (dict[str, Any]): 函数执行所需的输入参数。
+        update (dict[str, Any]): 函数执行所需的输入参数。
+    
+    返回:
+        dict[str, Any]: 字典结果。
+    
+    异常:
+        无。
+    """
     merged = dict(base)
     for key, value in update.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):

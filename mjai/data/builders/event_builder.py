@@ -22,9 +22,33 @@ class EventBuilder:
     """Build persisted bronze event shards from Tenhou XML files."""
 
     def __init__(self) -> None:
+        """执行与函数名对应的业务逻辑。
+        
+        参数:
+            self (Self): 当前对象实例。
+        
+        返回:
+            None: 无返回值。
+        
+        异常:
+            无。
+        """
         self.parser = TenhouParser()
 
     def build_from_xml_dir(self, input_dir: str | Path, output_dir: str | Path) -> PreprocessSummary:
+        """构建与函数名对应的数据结构或处理结果。
+        
+        参数:
+            self (Self): 当前对象实例。
+            input_dir (str | Path): 输入目录路径。
+            output_dir (str | Path): 输出目录路径。
+        
+        返回:
+            PreprocessSummary: 函数执行结果。
+        
+        异常:
+            无。
+        """
         input_root = Path(input_dir)
         output_root = ensure_dir(output_dir)
 

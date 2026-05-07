@@ -15,6 +15,18 @@ class TenhouParser:
     """Streaming parser for Tenhou XML logs."""
 
     def parse_file(self, path: str | Path) -> list[Event]:
+        """解析单个天凤 XML 日志文件并生成规范化事件。
+        
+        参数:
+            self (Self): 当前对象实例。
+            path (str | Path): 文件或目录路径。
+        
+        返回:
+            list[Event]: 列表结果。
+        
+        异常:
+            无。
+        """
         file_path = Path(path)
         game_id = file_path.stem
         kyoku_index = -1
@@ -207,12 +219,34 @@ class TenhouParser:
 
 
 def _parse_tiles_attr(value: str | None) -> list[str]:
+    """解析输入数据并返回结构化结果。
+    
+    参数:
+        value (str | None): 输入值。
+    
+    返回:
+        list[str]: 列表结果。
+    
+    异常:
+        无。
+    """
     if not value:
         return []
     return [tile136_to_string(int(tile_id)) for tile_id in value.split(",") if tile_id]
 
 
 def _parse_seed_dora_indicator(value: str | None) -> int:
+    """解析输入数据并返回结构化结果。
+    
+    参数:
+        value (str | None): 输入值。
+    
+    返回:
+        int: 整数结果。
+    
+    异常:
+        无。
+    """
     if not value:
         return 0
     parts = [part for part in value.split(",") if part]
@@ -222,6 +256,18 @@ def _parse_seed_dora_indicator(value: str | None) -> int:
 
 
 def _parse_actor(tag: str, elem) -> int | None:
+    """解析输入数据并返回结构化结果。
+    
+    参数:
+        tag (str): 函数执行所需的输入参数。
+        elem (Any): 函数执行所需的输入参数。
+    
+    返回:
+        int | None: 函数执行结果。
+    
+    异常:
+        无。
+    """
     if tag in {"AGARI", "RYUUKYOKU"}:
         who = elem.get("who")
         if who is not None:

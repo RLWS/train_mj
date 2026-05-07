@@ -21,7 +21,17 @@ class Action:
 
 
 def legal_discards(hand: HandState) -> list[Action]:
-    """Return exact discard actions that are currently legal."""
+    """生成当前手牌可执行的精确弃牌动作。
+    
+    参数:
+        hand (HandState): 手牌状态。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     actions: list[Action] = []
 
     for index, count in enumerate(hand.counts):
@@ -50,9 +60,18 @@ def legal_discards(hand: HandState) -> list[Action]:
 
 
 def legal_turn_actions(hand: HandState, state: GameState | None = None, actor: int | None = None) -> list[Action]:
-    """Return current-turn actions.
-
-    This pass includes discard, optional riichi-discard, tsumo, ankan, kakan, and kyuushu_kyuuhai.
+    """生成自摸巡可执行的合法动作集合。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        state (GameState | None): 游戏状态或样本状态。
+        actor (int | None): 玩家座位索引。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
     """
     actions = legal_discards(hand)
     if state is not None and actor is not None and state.can_declare_riichi(actor):
@@ -80,7 +99,22 @@ def legal_responses(
     state: GameState | None = None,
     allow_chankan: bool = False,
 ) -> list[Action]:
-    """Return legal response actions after another player discards one tile."""
+    """生成他家弃牌或加杠后的合法响应动作集合。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        actor (int): 玩家座位索引。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+        state (GameState | None): 游戏状态或样本状态。
+        allow_chankan (bool): 函数执行所需的输入参数。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     actions: list[Action] = [Action(kind="pass")]
     target_base = tile_to_base_index(tile)
 
@@ -104,6 +138,20 @@ def legal_responses(
 
 
 def _legal_chi_actions(hand: HandState, source: int, tile: str, target_base: int) -> list[Action]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+        target_base (int): 目标牌基础索引。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     if target_base >= 27:
         return []
 
@@ -143,6 +191,20 @@ def _legal_chi_actions(hand: HandState, source: int, tile: str, target_base: int
 
 
 def _legal_pon_actions(hand: HandState, source: int, tile: str, target_base: int) -> list[Action]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+        target_base (int): 目标牌基础索引。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     exact_tiles = hand.exact_tiles_for_base(target_base)
     if len(exact_tiles) < 2:
         return []
@@ -160,6 +222,20 @@ def _legal_pon_actions(hand: HandState, source: int, tile: str, target_base: int
 
 
 def _legal_daiminkan_actions(hand: HandState, source: int, tile: str, target_base: int) -> list[Action]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        source (int): 动作来源玩家座位索引。
+        tile (str): 精确牌字符串。
+        target_base (int): 目标牌基础索引。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     exact_tiles = hand.exact_tiles_for_base(target_base)
     if len(exact_tiles) < 3:
         return []
@@ -177,6 +253,18 @@ def _legal_daiminkan_actions(hand: HandState, source: int, tile: str, target_bas
 
 
 def _legal_ankan_actions(hand: HandState, actor: int) -> list[Action]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        actor (int): 玩家座位索引。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     actions: list[Action] = []
     for base_index in range(34):
         exact_tiles = hand.exact_tiles_for_base(base_index)
@@ -194,6 +282,19 @@ def _legal_ankan_actions(hand: HandState, actor: int) -> list[Action]:
 
 
 def _legal_kakan_actions(hand: HandState, state: GameState, actor: int) -> list[Action]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        state (GameState): 游戏状态或样本状态。
+        actor (int): 玩家座位索引。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     actions: list[Action] = []
     for meld in state.melds[actor]:
         if meld.kind != "pon":
@@ -212,6 +313,19 @@ def _legal_kakan_actions(hand: HandState, state: GameState, actor: int) -> list[
 
 
 def _can_declare_kyuushu_kyuuhai(hand: HandState, state: GameState, actor: int) -> bool:
+    """判断与函数名对应的操作是否可执行。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        state (GameState): 游戏状态或样本状态。
+        actor (int): 玩家座位索引。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if hand.total_tiles() != 14:
         return False
 
@@ -226,6 +340,20 @@ def _can_declare_kyuushu_kyuuhai(hand: HandState, state: GameState, actor: int) 
 
 
 def _is_ron_blocked_by_furiten(hand: HandState, actor: int, tile: str, state: GameState | None) -> bool:
+    """判断与函数名对应的条件是否成立。
+    
+    参数:
+        hand (HandState): 手牌状态。
+        actor (int): 玩家座位索引。
+        tile (str): 精确牌字符串。
+        state (GameState | None): 游戏状态或样本状态。
+    
+    返回:
+        bool: 判断结果。
+    
+    异常:
+        无。
+    """
     if state is None:
         return False
 
@@ -241,16 +369,49 @@ def _is_ron_blocked_by_furiten(hand: HandState, actor: int, tile: str, state: Ga
 
 
 def canonicalize_consumed(consumed: tuple[str, ...] | tuple[str, str] | tuple[str, str, str]) -> tuple[str, ...]:
+    """按稳定顺序规范化副露消耗牌列表。
+    
+    参数:
+        consumed (tuple[str, ...] | tuple[str, str] | tuple[str, str, str]): 副露消耗牌元组。
+    
+    返回:
+        tuple[str, ...]: 元组结果。
+    
+    异常:
+        无。
+    """
     return tuple(sorted(consumed, key=_tile_sort_key))
 
 
 def _tile_sort_key(tile: str) -> tuple[int, int, str]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        tile (str): 精确牌字符串。
+    
+    返回:
+        tuple[int, int, str]: 元组结果。
+    
+    异常:
+        无。
+    """
     base = tile_to_base_index(tile)
     exact_priority = 0 if tile[0] == "0" else 1
     return (base, exact_priority, tile)
 
 
 def _deduplicate_actions(actions: list[Action]) -> list[Action]:
+    """执行与函数名对应的业务逻辑。
+    
+    参数:
+        actions (list[Action]): 动作列表。
+    
+    返回:
+        list[Action]: 列表结果。
+    
+    异常:
+        无。
+    """
     unique: dict[tuple[str, str | None, tuple[str, ...], int | None], Action] = {}
     for action in actions:
         key = (action.kind, action.tile, action.consumed_tiles, action.source)
