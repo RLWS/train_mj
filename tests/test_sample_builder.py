@@ -10,7 +10,7 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_build_turn_samples_from_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具可构建自摸巡样本。
     
     参数:
         无。
@@ -34,7 +34,7 @@ def test_build_turn_samples_from_real_fixtures():
 
 
 def test_turn_sample_label_is_in_legal_actions():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡样本标签始终存在于合法动作集合中。
     
     参数:
         无。
@@ -56,7 +56,7 @@ def test_turn_sample_label_is_in_legal_actions():
 
 
 def test_turn_samples_include_riichi_discard_labels_on_real_fixture():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具构建的自摸巡样本包含立直弃牌标签。
     
     参数:
         无。
@@ -79,7 +79,7 @@ def test_turn_samples_include_riichi_discard_labels_on_real_fixture():
 
 
 def test_riichi_discard_labels_are_present_in_legal_actions_on_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具中立直弃牌标签会出现在合法动作集合中。
     
     参数:
         无。
@@ -101,7 +101,7 @@ def test_riichi_discard_labels_are_present_in_legal_actions_on_real_fixtures():
 
 
 def test_turn_samples_include_tsumo_and_ankan_labels_on_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具构建的自摸巡样本包含自摸和暗杠标签。
     
     参数:
         无。
@@ -130,7 +130,7 @@ def test_turn_samples_include_tsumo_and_ankan_labels_on_real_fixtures():
 
 
 def test_turn_samples_keep_special_turn_labels_in_legal_actions():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡样本的特殊自摸巡标签保持在合法动作集合中。
     
     参数:
         无。
@@ -166,7 +166,7 @@ def test_turn_samples_keep_special_turn_labels_in_legal_actions():
 
 
 def test_turn_samples_include_kyuushu_kyuuhai_on_real_fixture():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具构建的自摸巡样本包含九种九牌。
     
     参数:
         无。

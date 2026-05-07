@@ -16,10 +16,10 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证基于生成数据集的自摸巡训练冒烟流程。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
@@ -103,11 +103,11 @@ def test_train_turn_smoke_from_generated_dataset(tmp_path: Path):
 
 
 def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证基于生成数据集的训练过程会打印批次进度。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -190,10 +190,10 @@ def test_train_prints_batch_progress_from_generated_dataset(tmp_path: Path, caps
 
 
 def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证基于生成数据集的响应训练冒烟流程。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
@@ -284,10 +284,10 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
 
 
 def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证基于生成检查点的自摸巡评估冒烟流程。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
@@ -388,11 +388,11 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
 
 
 def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证基于生成检查点的响应评估与校准冒烟流程。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。

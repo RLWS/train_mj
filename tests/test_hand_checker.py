@@ -6,7 +6,7 @@ from mjai.rules.tiles import tile_to_base_index
 
 
 def test_is_agari_for_standard_hand_with_incoming_tile():
-    """验证目标测试场景的行为符合预期。
+    """验证标准手型在加入进张牌后能被判定为和牌。
     
     参数:
         无。
@@ -25,7 +25,7 @@ def test_is_agari_for_standard_hand_with_incoming_tile():
 
 
 def test_is_agari_for_chiitoitsu():
-    """验证目标测试场景的行为符合预期。
+    """验证七对子手型能被判定为和牌。
     
     参数:
         无。
@@ -44,7 +44,7 @@ def test_is_agari_for_chiitoitsu():
 
 
 def test_is_not_agari_for_incomplete_hand():
-    """验证目标测试场景的行为符合预期。
+    """验证未完成手牌不会被判定为和牌。
     
     参数:
         无。
@@ -63,7 +63,7 @@ def test_is_not_agari_for_incomplete_hand():
 
 
 def test_shanten_number_returns_minus_one_for_complete_hand():
-    """验证目标测试场景的行为符合预期。
+    """验证完成手牌的向听数返回 -1。
     
     参数:
         无。
@@ -82,7 +82,7 @@ def test_shanten_number_returns_minus_one_for_complete_hand():
 
 
 def test_effective_tile_base_indices_include_tenpai_waits():
-    """验证目标测试场景的行为符合预期。
+    """验证有效牌基础索引包含听牌等待牌。
     
     参数:
         无。

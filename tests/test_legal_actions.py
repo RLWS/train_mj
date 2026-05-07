@@ -5,7 +5,7 @@ from mjai.rules.state import GameState, HandState, MeldState
 
 
 def test_legal_discards_include_red_and_normal_five_when_both_exist():
-    """验证目标测试场景的行为符合预期。
+    """验证合法弃牌在赤五和普通五同时存在时同时包含两者。
     
     参数:
         无。
@@ -28,7 +28,7 @@ def test_legal_discards_include_red_and_normal_five_when_both_exist():
 
 
 def test_legal_discards_do_not_include_missing_tiles():
-    """验证目标测试场景的行为符合预期。
+    """验证合法弃牌不包含手牌中缺失的牌。
     
     参数:
         无。
@@ -51,7 +51,7 @@ def test_legal_discards_do_not_include_missing_tiles():
 
 
 def test_legal_responses_include_pass_pon_and_daiminkan():
-    """验证目标测试场景的行为符合预期。
+    """验证合法响应包含跳过、碰牌和大明杠。
     
     参数:
         无。
@@ -74,7 +74,7 @@ def test_legal_responses_include_pass_pon_and_daiminkan():
 
 
 def test_legal_responses_include_chi_only_from_upper_player():
-    """验证目标测试场景的行为符合预期。
+    """验证合法响应只允许对上家弃牌生成吃牌。
     
     参数:
         无。
@@ -99,7 +99,7 @@ def test_legal_responses_include_chi_only_from_upper_player():
 
 
 def test_legal_responses_include_ron_when_hand_is_complete():
-    """验证目标测试场景的行为符合预期。
+    """验证手牌可和时合法响应包含荣和。
     
     参数:
         无。
@@ -121,7 +121,7 @@ def test_legal_responses_include_ron_when_hand_is_complete():
 
 
 def test_legal_responses_exclude_ron_when_actor_is_furiten():
-    """验证目标测试场景的行为符合预期。
+    """验证玩家处于振听时合法响应排除荣和。
     
     参数:
         无。
@@ -145,7 +145,7 @@ def test_legal_responses_exclude_ron_when_actor_is_furiten():
 
 
 def test_legal_responses_exclude_ron_when_actor_is_temporarily_furiten():
-    """验证目标测试场景的行为符合预期。
+    """验证玩家处于临时振听时合法响应排除荣和。
     
     参数:
         无。
@@ -169,7 +169,7 @@ def test_legal_responses_exclude_ron_when_actor_is_temporarily_furiten():
 
 
 def test_legal_responses_exclude_ron_when_actor_is_riichi_furiten():
-    """验证目标测试场景的行为符合预期。
+    """验证玩家处于立直振听时合法响应排除荣和。
     
     参数:
         无。
@@ -193,7 +193,7 @@ def test_legal_responses_exclude_ron_when_actor_is_riichi_furiten():
 
 
 def test_legal_responses_include_chankan_when_enabled():
-    """验证目标测试场景的行为符合预期。
+    """验证启用抢杠时合法响应包含抢杠。
     
     参数:
         无。
@@ -215,7 +215,7 @@ def test_legal_responses_include_chankan_when_enabled():
 
 
 def test_legal_responses_chankan_window_excludes_call_actions():
-    """验证目标测试场景的行为符合预期。
+    """验证抢杠窗口的合法响应排除吃碰杠鸣牌动作。
     
     参数:
         无。
@@ -238,7 +238,7 @@ def test_legal_responses_chankan_window_excludes_call_actions():
 
 
 def test_legal_turn_actions_include_tsumo_for_complete_hand():
-    """验证目标测试场景的行为符合预期。
+    """验证完成手牌的自摸巡合法动作包含自摸。
     
     参数:
         无。
@@ -260,7 +260,7 @@ def test_legal_turn_actions_include_tsumo_for_complete_hand():
 
 
 def test_legal_turn_actions_include_ankan_when_four_of_a_kind_exists():
-    """验证目标测试场景的行为符合预期。
+    """验证存在四张同牌时自摸巡合法动作包含暗杠。
     
     参数:
         无。
@@ -281,7 +281,7 @@ def test_legal_turn_actions_include_ankan_when_four_of_a_kind_exists():
 
 
 def test_legal_turn_actions_include_kakan_when_matching_pon_exists():
-    """验证目标测试场景的行为符合预期。
+    """验证已有匹配碰牌时自摸巡合法动作包含加杠。
     
     参数:
         无。
@@ -310,7 +310,7 @@ def test_legal_turn_actions_include_kakan_when_matching_pon_exists():
 
 
 def test_legal_turn_actions_include_kyuushu_kyuuhai_on_first_draw_with_nine_terminals():
-    """验证目标测试场景的行为符合预期。
+    """验证首次摸牌且九种幺九牌时自摸巡合法动作包含九种九牌。
     
     参数:
         无。
@@ -333,7 +333,7 @@ def test_legal_turn_actions_include_kyuushu_kyuuhai_on_first_draw_with_nine_term
 
 
 def test_legal_turn_actions_exclude_kyuushu_kyuuhai_after_actor_has_discarded():
-    """验证目标测试场景的行为符合预期。
+    """验证玩家已弃牌后自摸巡合法动作排除九种九牌。
     
     参数:
         无。

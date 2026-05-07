@@ -12,7 +12,7 @@ from mjai.rules.tiles import (
 
 
 def test_red_five_and_normal_five_share_base_index():
-    """验证目标测试场景的行为符合预期。
+    """验证赤五和普通五共用同一基础索引。
     
     参数:
         无。
@@ -29,7 +29,7 @@ def test_red_five_and_normal_five_share_base_index():
 
 
 def test_parse_tile_marks_red_five():
-    """验证目标测试场景的行为符合预期。
+    """验证牌解析会标记赤五。
     
     参数:
         无。
@@ -48,7 +48,7 @@ def test_parse_tile_marks_red_five():
 
 
 def test_normalize_tile_converts_red_five_to_base_tile():
-    """验证目标测试场景的行为符合预期。
+    """验证牌规范化会将赤五转为对应基础牌。
     
     参数:
         无。
@@ -65,7 +65,7 @@ def test_normalize_tile_converts_red_five_to_base_tile():
 
 
 def test_base_index_to_tile_round_trip_for_non_red_tiles():
-    """验证目标测试场景的行为符合预期。
+    """验证非赤牌的基础索引与牌字符串往返转换。
     
     参数:
         无。
@@ -83,10 +83,10 @@ def test_base_index_to_tile_round_trip_for_non_red_tiles():
 
 @pytest.mark.parametrize("tile", ["0z", "9z", "xm", "55m"])
 def test_invalid_tiles_raise(tile: str):
-    """验证目标测试场景的行为符合预期。
+    """验证非法牌字符串会抛出错误。
     
     参数:
-        tile (str): 精确牌字符串。
+        tile (str): 待校验的牌字符串。
     
     返回:
         None: 无返回值。

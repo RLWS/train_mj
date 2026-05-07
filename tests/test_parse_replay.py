@@ -9,13 +9,13 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def _fixture_paths() -> list[Path]:
-    """执行与函数名对应的业务逻辑。
+    """返回测试用天凤 XML 夹具文件路径列表。
     
     参数:
         无。
     
     返回:
-        list[Path]: 列表结果。
+        list[Path]: 夹具 XML 文件路径列表。
     
     异常:
         无。
@@ -24,7 +24,7 @@ def _fixture_paths() -> list[Path]:
 
 
 def test_parse_all_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证全部真实天凤夹具都可被解析。
     
     参数:
         无。
@@ -49,7 +49,7 @@ def test_parse_all_real_fixtures():
 
 
 def test_parse_real_fixture_payload_shapes():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具解析后的载荷结构。
     
     参数:
         无。

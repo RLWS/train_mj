@@ -10,11 +10,11 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_cli_preprocess_and_validate_events(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 预处理与事件校验命令链路。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -49,11 +49,11 @@ def test_cli_preprocess_and_validate_events(tmp_path: Path, capsys):
 
 
 def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 从青铜层事件构建数据集。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -86,11 +86,11 @@ def test_cli_build_dataset_from_bronze_events(tmp_path: Path, capsys):
 
 
 def test_cli_build_dataset_can_skip_replay_validation(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 构建数据集时跳过回放校验。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -124,11 +124,11 @@ def test_cli_build_dataset_can_skip_replay_validation(tmp_path: Path, capsys):
 
 
 def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 生成清单时打印样本数量和警告。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -157,16 +157,16 @@ def test_cli_make_manifest_prints_sample_counts_and_warnings(tmp_path: Path, cap
 
 
 def test_cli_train_requires_real_inputs(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 训练命令要求真实输入。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
     
     异常:
-        AssertionError: 当函数执行过程中检测到错误条件时抛出。
+        无。
     """
     config_path = tmp_path / "missing_data.yaml"
     missing_manifest = tmp_path / "missing_train.jsonl"
@@ -206,11 +206,11 @@ def test_cli_train_requires_real_inputs(tmp_path: Path):
 
 
 def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 从样本目录读取检查样本。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -242,11 +242,11 @@ def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
 
 
 def test_cli_inspect_sample_reads_by_sample_id(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 按样本标识读取检查样本。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。
@@ -282,11 +282,11 @@ def test_cli_inspect_sample_reads_by_sample_id(tmp_path: Path, capsys):
 
 
 def test_cli_dump_case_reads_bronze_event_context(tmp_path: Path, capsys):
-    """验证目标测试场景的行为符合预期。
+    """验证CLI 从青铜层事件读取并导出决策上下文。
     
     参数:
-        tmp_path (Path): 相关文件路径。
-        capsys (Any): 相关数据列表。
+        tmp_path (Path): pytest 提供的临时目录路径。
+        capsys (Any): pytest 提供的标准输出捕获夹具。
     
     返回:
         None: 无返回值。

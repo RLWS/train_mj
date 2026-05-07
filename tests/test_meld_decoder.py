@@ -4,16 +4,16 @@ from mjai.data.tenhou.meld_decoder import decode_meld
 
 
 def _encode_chi(base_index: int, called_offset: int, copies: tuple[int, int, int], from_who: int) -> int:
-    """将输入数据编码为模型可用特征。
+    """构造用于测试吃牌副露解码的天凤压缩整数。
     
     参数:
-        base_index (int): 三十四种牌基础索引。
-        called_offset (int): 函数执行所需的输入参数。
-        copies (tuple[int, int, int]): 相关数据列表。
-        from_who (int): 函数执行所需的输入参数。
+        base_index (int): 顺子起始牌的基础索引。
+        called_offset (int): 被鸣牌在顺子中的偏移位置。
+        copies (tuple[int, int, int]): 顺子三张牌在天凤 136 牌编号中的副本索引。
+        from_who (int): 天凤副露值中表示来源玩家的相对索引。
     
     返回:
-        int: 整数结果。
+        int: 编码后的天凤副露整数。
     
     异常:
         无。
@@ -29,16 +29,16 @@ def _encode_chi(base_index: int, called_offset: int, copies: tuple[int, int, int
 
 
 def _encode_pon(tile_base: int, called_index: int, unused_copy: int, from_who: int) -> int:
-    """将输入数据编码为模型可用特征。
+    """构造用于测试碰牌副露解码的天凤压缩整数。
     
     参数:
-        tile_base (int): 函数执行所需的输入参数。
-        called_index (int): 相关索引值。
-        unused_copy (int): 函数执行所需的输入参数。
-        from_who (int): 函数执行所需的输入参数。
+        tile_base (int): 碰牌牌型的基础索引。
+        called_index (int): 被鸣牌在副露牌组中的索引。
+        unused_copy (int): 碰牌编码中未使用的副本索引。
+        from_who (int): 天凤副露值中表示来源玩家的相对索引。
     
     返回:
-        int: 整数结果。
+        int: 编码后的天凤副露整数。
     
     异常:
         无。
@@ -51,7 +51,7 @@ def _encode_pon(tile_base: int, called_index: int, unused_copy: int, from_who: i
 
 
 def test_decode_chi_meld():
-    """验证目标测试场景的行为符合预期。
+    """验证吃牌副露解码结果。
     
     参数:
         无。
@@ -72,7 +72,7 @@ def test_decode_chi_meld():
 
 
 def test_decode_pon_meld_with_red_tile():
-    """验证目标测试场景的行为符合预期。
+    """验证含赤牌碰牌副露的解码结果。
     
     参数:
         无。
@@ -93,7 +93,7 @@ def test_decode_pon_meld_with_red_tile():
 
 
 def test_decode_ankan_values_from_real_logs():
-    """验证目标测试场景的行为符合预期。
+    """验证真实日志中暗杠数值的解码结果。
     
     参数:
         无。
@@ -117,7 +117,7 @@ def test_decode_ankan_values_from_real_logs():
 
 
 def test_decode_daiminkan_uses_anchor_tile_as_called_tile():
-    """验证目标测试场景的行为符合预期。
+    """验证大明杠解码使用锚点牌作为被鸣牌。
     
     参数:
         无。
@@ -138,7 +138,7 @@ def test_decode_daiminkan_uses_anchor_tile_as_called_tile():
 
 
 def test_decode_daiminkan_preserves_red_tile_when_it_is_consumed():
-    """验证目标测试场景的行为符合预期。
+    """验证大明杠解码在赤牌被消耗时保留赤牌。
     
     参数:
         无。

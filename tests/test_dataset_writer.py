@@ -24,10 +24,10 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_preprocess_writes_bronze_event_parquet(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证预处理流程写出青铜层事件 Parquet。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
@@ -54,10 +54,10 @@ def test_preprocess_writes_bronze_event_parquet(tmp_path: Path):
 
 
 def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证数据集构建流程写出自摸巡和响应 Parquet。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
@@ -186,10 +186,10 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
 
 
 def test_build_dataset_supports_parallel_workers(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证数据集构建支持并行工作单元。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。
@@ -218,10 +218,10 @@ def test_build_dataset_supports_parallel_workers(tmp_path: Path):
 
 
 def test_make_manifest_writes_jsonl_splits(tmp_path: Path):
-    """验证目标测试场景的行为符合预期。
+    """验证清单构建流程写出 JSONL 数据划分。
     
     参数:
-        tmp_path (Path): 相关文件路径。
+        tmp_path (Path): pytest 提供的临时目录路径。
     
     返回:
         None: 无返回值。

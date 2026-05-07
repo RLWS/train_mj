@@ -24,7 +24,7 @@ from mjai.features.action_features import (
 
 
 def test_encode_turn_action_supports_tsumo():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡动作编码支持自摸。
     
     参数:
         无。
@@ -42,7 +42,7 @@ def test_encode_turn_action_supports_tsumo():
 
 
 def test_encode_turn_action_supports_ankan_and_kakan():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡动作编码支持暗杠and加杠。
     
     参数:
         无。
@@ -61,7 +61,7 @@ def test_encode_turn_action_supports_ankan_and_kakan():
 
 
 def test_encode_turn_action_supports_kyuushu_kyuuhai():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡动作编码支持kyuushukyuuhai。
     
     参数:
         无。
@@ -78,7 +78,7 @@ def test_encode_turn_action_supports_kyuushu_kyuuhai():
 
 
 def test_encode_response_action_supports_chankan():
-    """验证目标测试场景的行为符合预期。
+    """验证响应动作编码支持抢杠。
     
     参数:
         无。
@@ -96,7 +96,7 @@ def test_encode_response_action_supports_chankan():
 
 
 def test_encode_response_action_adds_call_shape_features():
-    """验证目标测试场景的行为符合预期。
+    """验证响应动作编码增加鸣牌形状特征。
     
     参数:
         无。
@@ -150,7 +150,7 @@ def test_encode_response_action_adds_call_shape_features():
 
 
 def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
-    """验证目标测试场景的行为符合预期。
+    """验证响应动作编码标记役牌碰牌and赤牌代价。
     
     参数:
         无。
@@ -196,7 +196,7 @@ def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
 
 
 def test_encode_turn_state_includes_furiten_flags():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡状态编码包含振听标志。
     
     参数:
         无。
@@ -229,7 +229,7 @@ def test_encode_turn_state_includes_furiten_flags():
 
 
 def test_encode_response_state_includes_furiten_flags():
-    """验证目标测试场景的行为符合预期。
+    """验证响应状态编码包含振听标志。
     
     参数:
         无。
@@ -262,7 +262,7 @@ def test_encode_response_state_includes_furiten_flags():
 
 
 def test_encode_turn_action_adds_discard_candidate_features():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡动作编码增加弃牌候选特征。
     
     参数:
         无。
@@ -306,7 +306,7 @@ def test_encode_turn_action_adds_discard_candidate_features():
 
 
 def test_encode_turn_state_includes_round_context():
-    """验证目标测试场景的行为符合预期。
+    """验证自摸巡状态编码包含局况上下文。
     
     参数:
         无。
@@ -344,13 +344,13 @@ def test_encode_turn_state_includes_round_context():
 
 
 def _furiten_offset() -> int:
-    """执行与函数名对应的业务逻辑。
+    """计算振听标志在状态特征向量中的起始偏移。
     
     参数:
         无。
     
     返回:
-        int: 整数结果。
+        int: 振听标志特征起始偏移量。
     
     异常:
         无。

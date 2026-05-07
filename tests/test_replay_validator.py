@@ -10,7 +10,7 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_validate_all_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证全部真实夹具都能通过回放校验。
     
     参数:
         无。
@@ -35,7 +35,7 @@ def test_validate_all_real_fixtures():
 
 
 def test_validate_fixture_with_melds_reports_nonzero_melds():
-    """验证目标测试场景的行为符合预期。
+    """验证含副露夹具的回放校验会报告非零副露数。
     
     参数:
         无。

@@ -4,7 +4,7 @@ from mjai.utils.config import load_resolved_yaml, load_yaml
 
 
 def test_load_base_config():
-    """验证目标测试场景的行为符合预期。
+    """验证基础配置加载。
     
     参数:
         无。
@@ -22,7 +22,7 @@ def test_load_base_config():
 
 
 def test_load_resolved_base_config():
-    """验证目标测试场景的行为符合预期。
+    """验证基础配置的默认项解析。
     
     参数:
         无。
@@ -41,7 +41,7 @@ def test_load_resolved_base_config():
 
 
 def test_load_resolved_p800_configs():
-    """验证目标测试场景的行为符合预期。
+    """验证P800 训练配置的默认项解析。
     
     参数:
         无。

@@ -4,7 +4,7 @@ from mjai.utils.device import normalize_device_name
 
 
 def test_normalize_p800_device_alias():
-    """验证目标测试场景的行为符合预期。
+    """验证P800 设备别名规范化。
     
     参数:
         无。

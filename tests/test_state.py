@@ -7,7 +7,7 @@ from mjai.rules.tiles import tile_to_base_index
 
 
 def test_hand_state_counts_red_and_normal_five_separately():
-    """验证目标测试场景的行为符合预期。
+    """验证手牌状态分别统计赤五和普通五。
     
     参数:
         无。
@@ -27,7 +27,7 @@ def test_hand_state_counts_red_and_normal_five_separately():
 
 
 def test_remove_tile_updates_red_bookkeeping():
-    """验证目标测试场景的行为符合预期。
+    """验证移除赤牌时手牌状态更新赤牌计数。
     
     参数:
         无。
@@ -47,7 +47,7 @@ def test_remove_tile_updates_red_bookkeeping():
 
 
 def test_remove_missing_tile_raises():
-    """验证目标测试场景的行为符合预期。
+    """验证移除缺失牌时抛出错误。
     
     参数:
         无。
@@ -65,7 +65,7 @@ def test_remove_missing_tile_raises():
 
 
 def test_riichi_pending_becomes_declared_on_step_two():
-    """验证目标测试场景的行为符合预期。
+    """验证立直第二步会将待确认立直转为已宣告。
     
     参数:
         无。
@@ -88,7 +88,7 @@ def test_riichi_pending_becomes_declared_on_step_two():
 
 
 def test_can_declare_riichi_is_blocked_while_pending():
-    """验证目标测试场景的行为符合预期。
+    """验证立直待确认时不能重复宣告立直。
     
     参数:
         无。
@@ -107,7 +107,7 @@ def test_can_declare_riichi_is_blocked_while_pending():
 
 
 def test_discard_records_furiten_base_tile():
-    """验证目标测试场景的行为符合预期。
+    """验证弃牌会记录振听基础牌。
     
     参数:
         无。
@@ -127,7 +127,7 @@ def test_discard_records_furiten_base_tile():
 
 
 def test_draw_clears_temporary_furiten_only():
-    """验证目标测试场景的行为符合预期。
+    """验证摸牌只清除临时振听而不清除立直振听。
     
     参数:
         无。
@@ -149,7 +149,7 @@ def test_draw_clears_temporary_furiten_only():
 
 
 def test_open_meld_clears_temporary_furiten_only():
-    """验证目标测试场景的行为符合预期。
+    """验证明副露只清除临时振听而不清除立直振听。
     
     参数:
         无。
@@ -185,7 +185,7 @@ def test_open_meld_clears_temporary_furiten_only():
 
 
 def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
-    """验证目标测试场景的行为符合预期。
+    """验证立直后错过荣和会标记立直振听。
     
     参数:
         无。
@@ -206,7 +206,7 @@ def test_mark_missed_ron_sets_riichi_furiten_after_riichi():
 
 
 def test_game_state_tracks_round_context_and_dora():
-    """验证目标测试场景的行为符合预期。
+    """验证游戏状态跟踪局况上下文和宝牌。
     
     参数:
         无。
@@ -238,7 +238,7 @@ def test_game_state_tracks_round_context_and_dora():
 
 
 def test_kakan_upgrades_existing_pon_and_consumes_added_tile():
-    """验证目标测试场景的行为符合预期。
+    """验证加杠会升级已有碰牌并消耗加杠牌。
     
     参数:
         无。

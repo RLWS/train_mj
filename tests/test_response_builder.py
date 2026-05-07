@@ -11,7 +11,7 @@ FIXTURE_DIR = Path("tests/fixtures/tenhou")
 
 
 def test_build_response_samples_from_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具可构建响应样本。
     
     参数:
         无。
@@ -34,7 +34,7 @@ def test_build_response_samples_from_real_fixtures():
 
 
 def test_response_sample_label_is_in_legal_actions():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本标签始终存在于合法动作集合中。
     
     参数:
         无。
@@ -56,7 +56,7 @@ def test_response_sample_label_is_in_legal_actions():
 
 
 def test_response_sample_label_after_open_meld_clears_temporary_furiten():
-    """验证目标测试场景的行为符合预期。
+    """验证明副露后响应样本会清除临时振听并保留标签合法性。
     
     参数:
         无。
@@ -84,7 +84,7 @@ def test_response_sample_label_after_open_meld_clears_temporary_furiten():
 
 
 def test_response_samples_include_non_pass_labels():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本包含非跳过标签。
     
     参数:
         无。
@@ -106,7 +106,7 @@ def test_response_samples_include_non_pass_labels():
 
 
 def test_response_samples_include_ron_labels_on_real_fixtures():
-    """验证目标测试场景的行为符合预期。
+    """验证真实夹具构建的响应样本包含荣和标签。
     
     参数:
         无。
@@ -129,7 +129,7 @@ def test_response_samples_include_ron_labels_on_real_fixtures():
 
 
 def test_response_sample_furiten_omits_ron_from_legal_actions():
-    """验证目标测试场景的行为符合预期。
+    """验证振听响应样本的合法动作中会排除荣和。
     
     参数:
         无。
@@ -205,7 +205,7 @@ def test_response_sample_furiten_omits_ron_from_legal_actions():
 
 
 def test_response_samples_mark_temporary_furiten_after_passing_ron():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本在错过荣和后标记临时振听。
     
     参数:
         无。
@@ -285,7 +285,7 @@ def test_response_samples_mark_temporary_furiten_after_passing_ron():
 
 
 def test_response_samples_clear_temporary_furiten_after_self_draw():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本在自家摸牌后清除临时振听。
     
     参数:
         无。
@@ -377,7 +377,7 @@ def test_response_samples_clear_temporary_furiten_after_self_draw():
 
 
 def test_response_samples_mark_riichi_furiten_after_passing_ron():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本在立直后错过荣和时标记立直振听。
     
     参数:
         无。
@@ -488,7 +488,7 @@ def test_response_samples_mark_riichi_furiten_after_passing_ron():
 
 
 def test_response_samples_include_chankan_on_kakan_window():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本在加杠窗口中包含抢杠。
     
     参数:
         无。
@@ -632,7 +632,7 @@ def test_response_samples_include_chankan_on_kakan_window():
 
 
 def test_response_samples_skip_applying_kakan_when_chankan_resolves():
-    """验证目标测试场景的行为符合预期。
+    """验证响应样本在抢杠成立时跳过应用加杠状态。
     
     参数:
         无。
