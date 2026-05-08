@@ -353,11 +353,19 @@ def _normalize_targets(targets: list[str] | None) -> tuple[str, ...]:
         raise ValueError("response error sampling requires at least one target")
     for target in normalized:
         if "->" not in target:
-            raise ValueError(f"target must use label->pred format, got: {target}")
+            raise ValueError(_target_format_error(target))
         label_kind, predicted_kind = target.split("->", maxsplit=1)
         if not label_kind or not predicted_kind:
-            raise ValueError(f"target must use label->pred format, got: {target}")
+            raise ValueError(_target_format_error(target))
     return normalized
+
+
+def _target_format_error(target: str) -> str:
+    return (
+        "target must use label->pred format, got: "
+        f"{target}. Quote --targets in shells that treat '>' as redirection, "
+        'for example --targets "pass->chi,pass->pon,chi->pass,pon->pass".'
+    )
 
 
 def _normalize_per_target(per_target: int) -> int:

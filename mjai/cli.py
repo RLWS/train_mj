@@ -653,7 +653,7 @@ def build_parser() -> argparse.ArgumentParser:
     sample_response_errors_parser.add_argument(
         "--targets",
         default=",".join(DEFAULT_RESPONSE_ERROR_TARGETS),
-        help="Comma-separated label->pred confusion targets.",
+        help="Comma-separated label->pred confusion targets. Quote this value in PowerShell.",
     )
     sample_response_errors_parser.add_argument(
         "--per-target",

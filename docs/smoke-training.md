@@ -323,10 +323,10 @@ python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_
 需要系统分析 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 这类 hard negative 时，用专门的抽样命令重新跑全量 manifest 推理：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets pass->chi,pass->pon,chi->pass,pon->pass --per-target 100 --pass-bias 0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
 ```
 
-`--seed` 默认继承 checkpoint 配置里的全局 `seed`；只有需要复现实验外的另一组随机样本时才显式传入。`--pass-bias 0` 表示按普通 `eval` 的 raw argmax 抽样；如果要分析当前建议的推理 operating point，使用 `--pass-bias 0.4` 或 `0.8`。
+`--seed` 默认继承 checkpoint 配置里的全局 `seed`；只有需要复现实验外的另一组随机样本时才显式传入。`--pass-bias 0` 表示按普通 `eval` 的 raw argmax 抽样；如果要分析当前建议的推理 operating point，使用 `--pass-bias 0.4` 或 `0.8`。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
 
 输出是 JSONL，每行一条样本，包含 `sample_id`、`confusion`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。
 
@@ -347,7 +347,7 @@ python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
 python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-id 0 --step-id 2
 python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --report outputs/checkpoints/response_local_smoke/eval_valid.json
 python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets pass->chi,pass->pon,chi->pass,pon->pass --per-target 100 --pass-bias 0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
 ```
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。

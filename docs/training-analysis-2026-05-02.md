@@ -870,13 +870,13 @@ valid/test 对比非常稳定：
 建议先按当前默认 operating point 抽 `pass_bias=0.4`：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_pb0.4.jsonl --targets pass->chi,pass->pon,chi->pass,pon->pass --per-target 100 --pass-bias 0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_pb0.4.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
 ```
 
 如果需要和原始 eval confusion 对齐，再补一份 raw argmax：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_raw.jsonl --targets pass->chi,pass->pon,chi->pass,pon->pass --per-target 100 --pass-bias 0
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_raw.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0
 ```
 
-`--seed` 默认继承 checkpoint config 的全局 `seed`，需要另一组随机样本时才显式覆盖。
+`--seed` 默认继承 checkpoint config 的全局 `seed`，需要另一组随机样本时才显式覆盖。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
