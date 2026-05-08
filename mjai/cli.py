@@ -12,6 +12,10 @@ from mjai.data.datasets.parquet_dataset import inspect_dataset_sample, inspect_d
 from mjai.eval.case_dump import dump_case_to_json
 from mjai.eval.offline import evaluate_checkpoint
 from mjai.eval.response_calibration import calibrate_response_checkpoint
+from mjai.eval.response_error_sampling import (
+    DEFAULT_RESPONSE_ERROR_TARGETS,
+    sample_response_errors,
+)
 from mjai.training.engine import train_turn_model
 from mjai.utils.config import load_resolved_yaml, load_yaml
 
@@ -338,6 +342,38 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sample_response_errors(args: argparse.Namespace) -> int:
+    config_override = _load_optional_config(getattr(args, "config", None))
+    targets = _parse_string_list(args.targets, option_name="--targets")
+    summary = sample_response_errors(
+        ckpt_path=args.ckpt,
+        split=args.split,
+        output_path=args.output,
+        targets=targets,
+        per_target=int(args.per_target),
+        pass_bias=float(args.pass_bias),
+        seed=getattr(args, "seed", None),
+        config_override=config_override,
+        manifest_path=getattr(args, "manifest", None),
+        progress_callback=_print_response_error_sampling_progress,
+        progress_every_n_batches=max(0, int(args.log_every_n_batches)),
+    )
+    print(
+        f"sampled response errors task={summary.task} split={summary.split} "
+        f"samples={summary.samples_seen} pass_bias={summary.pass_bias:.4f} "
+        f"seed={summary.seed} device={summary.used_device}"
+    )
+    print(f"manifest={summary.manifest_path}")
+    print(f"output={summary.output_path}")
+    target_summary = ", ".join(
+        f"{target}:seen={summary.matches_seen.get(target, 0)} "
+        f"sampled={summary.sampled_counts.get(target, 0)}"
+        for target in summary.targets
+    )
+    print(f"response_error_samples={target_summary}")
+    return 0
+
+
 def _run_inspect_sample(args: argparse.Namespace) -> int:
     """运行与函数名对应的处理流程。
     
@@ -424,6 +460,19 @@ def _print_calibration_progress(batch_index: int, total_batches: int, samples_pr
     )
 
 
+def _print_response_error_sampling_progress(
+    batch_index: int,
+    total_batches: int,
+    samples_processed: int,
+) -> None:
+    print(
+        "response_error_sampling_progress="
+        f"batch={batch_index}/{total_batches} "
+        f"samples={samples_processed}",
+        flush=True,
+    )
+
+
 def _parse_float_list(raw_value: str, *, option_name: str) -> list[float]:
     """解析输入数据并返回结构化结果。
     
@@ -479,6 +528,13 @@ def _parse_rate_list(raw_value: str, *, option_name: str) -> list[float]:
         if value < 0.0 or value > 1.0:
             raise ValueError(f"{option_name} values must be in [0, 1] after percent parsing: {item}")
         values.append(value)
+    if not values:
+        raise ValueError(f"{option_name} requires at least one value")
+    return values
+
+
+def _parse_string_list(raw_value: str, *, option_name: str) -> list[str]:
+    values = [item.strip() for item in raw_value.split(",") if item.strip()]
     if not values:
         raise ValueError(f"{option_name} requires at least one value")
     return values
@@ -570,6 +626,61 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_config_arg(calibrate_response)
 
+    sample_response_errors_parser = subparsers.add_parser(
+        "sample-response-errors",
+        help="Sample response eval errors by label->pred confusion.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--ckpt",
+        required=True,
+        help="Response checkpoint path.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--split",
+        default="valid",
+        choices=["train", "valid", "test"],
+    )
+    sample_response_errors_parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Optional manifest override for the selected split.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--output",
+        required=True,
+        help="Output JSONL path for sampled response error cases.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--targets",
+        default=",".join(DEFAULT_RESPONSE_ERROR_TARGETS),
+        help="Comma-separated label->pred confusion targets.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--per-target",
+        type=int,
+        default=100,
+        help="Number of examples to sample per target confusion.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--pass-bias",
+        type=float,
+        default=0.0,
+        help="Pass bias / call margin in logit units; use 0 for raw eval argmax.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Reservoir sampling seed. Defaults to the checkpoint config seed.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--log-every-n-batches",
+        type=int,
+        default=100,
+        help="Print sampling progress every N batches; use 0 to disable.",
+    )
+    _add_config_arg(sample_response_errors_parser)
+
     replay_eval = subparsers.add_parser("replay-eval", help="Run fixed-game replay evaluation.")
     replay_eval.add_argument("--ckpt", required=True, help="Checkpoint path.")
     replay_eval.add_argument("--games", required=True, help="Game manifest or case list.")
@@ -634,6 +745,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_eval(args)
     if args.command == "calibrate-response":
         return _run_calibrate_response(args)
+    if args.command == "sample-response-errors":
+        return _run_sample_response_errors(args)
     if args.command == "inspect-sample":
         return _run_inspect_sample(args)
     if args.command == "dump-case":

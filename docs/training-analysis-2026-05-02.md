@@ -773,7 +773,7 @@ checkpoint 选择方面，`best.pt` / `best_response.pt` 仍按 `non_pass_f1 - f
 
 1. 后续继续使用 `runs/<date>_<exp>/` 结构，并增加一个轻量 `run_summary.md` 或 `run_summary.json`，记录数据摘要、checkpoint 路径、配置路径和 eval report 路径；大文件本身继续不进 git。
 2. 对 response 做 pass/call 校准实验。固定当前 `response_p800/best.pt`，在 valid 上扫描 `pass` logit bias 或 score margin，输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`。建议至少看 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档；当前仓库已提供 `calibrate-response` 命令，下一步应直接在 P800 baseline checkpoint 上跑 valid/test 校准报告。
-3. 对 response 错例做抽样。分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，用 `inspect-sample` 和 `dump-case` 判断误差来自玩家风格、点况/防守信息缺失，还是 action feature 仍不足。
+3. 对 response 错例做抽样。使用 `sample-response-errors` 分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，用 `inspect-sample` 和 `dump-case` 判断误差来自玩家风格、点况/防守信息缺失，还是 action feature 仍不足。
 4. 对 turn 做 top-k 错例聚合。重点抽 label rank 为 `2/3` 的 discard 样本，而不是泛泛抽所有错误；这些样本最能说明缺哪些排序特征。
 5. 再补 turn 特征，不先换复杂模型。优先补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和局面阶段。每加一组特征，固定当前训练配置复跑，观察 `discard top1` 是否提升而 `top3` 基本稳定。
 6. 对 P800 配置做一次小范围吞吐试验。response 当前运行产物使用 `batch_size=8192`，仓库配置已倾向更大 batch；可以试 `16384/32768`，只以 `samples_per_s`、显存和 eval 指标为依据。
@@ -865,4 +865,18 @@ valid/test 对比非常稳定：
 - `pass_bias=1.0` 不建议作为默认值。虽然二分类 `non_pass_f1` 最高、false call 最低，但对 `chi/pon` exact action 的损失已经明显。
 - 当前没有必要为了 `0.5%` false call 继续把默认点推得更保守；只有在推理实战确认仍明显误叫时，再单独追加高 bias 扫描。
 
-下一步主线应转为 response 错例抽样：优先抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，判断误差是玩家风格差异、防守/点况信息缺失，还是 action feature 仍不够。
+下一步主线应转为 response 错例抽样：优先抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，判断误差是玩家风格差异、防守/点况信息缺失，还是 action feature 仍不够。不要从 `eval.misclassified_examples` 里抽；那只是默认最多 `10` 条的调试定位样本。
+
+建议先按当前默认 operating point 抽 `pass_bias=0.4`：
+
+```powershell
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_pb0.4.jsonl --targets pass->chi,pass->pon,chi->pass,pon->pass --per-target 100 --pass-bias 0.4
+```
+
+如果需要和原始 eval confusion 对齐，再补一份 raw argmax：
+
+```powershell
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_raw.jsonl --targets pass->chi,pass->pon,chi->pass,pon->pass --per-target 100 --pass-bias 0
+```
+
+`--seed` 默认继承 checkpoint config 的全局 `seed`，需要另一组随机样本时才显式覆盖。

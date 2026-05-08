@@ -56,6 +56,7 @@
   - JSON 评估报告
 - response 评估报告已补充 response 专用诊断：`single_candidate` / `multi_candidate`、`pass` vs `non_pass` precision / recall / F1、`false_call_rate`、`missed_call_rate`、候选集合聚合与 `label->pred` confusion。
 - `python -m mjai.cli calibrate-response --ckpt <response_ckpt> --split valid --manifest <manifest> --report <report>` 可运行；它会扫描 pass/call score margin，并为 `false_call_rate <= 0.010 / 0.008 / 0.005` 等目标选择 `non_pass_f1` 最好的 operating point。
+- `python -m mjai.cli sample-response-errors --ckpt <response_ckpt> --split valid --manifest <manifest> --output <jsonl>` 可运行；它会按 `label->pred` confusion 分桶做 reservoir sampling，默认目标为 `pass->chi / pass->pon / chi->pass / pon->pass`，`--seed` 默认继承 checkpoint 全局 `seed`。
 - 2026-05-03 response action feature 增强后复训已完成并记录在 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：训练过滤后保留 `141423 / 1490034` 条 response 训练样本；最新 `best.pt` 在 valid/test 上分别达到 `multi_candidate top1=0.8521/0.8502`、`multi_candidate macro top1=0.7882/0.8697`、`non_pass_f1=0.7215/0.7189`、`false_call_rate=0.0111/0.0111`、`missed_call_rate=0.1425/0.1466`。
 - 2026-05-06 P800 大数据单任务 baseline 已完成，训练产物位于 `outputs/checkpoints/turn_p800`、`outputs/checkpoints/response_p800`，分析记录见 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md) 第 10 节。
   - `turn_p800/best.pt`：train `83077288` 条、valid `10404270` 条、test `10393095` 条；test `top1=0.7008`、`top3=0.9446`、`top5=0.9853`、`macro_top1=0.9134`，其中 `discard top1=0.6958`、`riichi_discard top1=0.8534`。
@@ -134,9 +135,10 @@
   - 已支持按动作类别、主类/非主类分组、候选规模分桶与首批错例导出。
   - response checkpoint 额外输出 `candidate_count > 1` 子集、pass/non-pass 二分类、false call / missed call 和候选集合维度指标；turn checkpoint 的 `response` 诊断字段为 `null`。
   - 已新增 response pass/call 校准扫描：固定 checkpoint，在一组 `pass_bias` 下输出 false call、missed call、non-pass precision/recall/F1、multi-candidate top1 和按动作类别 top1，并按 false call 目标挑选 operating point。
+  - 已新增 response 错例抽样命令：重新跑 manifest 推理后按 `label->pred` confusion 抽样，避免误用 `eval.misclassified_examples` 里默认最多 `10` 条的调试样本。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
-  - `turn/response` smoke train、offline eval、`inspect-sample` 与 `dump-case` 都有回归测试。
+  - `turn/response` smoke train、offline eval、response 错例抽样、`inspect-sample` 与 `dump-case` 都有回归测试。
 
 ### 部分完成
 
@@ -271,7 +273,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 1. 将 `pass_bias=0.4` 作为 response 推理默认候选记录到后续推理/服务配置设计中，保留 `0.8` 作为保守候选
 2. 如果仍要求 `false_call_rate <= 0.5%`，再追加高 bias 扫描，但必须同时记录 missed call 和 `chi/pon` exact top1 下降
-3. 对 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各抽样 `100` 条，用 `inspect-sample` 与 `dump-case` 聚合错误来源
+3. 用 `sample-response-errors` 对 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各抽样 `100` 条；建议 P800 baseline 先用 `--pass-bias 0.4`，必要时再对比 raw argmax 的 `--pass-bias 0`
 4. 后续混合训练评估时同时报告无 bias、`0.4` 和 `0.8` 三个 operating point，避免只看单一 checkpoint top1
 
 ### 任务 3：turn discard top-k 错例与特征增强

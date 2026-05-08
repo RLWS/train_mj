@@ -426,6 +426,7 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
     config_path = tmp_path / "response_eval.yaml"
     report_path = tmp_path / "reports" / "response_valid_eval.json"
     calibration_report_path = tmp_path / "reports" / "response_valid_calibration.json"
+    error_samples_path = tmp_path / "reports" / "response_error_samples.jsonl"
     config_path.write_text(
         "\n".join(
             [
@@ -491,6 +492,30 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
             "100%,0.5%",
         ]
     ) == 0
+    assert main(
+        [
+            "sample-response-errors",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--split",
+            "valid",
+            "--manifest",
+            str(calibration_manifest),
+            "--output",
+            str(error_samples_path),
+            "--targets",
+            (
+                "pass->pass,pass->chi,pass->pon,pass->ron,"
+                "chi->pass,chi->chi,chi->pon,chi->ron,"
+                "pon->pass,pon->chi,pon->pon,pon->ron,"
+                "ron->pass,ron->chi,ron->pon,ron->ron"
+            ),
+            "--per-target",
+            "2",
+            "--log-every-n-batches",
+            "0",
+        ]
+    ) == 0
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["task"] == "response"
@@ -535,6 +560,22 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
     assert 0.0 <= first_point["missed_call_rate"] <= 1.0
     assert "pass" in first_point["per_kind_samples"]
 
+    sampled_errors = [
+        json.loads(line)
+        for line in error_samples_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert sampled_errors
+    first_error = sampled_errors[0]
+    assert "sample_id" in first_error
+    assert first_error["confusion"] == (
+        f"{first_error['label_kind']}->{first_error['predicted_kind']}"
+    )
+    assert "inspect-sample --dataset" in first_error["inspect_sample_command"]
+    assert "dump-case --bronze-dir" in first_error["dump_case_command"]
+
     captured = capsys.readouterr()
     assert "calibrated task=response split=valid" in captured.out
     assert "calibration_selection=target_false_call_rate=1.0000" in captured.out
+    assert "sampled response errors task=response split=valid" in captured.out
+    assert "seed=20260423" in captured.out
