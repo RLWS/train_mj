@@ -238,6 +238,9 @@ def test_cli_inspect_sample_reads_from_sample_directory(tmp_path: Path, capsys):
     assert payload["candidate_count"] > 0
     assert isinstance(payload["legal_actions"], list)
     assert isinstance(payload["state"], dict)
+    assert isinstance(payload["state"]["hand_tiles"], list)
+    assert payload["state"]["hand_pretty"] == ",".join(payload["state"]["hand_tiles"])
+    assert len(payload["state"]["hand_tiles"]) == sum(payload["state"]["hand"].values())
     assert "kyoku_index" in payload
 
 

@@ -25,6 +25,7 @@ from mjai.features.state_features import (
     encode_response_state,
     encode_turn_state,
 )
+from mjai.rules.tiles import tile_to_base_index
 from mjai.utils.paths import ensure_dir
 
 
@@ -1375,6 +1376,7 @@ def _build_inspected_sample(
     legal_actions = json.loads(str(row["legal_actions_json"]))
     label_action = json.loads(str(row["label_action_json"]))
     state = json.loads(str(row["state_json"]))
+    state = _add_inspection_display_fields(state)
     label_key = _action_key(label_action)
     legal_action_keys = [_action_key(action) for action in legal_actions]
     label_index = int(_required_sample_field(row, "label_index"))
@@ -1406,6 +1408,30 @@ def _build_inspected_sample(
         "legal_actions": legal_actions,
         "state": state,
     }
+
+
+def _add_inspection_display_fields(state: dict[str, object]) -> dict[str, object]:
+    enriched = dict(state)
+    hand = enriched.get("hand")
+    if isinstance(hand, dict):
+        hand_tiles = _expand_hand_tiles(hand)
+        enriched["hand_tiles"] = hand_tiles
+        enriched["hand_pretty"] = ",".join(hand_tiles)
+    return enriched
+
+
+def _expand_hand_tiles(hand: dict[object, object]) -> list[str]:
+    tiles: list[str] = []
+    for tile, count in hand.items():
+        tile_text = str(tile)
+        tiles.extend([tile_text] * int(count))
+    return sorted(tiles, key=_inspection_tile_sort_key)
+
+
+def _inspection_tile_sort_key(tile: str) -> tuple[int, int, int]:
+    base_index = tile_to_base_index(tile)
+    red_rank = 0 if tile.startswith("0") else 1
+    return base_index, red_rank, tile
 
 
 def _deserialize_dataset_row(row: dict[str, object]) -> dict[str, object]:
