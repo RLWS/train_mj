@@ -21,7 +21,7 @@
 
 当前已验证结果：
 
-- `pytest` 结果为 `100 passed`
+- `pytest` 结果为 `101 passed`
 - 使用 `tests/fixtures/tenhou` 实测可完成 `20` 局 XML 预处理、`6281` 条事件写入、`20/20` 个事件分片校验通过，并生成 `2996` 条 `turn` 样本、`8910` 条 `response` 样本
 - `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 
@@ -366,6 +366,18 @@ python -m mjai.cli replay-eval --ckpt outputs/checkpoints/turn_small/best.pt --g
 - `eval`：离线指标评估；默认流式读取 manifest 中的 parquet shard，只保留 batch 级数据和有限错例报告，适合大数据 valid/test
 - `calibrate-response`：固定 response checkpoint 扫描 pass/call score margin
 - `replay-eval`：固定牌谱回放
+
+P800/Linux 上可以用仓库根目录的 `start.sh` 串联端到端训练流水线，默认从 `/workspace/dataset` 读取原始 XML，其余产物使用当前仓库下的 `data/` 和 `outputs/`：
+
+```bash
+./start.sh
+TASKS=turn ./start.sh
+TASKS=response ./start.sh
+RUN_VALIDATE=0 ./start.sh
+RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+```
+
+其中 `TASKS` 控制参与训练和对应 eval 的任务，默认 `turn response` 全跑；`RUN_VALIDATE`、`RUN_TRAIN`、`RUN_EVAL` 分别控制独立校验、训练和评估阶段。
 
 ## 5.3 推理与调试
 

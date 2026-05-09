@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from mjai.features.state_features import (
     ACTOR_DIM,
     ALL_DISCARD_COUNTS_DIM,
@@ -413,6 +415,56 @@ def test_encode_turn_action_adds_discard_candidate_features():
 
     assert len(vector) == len(TURN_ACTION_KINDS) + 37 + TURN_DISCARD_FEATURE_DIM
     assert vector[-TURN_DISCARD_FEATURE_DIM] == 1.0
+
+
+def test_encode_turn_action_adds_discard_river_timing_features():
+    """验证自摸巡弃牌候选编码包含牌河时序摘要。"""
+    state = {
+        "actor": 0,
+        "hand": {
+            "3m": 1,
+            "4m": 1,
+            "5m": 1,
+            "6m": 1,
+            "7m": 1,
+            "2p": 1,
+            "3p": 1,
+            "4p": 1,
+            "5p": 1,
+            "6p": 1,
+            "5z": 2,
+            "6z": 1,
+        },
+        "all_discards": [
+            ["3m", "9p"],
+            ["1p", "2p", "4p", "5p", "6p", "7p", "3m"],
+            ["3m", "1s", "2s", "3s", "4s", "5s", "6s"],
+            ["9s", "8s", "7s", "6s", "5s", "4s", "3m"],
+        ],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "last_discard_actor": 3,
+        "last_discard_tile": "3m",
+        "dora_base_indices": [],
+    }
+
+    vector = encode_turn_action({"kind": "discard", "tile": "3m"}, state)
+    features = vector[-TURN_DISCARD_FEATURE_DIM:]
+
+    assert features[25] == pytest.approx(1 / 4)
+    assert features[26] == pytest.approx(3 / 4)
+    assert features[27] == 1.0
+    assert features[28] == pytest.approx(2 / 3)
+    assert features[29] == pytest.approx(1 / 3)
+    assert features[30] == pytest.approx(1 / 18)
+    assert features[31] == pytest.approx(7 / 18)
+    assert features[32] == 1.0
+    assert features[33] == 1.0
+    assert features[34] == 1.0
+    assert features[35:38] == [1.0, 1.0, 1.0]
+    assert features[38:41] == [1.0, 0.0, 1.0]
 
 
 def test_encode_turn_state_includes_round_context():

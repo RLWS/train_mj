@@ -775,7 +775,7 @@ checkpoint 选择方面，`best.pt` / `best_response.pt` 仍按 `non_pass_f1 - f
 2. 对 response 做 pass/call 校准实验。固定当前 `response_p800/best.pt`，在 valid 上扫描 `pass` logit bias 或 score margin，输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`。建议至少看 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档；当前仓库已提供 `calibrate-response` 命令，下一步应直接在 P800 baseline checkpoint 上跑 valid/test 校准报告。
 3. 对 response 错例做抽样。使用 `sample-response-errors` 分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，用 `inspect-sample` 和 `dump-case` 判断误差来自玩家风格、点况/防守信息缺失，还是 action feature 仍不足。
 4. 对 turn 做 top-k 错例聚合。使用 `sample-turn-errors` 重点抽 label rank 为 `2/3` 的 discard 样本，而不是泛泛抽所有错误；这些样本最能说明缺哪些排序特征。
-5. 再补 turn 特征，不先换复杂模型。优先补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和局面阶段。每加一组特征，固定当前训练配置复跑，观察 `discard top1` 是否提升而 `top3` 基本稳定。
+5. 再补 turn 特征，不先换复杂模型。第一步牌河时序 V1 已落地到 discard 候选特征，`TURN_ACTION_DIM=85`；下一步重建数据并固定当前训练配置复跑，观察 `discard top1` 是否提升而 `top3` 基本稳定。后续再评估摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和局面阶段。
 6. 对 P800 配置做一次小范围吞吐试验。response 当前运行产物使用 `batch_size=8192`，仓库配置已倾向更大 batch；可以试 `16384/32768`，只以 `samples_per_s`、显存和 eval 指标为依据。
 7. 多任务、DDP 和复杂模型继续后置。等 turn 特征和 response 校准有明确结论后，再实现 `task: multitask`、step eval/save、grad accumulation 和 DDP，避免把工程变量和模型质量变量混在同一轮。
 
@@ -898,3 +898,26 @@ python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_p800/best.
 ```
 
 命令默认 `--label-kinds discard --ranks 2,3`，保留显式参数是为了让 run 记录自解释。输出 JSONL 每行包含 `sample_id`、`target`（例如 `discard@rank2`）、`label_rank`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。后续人工分析应优先按候选弃牌、向听变化、有效牌变化、dora/赤损失、危险度、局面阶段和点况聚合。
+
+### 10.12 turn 牌河时序特征 V1
+
+第一版 turn 特征回补已先落在 discard candidate 侧，不改样本 JSON schema，也不改 Tenhou 解析；直接利用现有 `state["all_discards"]` 中每家牌河的顺序。`TURN_ACTION_DIM` 从 `69` 增至 `85`，旧 `silver_samples` 中的 turn `candidate_features_bin` 不再匹配当前代码。
+
+新增的 16 个特征覆盖：
+
+- 候选弃牌在自家牌河与其他三家牌河中的出现次数。
+- 有几个对手打过这张牌。
+- 有几个对手最近 6 巡、前 6 巡打过这张牌。
+- 这张牌最早/最近被对手打出的对手牌河巡目。
+- 是否三家现物、至少两家现物、至少一家最近 6 巡现物。
+- 对下家、对面、上家分别是否现物，以及是否最近 6 巡现物。
+
+重建与复训命令仍是：
+
+```powershell
+python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 32 --skip-validation
+python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
+python -m mjai.cli train --config configs/turn_p800.yaml
+```
+
+验收指标优先看 `discard top1`，同时确认 `discard top3` 基本稳定；复训后再用 `sample-turn-errors` 抽 `discard@rank2/rank3` 对比错例是否少了安全性/近期现物相关混淆。

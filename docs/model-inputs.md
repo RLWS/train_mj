@@ -10,7 +10,7 @@
 
 | 任务 | `state_feats` | `candidate_feats` | `candidate_mask` | `labels` |
 |---|---:|---:|---:|---:|
-| `turn` | `[B, 293]` | `[B, C, 69]` | `[B, C]` | `[B]` |
+| `turn` | `[B, 293]` | `[B, C, 85]` | `[B, C]` | `[B]` |
 | `response` | `[B, 336]` | `[B, C, 91]` | `[B, C]` | `[B]` |
 
 含义：
@@ -91,15 +91,15 @@ TurnSample/ResponseSample
 | `293..297` | 5 | `response_target.source`，optional actor |
 | `298..335` | 38 | `response_target.tile`，optional tile |
 
-## 5. `turn` candidate action，69 维
+## 5. `turn` candidate action，85 维
 
-`TURN_ACTION_DIM = 69`。
+`TURN_ACTION_DIM = 85`。
 
 | 范围 | 维度 | 语义 |
 |---:|---:|---|
 | `0..6` | 7 | 动作类型 one-hot |
 | `7..43` | 37 | `action.tile` exact tile one-hot |
-| `44..68` | 25 | discard-like 候选特征 |
+| `44..84` | 41 | discard-like 候选特征 |
 
 动作类型顺序：
 
@@ -107,9 +107,9 @@ TurnSample/ResponseSample
 discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 ```
 
-对于 `tsumo / ankan / kakan / kyuushu_kyuuhai` 等非弃牌候选，只有动作类型和可选 tile one-hot 有效，后 25 维 discard-like 特征为 0。
+对于 `tsumo / ankan / kakan / kyuushu_kyuuhai` 等非弃牌候选，只有动作类型和可选 tile one-hot 有效，后 41 维 discard-like 特征为 0。
 
-### 5.1 turn discard-like 特征，25 维
+### 5.1 turn discard-like 特征，41 维
 
 以下索引是相对于 discard-like block 的局部索引；全局维度为 `44 + index`。
 
@@ -140,6 +140,22 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 | `22` | 弃牌后是否听牌，`after_shanten == 0` |
 | `23` | 弃牌后是否进向听，`after_shanten < current_shanten` |
 | `24` | 弃牌后是否退向听，`after_shanten > current_shanten` |
+| `25` | 被切牌在自家牌河出现次数，`own_count / 4` |
+| `26` | 被切牌在其他三家牌河出现总次数，`other_count / 4` |
+| `27` | 有几个对手打过这张牌，`other_players / 3` |
+| `28` | 有几个对手最近 6 巡打过这张牌，`recent_other_players / 3` |
+| `29` | 有几个对手前 6 巡打过这张牌，`early_other_players / 3` |
+| `30` | 这张牌最早被对手打出的对手牌河巡目，`first_turn / 18`；未出现为 `0` |
+| `31` | 这张牌最近被对手打出的对手牌河巡目，`last_turn / 18`；未出现为 `0` |
+| `32` | 是否为三家现物 |
+| `33` | 是否至少两家现物 |
+| `34` | 是否至少一家最近 6 巡现物 |
+| `35` | 是否为下家现物，相对当前 actor 的 `(actor + 1) % 4` |
+| `36` | 是否为对面现物，相对当前 actor 的 `(actor + 2) % 4` |
+| `37` | 是否为上家现物，相对当前 actor 的 `(actor + 3) % 4` |
+| `38` | 是否为下家最近 6 巡现物 |
+| `39` | 是否为对面最近 6 巡现物 |
+| `40` | 是否为上家最近 6 巡现物 |
 
 ## 6. `response` candidate action，91 维
 
@@ -243,4 +259,6 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 
 否则训练/评估阶段会出现 feature byte length mismatch，或者更隐蔽的旧语义污染。
 
-2026-05-09 起，`response` 的 `candidate_features` 从 `77` 维增加到 `91` 维。已有 `data/silver_samples` 和 manifest 不再适用于当前代码，下一轮 response 训练前必须重建。
+2026-05-09 起，`response` 的 `candidate_features` 从 `77` 维增加到 `91` 维。
+
+2026-05-09 起，`turn` 的 `candidate_features` 从 `69` 维增加到 `85` 维，新增 discard 候选的牌河时序特征。已有 `data/silver_samples` 和 manifest 不再适用于当前代码，下一轮 turn/response 训练前必须重建。

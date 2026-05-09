@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `100 passed`；本轮新增 `sample-turn-errors` 后，`tests/test_train_smoke.py` 和全量 `pytest` 已通过。
+- `pytest` 全量通过，当前结果为 `101 passed`；本轮新增 turn 牌河时序 V1 特征后，`tests/test_action_features.py`、`tests/test_dataset_writer.py`、`tests/test_train_smoke.py` 和全量 `pytest` 已通过。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -116,6 +116,7 @@
   - 数据、任务、模型、训练配置目录已建立。
 - `mjai/features/`
   - 已有最小 `turn/response` 状态特征与动作特征编码。
+  - 2026-05-09 已增强 turn discard 候选特征：`TURN_ACTION_DIM` 从 `69` 增至 `85`，新增候选弃牌在自家/他家牌河中的出现次数、早巡/最近 6 巡现物、多家现物和相对座位现物信号，用于改善 rank 2/3 discard 的 top1 排序。
   - response 候选动作特征已补充第一版 call 收益/代价信息：叫牌前后向听、有效牌数量、有效牌枚数、赤牌/dora 消耗、对子/搭子消耗、役牌碰、chi 形状、巡目和剩余巡目。
   - 2026-05-09 已继续增强 response call/context 特征：`RESPONSE_ACTION_DIM` 从 `77` 增至 `91`，新增可见牌修正有效牌枚数、开副露后明显役路启发式、无役风险、七对子/国士等门清特殊路线破坏信号；样本状态同步写出 `all_melds`，用于扣除其他玩家副露里的可见牌。该特征是启发式，不等价于完整番种判定。
 - `mjai/models/`
@@ -227,7 +228,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 数据重建与 P800 大数据训练提醒：
 
-- response action feature 维度已变化，当前 `RESPONSE_ACTION_DIM=91`，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配。下一轮 response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
+- turn/response action feature 维度已变化，当前 `TURN_ACTION_DIM=85`、`RESPONSE_ACTION_DIM=91`，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配。下一轮 turn/response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
 - 20 万局量级的 `response_p800.yaml` 和 `turn_p800.yaml` 单任务 baseline 已经跑完，且 valid/test 指标稳定；下一轮不要把 response 校准、turn 特征、DDP、多任务和复杂模型混在同一次实验里。
 - 当前缺口不是“能否训练”：`runs/2026-05-06_p800_baseline/` 中的 preprocess/validation/build/manifest 摘要已和训练样本数对齐。后续应继续按 `runs/<date>_<exp>/` 固化每轮数据与模型证据，并尽量把非法标签复核结果固化成文件。
 - response 已完成 P800 valid/test pass/call 校准扫描。test 上 `pass_bias=0.4` 达到 `false_call_rate=0.952%`、`missed_call_rate=8.83%`、`chi/pon top1=79.5%/93.3%`；`pass_bias=0.8` 达到 `false_call_rate=0.751%`、`missed_call_rate=11.84%`、`chi/pon top1=74.5%/90.7%`。valid/test 曲线几乎重合，默认 operating point 建议先用 `0.4`，保守候选用 `0.8`，暂不把 `1.0` 作为默认值。
@@ -286,8 +287,8 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 1. 以 `turn_p800/best.pt` 为基线，优先抽 label rank 为 `2/3` 的 discard 错例
    - 命令：`python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/turn_discard_rank23_valid.jsonl --label-kinds discard --ranks 2,3 --per-rank 100`
 2. 按候选牌、向听变化、有效牌变化、dora/赤、危险度、局面阶段和点况聚合
-3. 先补特征再考虑复杂模型，重点是牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和剩余巡目
-4. 每组特征单独复跑，观察 `discard top1` 是否提升，同时 `top3` 基本稳定
+3. 已先补牌河时序 V1；下一步重建数据并复训，确认 `discard top1` 是否提升且 `top3` 基本稳定
+4. 若收益明确，再继续补摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和剩余巡目；每组特征单独复跑
 
 ### 任务 4：规则边界按训练反馈回补
 

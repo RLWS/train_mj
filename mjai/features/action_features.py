@@ -13,7 +13,10 @@ from mjai.rules.tiles import AKA_BASE_INDICES, dora_from_indicator, tile_to_base
 TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "kyuushu_kyuuhai", "unknown")
 # Candidate action layouts are documented in docs/model-inputs.md. These dims
 # are serialized into parquet, so changing them requires rebuilding samples.
-TURN_DISCARD_FEATURE_DIM = 25
+TURN_RIVER_RECENT_WINDOW = 6
+TURN_RIVER_EARLY_WINDOW = 6
+TURN_RIVER_TURN_SCALE = 18.0
+TURN_DISCARD_FEATURE_DIM = 41
 TURN_ACTION_DIM = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + TURN_DISCARD_FEATURE_DIM
 RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "unknown")
 RESPONSE_CALL_FEATURE_DIM = 43
@@ -160,6 +163,7 @@ def build_turn_discard_feature_context(state: dict | None) -> dict | None:
         "counts": counts,
         "current_shanten": shanten_number_from_counts(tuple(counts)),
         "dora_bases": _dora_base_indices(state),
+        "discard_timing": _discard_timing_context(state),
     }
 
 
@@ -421,6 +425,7 @@ def encode_turn_discard_features(
     features[22] = 1.0 if after_shanten == 0 else 0.0
     features[23] = 1.0 if after_shanten < current_shanten else 0.0
     features[24] = 1.0 if after_shanten > current_shanten else 0.0
+    _fill_discard_timing_features(features, context["discard_timing"], base_index)
     dora_bases = context["dora_bases"]
     features[14] = min(1.0, (1.0 if base_index in AKA_BASE_INDICES else 0.0) + float(base_index in dora_bases))
     return features
@@ -984,6 +989,145 @@ def _visible_count(state: dict, base_index: int, include_hand: bool = True) -> i
             if tile is not None and tile_to_base_index(str(tile)) == base_index:
                 visible += 1
     return visible
+
+
+def _discard_timing_context(state: dict) -> dict[str, object]:
+    actor = int(state.get("actor", 0))
+    all_discards = state.get("all_discards", [])
+    player_discards = [
+        list(all_discards[player_index]) if player_index < len(all_discards) else []
+        for player_index in range(4)
+    ]
+    other_players = [player_index for player_index in range(4) if player_index != actor]
+    per_player = {
+        player_index: _player_discard_timing_summary(player_discards[player_index])
+        for player_index in range(4)
+    }
+    other_summary = _combined_discard_timing_summary(
+        [player_discards[player_index] for player_index in other_players]
+    )
+    own_summary = _combined_discard_timing_summary([player_discards[actor]])
+    relative_players = [((actor + offset) % 4) for offset in (1, 2, 3)]
+    return {
+        "own": own_summary,
+        "other": other_summary,
+        "per_player": per_player,
+        "relative_players": relative_players,
+    }
+
+
+def _player_discard_timing_summary(discards: list[str]) -> dict[int, dict[str, float | int]]:
+    summary: dict[int, dict[str, float | int]] = {}
+    for turn_index, tile in enumerate(discards, start=1):
+        base_index = tile_to_base_index(str(tile))
+        tile_summary = summary.setdefault(
+            base_index,
+            {
+                "count": 0,
+                "first_turn": turn_index,
+                "last_turn": turn_index,
+                "recent_count": 0,
+                "early_count": 0,
+            },
+        )
+        tile_summary["count"] = int(tile_summary["count"]) + 1
+        tile_summary["first_turn"] = min(int(tile_summary["first_turn"]), turn_index)
+        tile_summary["last_turn"] = max(int(tile_summary["last_turn"]), turn_index)
+        if turn_index <= TURN_RIVER_EARLY_WINDOW:
+            tile_summary["early_count"] = int(tile_summary["early_count"]) + 1
+
+    recent_start = max(1, len(discards) - TURN_RIVER_RECENT_WINDOW + 1)
+    for turn_index, tile in enumerate(discards, start=1):
+        if turn_index < recent_start:
+            continue
+        base_index = tile_to_base_index(str(tile))
+        summary[base_index]["recent_count"] = int(summary[base_index]["recent_count"]) + 1
+    return summary
+
+
+def _combined_discard_timing_summary(discard_rows: list[list[str]]) -> dict[int, dict[str, float | int]]:
+    combined: dict[int, dict[str, float | int]] = {}
+    for discards in discard_rows:
+        player_summary = _player_discard_timing_summary(discards)
+        for base_index, tile_summary in player_summary.items():
+            combined_summary = combined.setdefault(
+                base_index,
+                {
+                    "count": 0,
+                    "first_turn": int(tile_summary["first_turn"]),
+                    "last_turn": int(tile_summary["last_turn"]),
+                    "recent_count": 0,
+                    "early_count": 0,
+                    "players": 0,
+                    "recent_players": 0,
+                    "early_players": 0,
+                },
+            )
+            combined_summary["count"] = int(combined_summary["count"]) + int(tile_summary["count"])
+            combined_summary["first_turn"] = min(
+                int(combined_summary["first_turn"]),
+                int(tile_summary["first_turn"]),
+            )
+            combined_summary["last_turn"] = max(
+                int(combined_summary["last_turn"]),
+                int(tile_summary["last_turn"]),
+            )
+            combined_summary["recent_count"] = int(combined_summary["recent_count"]) + int(
+                tile_summary["recent_count"]
+            )
+            combined_summary["early_count"] = int(combined_summary["early_count"]) + int(
+                tile_summary["early_count"]
+            )
+            combined_summary["players"] = int(combined_summary["players"]) + 1
+            if int(tile_summary["recent_count"]) > 0:
+                combined_summary["recent_players"] = int(combined_summary["recent_players"]) + 1
+            if int(tile_summary["early_count"]) > 0:
+                combined_summary["early_players"] = int(combined_summary["early_players"]) + 1
+    return combined
+
+
+def _fill_discard_timing_features(
+    features: list[float],
+    timing_context: dict[str, object],
+    base_index: int,
+) -> None:
+    own_summary = timing_context["own"]
+    other_summary = timing_context["other"]
+    per_player = timing_context["per_player"]
+    relative_players = timing_context["relative_players"]
+    assert isinstance(own_summary, dict)
+    assert isinstance(other_summary, dict)
+    assert isinstance(per_player, dict)
+    assert isinstance(relative_players, list)
+
+    own_tile = own_summary.get(base_index, {})
+    other_tile = other_summary.get(base_index, {})
+    features[25] = _scaled_summary_count(own_tile, "count", 4.0)
+    features[26] = _scaled_summary_count(other_tile, "count", 4.0)
+    features[27] = _scaled_summary_count(other_tile, "players", 3.0)
+    features[28] = _scaled_summary_count(other_tile, "recent_players", 3.0)
+    features[29] = _scaled_summary_count(other_tile, "early_players", 3.0)
+    features[30] = _scaled_summary_turn(other_tile, "first_turn")
+    features[31] = _scaled_summary_turn(other_tile, "last_turn")
+    features[32] = 1.0 if int(other_tile.get("players", 0)) >= 3 else 0.0
+    features[33] = 1.0 if int(other_tile.get("players", 0)) >= 2 else 0.0
+    features[34] = 1.0 if int(other_tile.get("recent_players", 0)) > 0 else 0.0
+
+    for offset, player_index in enumerate(relative_players[:3]):
+        player_tile = per_player.get(player_index, {}).get(base_index, {})
+        features[35 + offset] = 1.0 if int(player_tile.get("count", 0)) > 0 else 0.0
+        features[38 + offset] = 1.0 if int(player_tile.get("recent_count", 0)) > 0 else 0.0
+
+
+def _scaled_summary_count(summary: dict, key: str, denominator: float) -> float:
+    return min(1.0, float(summary.get(key, 0)) / denominator)
+
+
+def _scaled_summary_turn(summary: dict, key: str) -> float:
+    turn = int(summary.get(key, 0))
+    if turn <= 0:
+        return 0.0
+    return min(1.0, float(turn) / TURN_RIVER_TURN_SCALE)
 
 
 def _is_suji_safe(state: dict, base_index: int) -> bool:

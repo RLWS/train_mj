@@ -43,6 +43,30 @@ python -m mjai.cli build-dataset --input data/bronze_events --output data/silver
 python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
 ```
 
+P800/Linux 上如果要从 `/workspace/dataset` 一步跑完整链路，可以直接用仓库根目录的 [start.sh](../start.sh)：
+
+```bash
+./start.sh
+```
+
+脚本默认执行：
+
+```text
+preprocess -> validate-events -> build-dataset -> make-manifest -> train turn/response -> eval turn/response
+```
+
+其中 `/workspace/dataset` 只作为原始 XML 输入目录，`bronze_events`、`silver_samples`、`manifests`、reports、checkpoints 和 logs 仍写到当前仓库的 `data/` 与 `outputs/` 下。常用开关如下：
+
+```bash
+TASKS=turn ./start.sh
+TASKS=response ./start.sh
+RUN_VALIDATE=0 ./start.sh
+RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
+```
+
+`TASKS` 只影响训练和对应 eval，默认 `turn response` 都运行。`RUN_VALIDATE=0` 会跳过独立 validation report；如果同时保持 `SKIP_BUILD_VALIDATION=0`，`build-dataset` 仍会在构建样本前做内部回放校验。
+
 这里推荐先单独跑 `validate-events`，确认 `files_failed=0` 后，再在 `build-dataset` 使用 `--skip-validation`，避免同一批事件在构建样本时重复回放校验。`build-dataset` 现在会输出 `elapsed_s`、`games_per_s` 和 `samples_per_s`，可以直接用来判断构建吞吐。
 
 当前 `silver_samples` parquet 会写入离线预编码的 `state_features_bin` 和 `candidate_features_bin`。`turn` 的 discard hand-shape 特征，包括向听数、有效牌数量等 CPU 密集计算，已经从训练期 DataLoader 移到 `build-dataset` 阶段。更新到这个 schema 后，旧的 `data/silver_samples` 需要删除或覆盖后重新生成，并重新执行 `make-manifest`。
@@ -363,7 +387,7 @@ python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_local_smok
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。
 
-注意：response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `candidate_features_bin` 的维度会和当前模型不匹配。
+注意：turn 候选动作特征已经包含 discard 后向听、有效牌和牌河时序；response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `candidate_features_bin` 的维度会和当前模型不匹配。
 
 如果你再多走一步，把评估也跑上：
 

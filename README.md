@@ -19,7 +19,7 @@
 - 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠，且 `kakan` 响应窗口已收紧为只暴露 `pass / ron / chankan`。
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
-- 当前测试基线为 `pytest` 全量通过，结果是 `100 passed`。
+- 当前测试基线为 `pytest` 全量通过，结果是 `101 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
   - `6281` 条事件写入 `bronze_events`
@@ -32,6 +32,18 @@
 - `serving/` 仍基本是骨架或占位；`features/`、`models/`、`training/`、`eval/` 已有最小 `turn/response` baseline 实现。
 
 ## 当前可用命令
+
+P800/Linux 上可以直接用仓库根目录的 [start.sh](start.sh) 串起完整链路。默认读取 `/workspace/dataset`，其余产物仍写入当前仓库下的 `data/` 和 `outputs/`：
+
+```bash
+./start.sh
+TASKS=turn ./start.sh
+TASKS=response ./start.sh
+RUN_VALIDATE=0 ./start.sh
+RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+```
+
+`TASKS` 控制训练和对应评估的任务，默认是 `turn response` 全跑；`RUN_VALIDATE=0` 只跳过独立 `validate-events` 报告，`build-dataset` 是否跳过内部回放校验仍由 `SKIP_BUILD_VALIDATION` 控制。
 
 ```bash
 python -m mjai.cli preprocess --input <raw_xml_dir> --output <bronze_events_dir>
@@ -66,7 +78,7 @@ pytest
 
 训练性能说明：
 
-- `build-dataset` 会在写出 parquet 时离线预编码 `state_features_bin` 和 `candidate_features_bin`，包括 `turn` discard 的向听数、有效牌等候选特征；训练和评估阶段只做 float32 binary 到 tensor 的拷贝，不再在每个 epoch 的 DataLoader worker 中重复计算这些规则特征。
+- `build-dataset` 会在写出 parquet 时离线预编码 `state_features_bin` 和 `candidate_features_bin`，包括 `turn` discard 的向听数、有效牌、牌河时序等候选特征；训练和评估阶段只做 float32 binary 到 tensor 的拷贝，不再在每个 epoch 的 DataLoader worker 中重复计算这些规则特征。
 - 这次样本 schema 已更新，旧的 `data/silver_samples` parquet 不能继续用于训练；变更后需要重新执行 `build-dataset` 和 `make-manifest`。
 - Windows 本地 smoke 配置默认使用 `train.num_workers: 0`，避免 spawn worker 复制整份内存数据集；Linux/P800 可以继续通过配置提高 `num_workers`，但应以训练日志里的 `data_wait` 和 `samples_per_s` 判断是否真的收益。
 - 训练过程会按 `train.log_every_n_steps` 输出 batch 进度日志，包含 `batch/total`、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA；其中 `data_wait` 用于定位 DataLoader 或 batch collation 是否仍是瓶颈。
