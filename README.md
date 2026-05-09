@@ -19,7 +19,7 @@
 - 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠，且 `kakan` 响应窗口已收紧为只暴露 `pass / ron / chankan`。
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
-- 当前测试基线为 `pytest` 全量通过，结果是 `97 passed`。
+- 当前测试基线为 `pytest` 全量通过，结果是 `100 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
   - `6281` 条事件写入 `bronze_events`
@@ -41,6 +41,8 @@ python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
 python -m mjai.cli train --config <train_config_yaml>
 python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
 python -m mjai.cli calibrate-response --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --report <calibration_report_json>
+python -m mjai.cli sample-response-errors --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <response_errors_jsonl>
+python -m mjai.cli sample-turn-errors --ckpt <turn_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <turn_errors_jsonl>
 python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
 python -m mjai.cli inspect-sample --dataset <samples_dir> --sample-id <sample_id>
 python -m mjai.cli dump-case --game-id <game_id> --kyoku-id <kyoku_index> --step-id <step_index>
@@ -56,6 +58,8 @@ pytest
 - `train` 当前支持最小 `turn/response` baseline，可通过 `train.turn_class_weights` / `train.response_class_weights` 做样本级类别加权，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
 - `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、`macro top-k`、按动作类别聚合指标、主类/非主类分组、候选规模分桶和错例导出，并生成 JSON 报告。
 - `calibrate-response` 会固定 response checkpoint 扫描 pass/call score margin，为指定 false call 目标选择 non-pass F1 最好的推理 operating point。
+- `sample-response-errors` 会重新跑 response manifest 推理，并按 `label->pred` confusion 分桶做 reservoir sampling。
+- `sample-turn-errors` 会重新跑 turn manifest 推理，并按 label kind 与 label rank 分桶做 reservoir sampling；默认抽 `discard` 的 `rank=2/3` 样本。
 - `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引或 `sample_id` 抽查样本。
 - `dump-case` 当前支持从 `bronze_events` 中定位目标决策点的原始事件上下文。
 - `replay-eval`、`infer-on-state` 仍未实装。
@@ -86,4 +90,4 @@ pytest
 
 1. 规范 run 归档：本轮 `runs/2026-05-06_p800_baseline/` 已补齐 preprocess、validation、build、manifest 摘要并能对齐 checkpoint 样本数；后续把非法标签复核、配置、日志和 eval report 也统一放到同一轮记录里。
 2. 用 `calibrate-response` 跑 response pass/call 校准报告，再做错例抽样；目标是控制 false call 绝对量，同时观察 `chi/pon` recall 和 `non_pass_f1`。
-3. 做 turn discard top-k 错例聚合，再按证据补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、点况等特征。
+3. 用 `sample-turn-errors` 抽 turn discard 的 `rank=2/3` top-k 错例，再按证据补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、点况等特征。

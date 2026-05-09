@@ -330,6 +330,16 @@ python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_lo
 
 输出是 JSONL，每行一条样本，包含 `sample_id`、`confusion`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。
 
+### turn discard top-k 错例抽样
+
+需要看 turn 模型“差一点排对”的 discard 样本时，用 `sample-turn-errors` 重新跑全量 manifest 推理，并按 label kind 与 label rank 分桶抽样：
+
+```powershell
+python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/turn_local_smoke/turn_discard_rank23_valid.jsonl --label-kinds discard --ranks 2,3 --per-rank 100
+```
+
+`--label-kinds` 默认是 `discard`，`--ranks` 默认是 `2,3`，所以生产分析时通常可以省略这两个参数。输出是 JSONL，每行包含 `sample_id`、`target`（例如 `discard@rank2`）、`label_rank`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。
+
 ## 10. 一套建议你自己手动跑的完整命令
 
 如果你就是想完整熟悉当前项目，建议按下面顺序走一遍：
@@ -348,6 +358,7 @@ python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-i
 python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --report outputs/checkpoints/response_local_smoke/eval_valid.json
 python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json
 python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
+python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/turn_local_smoke/turn_discard_rank23_valid.jsonl
 ```
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。

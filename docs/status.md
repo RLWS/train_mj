@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `100 passed`；新增 response 役路/可见牌特征后，`python -m compileall -q mjai tests` 和 `tests/test_train_smoke.py::test_eval_response_smoke_from_generated_checkpoint` 已通过。
+- `pytest` 全量通过，当前结果为 `100 passed`；本轮新增 `sample-turn-errors` 后，`tests/test_train_smoke.py` 和全量 `pytest` 已通过。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -57,6 +57,7 @@
 - response 评估报告已补充 response 专用诊断：`single_candidate` / `multi_candidate`、`pass` vs `non_pass` precision / recall / F1、`false_call_rate`、`missed_call_rate`、候选集合聚合与 `label->pred` confusion。
 - `python -m mjai.cli calibrate-response --ckpt <response_ckpt> --split valid --manifest <manifest> --report <report>` 可运行；它会扫描 pass/call score margin，并为 `false_call_rate <= 0.010 / 0.008 / 0.005` 等目标选择 `non_pass_f1` 最好的 operating point。
 - `python -m mjai.cli sample-response-errors --ckpt <response_ckpt> --split valid --manifest <manifest> --output <jsonl>` 可运行；它会按 `label->pred` confusion 分桶做 reservoir sampling，默认目标为 `pass->chi / pass->pon / chi->pass / pon->pass`，`--seed` 默认继承 checkpoint 全局 `seed`。
+- `python -m mjai.cli sample-turn-errors --ckpt <turn_ckpt> --split valid --manifest <manifest> --output <jsonl>` 可运行；它会按 label kind 与 label rank 分桶做 reservoir sampling，默认抽 `discard@rank2` 与 `discard@rank3`，用于 turn top-k 错例分析。
 - 2026-05-03 response action feature 增强后复训已完成并记录在 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：训练过滤后保留 `141423 / 1490034` 条 response 训练样本；最新 `best.pt` 在 valid/test 上分别达到 `multi_candidate top1=0.8521/0.8502`、`multi_candidate macro top1=0.7882/0.8697`、`non_pass_f1=0.7215/0.7189`、`false_call_rate=0.0111/0.0111`、`missed_call_rate=0.1425/0.1466`。
 - 2026-05-06 P800 大数据单任务 baseline 已完成，训练产物位于 `outputs/checkpoints/turn_p800`、`outputs/checkpoints/response_p800`，分析记录见 [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md) 第 10 节。
   - `turn_p800/best.pt`：train `83077288` 条、valid `10404270` 条、test `10393095` 条；test `top1=0.7008`、`top3=0.9446`、`top5=0.9853`、`macro_top1=0.9134`，其中 `discard top1=0.6958`、`riichi_discard top1=0.8534`。
@@ -137,15 +138,16 @@
   - response checkpoint 额外输出 `candidate_count > 1` 子集、pass/non-pass 二分类、false call / missed call 和候选集合维度指标；turn checkpoint 的 `response` 诊断字段为 `null`。
   - 已新增 response pass/call 校准扫描：固定 checkpoint，在一组 `pass_bias` 下输出 false call、missed call、non-pass precision/recall/F1、multi-candidate top1 和按动作类别 top1，并按 false call 目标挑选 operating point。
   - 已新增 response 错例抽样命令：重新跑 manifest 推理后按 `label->pred` confusion 抽样，避免误用 `eval.misclassified_examples` 里默认最多 `10` 条的调试样本。
+  - 已新增 turn top-k 错例抽样命令：重新跑 manifest 推理后按 label kind 与 label rank 抽样，默认目标为 `discard@rank2` 与 `discard@rank3`。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
-  - `turn/response` smoke train、offline eval、response 错例抽样、`inspect-sample` 与 `dump-case` 都有回归测试。
+  - `turn/response` smoke train、offline eval、response/turn 错例抽样、`inspect-sample` 与 `dump-case` 都有回归测试。
 
 ### 部分完成
 
 - `mjai/cli.py`
   - 子命令框架完整。
-  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`calibrate-response`、`inspect-sample`、`dump-case` 已可用。
+  - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`calibrate-response`、`sample-response-errors`、`sample-turn-errors`、`inspect-sample`、`dump-case` 已可用。
   - `replay-eval`、`infer-on-state` 仍是占位实现。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
@@ -282,6 +284,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 建议范围：
 
 1. 以 `turn_p800/best.pt` 为基线，优先抽 label rank 为 `2/3` 的 discard 错例
+   - 命令：`python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/turn_discard_rank23_valid.jsonl --label-kinds discard --ranks 2,3 --per-rank 100`
 2. 按候选牌、向听变化、有效牌变化、dora/赤、危险度、局面阶段和点况聚合
 3. 先补特征再考虑复杂模型，重点是牌河时序、摸切/手出、对手威胁、候选弃牌安全性、dora/赤损失、点况和剩余巡目
 4. 每组特征单独复跑，观察 `discard top1` 是否提升，同时 `top3` 基本稳定

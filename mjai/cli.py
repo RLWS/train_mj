@@ -16,6 +16,11 @@ from mjai.eval.response_error_sampling import (
     DEFAULT_RESPONSE_ERROR_TARGETS,
     sample_response_errors,
 )
+from mjai.eval.turn_error_sampling import (
+    DEFAULT_TURN_ERROR_LABEL_KINDS,
+    DEFAULT_TURN_ERROR_RANKS,
+    sample_turn_errors,
+)
 from mjai.training.engine import train_turn_model
 from mjai.utils.config import load_resolved_yaml, load_yaml
 
@@ -374,6 +379,38 @@ def _run_sample_response_errors(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sample_turn_errors(args: argparse.Namespace) -> int:
+    config_override = _load_optional_config(getattr(args, "config", None))
+    label_kinds = _parse_string_list(args.label_kinds, option_name="--label-kinds")
+    ranks = _parse_int_list(args.ranks, option_name="--ranks")
+    summary = sample_turn_errors(
+        ckpt_path=args.ckpt,
+        split=args.split,
+        output_path=args.output,
+        label_kinds=label_kinds,
+        ranks=ranks,
+        per_rank=int(args.per_rank),
+        seed=getattr(args, "seed", None),
+        config_override=config_override,
+        manifest_path=getattr(args, "manifest", None),
+        progress_callback=_print_turn_error_sampling_progress,
+        progress_every_n_batches=max(0, int(args.log_every_n_batches)),
+    )
+    print(
+        f"sampled turn errors task={summary.task} split={summary.split} "
+        f"samples={summary.samples_seen} seed={summary.seed} device={summary.used_device}"
+    )
+    print(f"manifest={summary.manifest_path}")
+    print(f"output={summary.output_path}")
+    target_summary = ", ".join(
+        f"{target}:seen={summary.matches_seen.get(target, 0)} "
+        f"sampled={summary.sampled_counts.get(target, 0)}"
+        for target in summary.targets
+    )
+    print(f"turn_error_samples={target_summary}")
+    return 0
+
+
 def _run_inspect_sample(args: argparse.Namespace) -> int:
     """运行与函数名对应的处理流程。
     
@@ -473,6 +510,19 @@ def _print_response_error_sampling_progress(
     )
 
 
+def _print_turn_error_sampling_progress(
+    batch_index: int,
+    total_batches: int,
+    samples_processed: int,
+) -> None:
+    print(
+        "turn_error_sampling_progress="
+        f"batch={batch_index}/{total_batches} "
+        f"samples={samples_processed}",
+        flush=True,
+    )
+
+
 def _parse_float_list(raw_value: str, *, option_name: str) -> list[float]:
     """解析输入数据并返回结构化结果。
     
@@ -535,6 +585,21 @@ def _parse_rate_list(raw_value: str, *, option_name: str) -> list[float]:
 
 def _parse_string_list(raw_value: str, *, option_name: str) -> list[str]:
     values = [item.strip() for item in raw_value.split(",") if item.strip()]
+    if not values:
+        raise ValueError(f"{option_name} requires at least one value")
+    return values
+
+
+def _parse_int_list(raw_value: str, *, option_name: str) -> list[int]:
+    values: list[int] = []
+    for item in raw_value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            values.append(int(item))
+        except ValueError as exc:
+            raise ValueError(f"{option_name} contains a non-integer value: {item}") from exc
     if not values:
         raise ValueError(f"{option_name} requires at least one value")
     return values
@@ -681,6 +746,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_config_arg(sample_response_errors_parser)
 
+    sample_turn_errors_parser = subparsers.add_parser(
+        "sample-turn-errors",
+        help="Sample turn eval errors by label kind and label rank.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--ckpt",
+        required=True,
+        help="Turn checkpoint path.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--split",
+        default="valid",
+        choices=["train", "valid", "test"],
+    )
+    sample_turn_errors_parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Optional manifest override for the selected split.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--output",
+        required=True,
+        help="Output JSONL path for sampled turn error cases.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--label-kinds",
+        default=",".join(DEFAULT_TURN_ERROR_LABEL_KINDS),
+        help="Comma-separated turn label kinds to sample.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--ranks",
+        default=",".join(str(rank) for rank in DEFAULT_TURN_ERROR_RANKS),
+        help="Comma-separated 1-based label ranks to sample.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--per-rank",
+        type=int,
+        default=100,
+        help="Number of examples to sample per label-kind/rank bucket.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Reservoir sampling seed. Defaults to the checkpoint config seed.",
+    )
+    sample_turn_errors_parser.add_argument(
+        "--log-every-n-batches",
+        type=int,
+        default=100,
+        help="Print sampling progress every N batches; use 0 to disable.",
+    )
+    _add_config_arg(sample_turn_errors_parser)
+
     replay_eval = subparsers.add_parser("replay-eval", help="Run fixed-game replay evaluation.")
     replay_eval.add_argument("--ckpt", required=True, help="Checkpoint path.")
     replay_eval.add_argument("--games", required=True, help="Game manifest or case list.")
@@ -747,6 +866,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_calibrate_response(args)
     if args.command == "sample-response-errors":
         return _run_sample_response_errors(args)
+    if args.command == "sample-turn-errors":
+        return _run_sample_turn_errors(args)
     if args.command == "inspect-sample":
         return _run_inspect_sample(args)
     if args.command == "dump-case":

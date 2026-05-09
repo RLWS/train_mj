@@ -318,6 +318,7 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
     log_dir = tmp_path / "outputs" / "logs" / "turn_eval_test"
     config_path = tmp_path / "turn_eval.yaml"
     report_path = tmp_path / "reports" / "turn_valid_eval.json"
+    error_samples_path = tmp_path / "reports" / "turn_error_samples.jsonl"
     config_path.write_text(
         "\n".join(
             [
@@ -366,6 +367,27 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
             str(report_path),
         ]
     ) == 0
+    assert main(
+        [
+            "sample-turn-errors",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--split",
+            "valid",
+            "--manifest",
+            str(valid_manifest),
+            "--output",
+            str(error_samples_path),
+            "--label-kinds",
+            "discard",
+            "--ranks",
+            "1,2,3",
+            "--per-rank",
+            "2",
+            "--log-every-n-batches",
+            "0",
+        ]
+    ) == 0
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["task"] == "turn"
@@ -385,6 +407,20 @@ def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
         assert example["sample_locator"]["sample_id"] == example["sample_id"]
         assert "inspect-sample --dataset" in example["inspect_locator"]["inspect_sample_command"]
         assert "dump-case --bronze-dir" in example["case_locator"]["dump_case_command"]
+
+    sampled_errors = [
+        json.loads(line)
+        for line in error_samples_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert sampled_errors
+    first_error = sampled_errors[0]
+    assert "sample_id" in first_error
+    assert first_error["label_kind"] == "discard"
+    assert first_error["target"] == f"discard@rank{first_error['label_rank']}"
+    assert first_error["label_rank"] in {1, 2, 3}
+    assert "inspect-sample --dataset" in first_error["inspect_sample_command"]
+    assert "dump-case --bronze-dir" in first_error["dump_case_command"]
 
 
 def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
