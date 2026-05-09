@@ -16,7 +16,7 @@ TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "ky
 TURN_DISCARD_FEATURE_DIM = 25
 TURN_ACTION_DIM = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + TURN_DISCARD_FEATURE_DIM
 RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "unknown")
-RESPONSE_CALL_FEATURE_DIM = 29
+RESPONSE_CALL_FEATURE_DIM = 43
 RESPONSE_ACTION_DIM = (
     len(RESPONSE_ACTION_KINDS)
     + len(EXACT_TILE_VOCAB)
@@ -179,14 +179,24 @@ def build_response_call_feature_context(state: dict | None) -> dict | None:
         return None
     counts = _hand_counts_from_state(state)
     current_effective_tiles = effective_tile_base_indices_from_counts(tuple(counts))
+    current_visible_effective_tile_copies = _visible_effective_tile_copies(
+        state,
+        counts,
+        current_effective_tiles,
+    )
     # Shared once per response sample. Candidate-specific encoding only mutates
     # a copy for the call being evaluated.
     return {
         "counts": counts,
         "current_shanten": shanten_number_from_counts(tuple(counts)),
+        "current_chiitoitsu_shanten": _chiitoitsu_shanten_from_counts(tuple(counts)),
+        "current_kokushi_shanten": _kokushi_shanten_from_counts(tuple(counts)),
         "current_effective_tiles": current_effective_tiles,
         "current_effective_tile_copies": _effective_tile_copies(counts, current_effective_tiles),
+        "current_visible_effective_tile_copies": current_visible_effective_tile_copies,
         "dora_bases": _dora_base_indices(state),
+        "has_any_melds": bool(state.get("own_melds", [])),
+        "has_open_melds": _has_open_melds(state),
     }
 
 
@@ -220,9 +230,15 @@ def encode_response_call_features(
     current_shanten = int(context["current_shanten"])
     current_effective_tiles = context["current_effective_tiles"]
     current_effective_tile_copies = int(context["current_effective_tile_copies"])
+    current_visible_effective_tile_copies = int(context["current_visible_effective_tile_copies"])
+    current_chiitoitsu_shanten = int(context["current_chiitoitsu_shanten"])
+    current_kokushi_shanten = int(context["current_kokushi_shanten"])
+    has_any_melds = bool(context["has_any_melds"])
+    has_open_melds = bool(context["has_open_melds"])
     target_tile = action.get("tile") or state.get("response_target", {}).get("tile")
     target_base = tile_to_base_index(str(target_tile)) if target_tile is not None else None
     consumed_tiles = [str(tile) for tile in action.get("consumed_tiles", [])]
+    consumed_bases = [tile_to_base_index(tile) for tile in consumed_tiles]
     dora_bases = context["dora_bases"]
 
     after_counts = list(counts)
@@ -244,12 +260,49 @@ def encode_response_call_features(
             fixed_melds_after_call,
         )
         after_effective_tile_copies = _effective_tile_copies(after_counts, after_effective_tiles)
+        after_visible_effective_tile_copies = _visible_effective_tile_copies(
+            state,
+            after_counts,
+            after_effective_tiles,
+            extra_visible_bases=consumed_bases,
+        )
         after_shape = _shape_summary(after_counts)
     else:
         after_shanten = current_shanten
         after_effective_tiles = current_effective_tiles
         after_effective_tile_copies = current_effective_tile_copies
+        after_visible_effective_tile_copies = current_visible_effective_tile_copies
         after_shape = _shape_summary(after_counts)
+
+    opens_closed_hand = call_is_valid and not has_open_melds
+    after_hand_is_open = call_is_valid and (has_open_melds or opens_closed_hand)
+    yaku_routes = _open_yaku_route_summary(
+        state=state,
+        kind=kind,
+        target_base=target_base,
+        consumed_bases=consumed_bases,
+        after_counts=after_counts,
+    )
+    has_obvious_open_yaku_route = any(yaku_routes.values())
+    no_obvious_open_yaku = after_hand_is_open and not has_obvious_open_yaku_route
+    chiitoitsu_route_active = (
+        call_is_valid
+        and not has_any_melds
+        and current_chiitoitsu_shanten <= 2
+        and current_chiitoitsu_shanten == current_shanten
+    )
+    kokushi_route_active = (
+        call_is_valid
+        and not has_any_melds
+        and current_kokushi_shanten <= 2
+        and current_kokushi_shanten == current_shanten
+    )
+    special_route_better_than_open = (
+        call_is_valid
+        and not has_any_melds
+        and min(current_chiitoitsu_shanten, current_kokushi_shanten) <= 2
+        and min(current_chiitoitsu_shanten, current_kokushi_shanten) < after_shanten
+    )
 
     features[0] = 1.0 if action_is_call else 0.0
     features[1] = 1.0 if call_is_valid else 0.0
@@ -280,6 +333,23 @@ def encode_response_call_features(
     features[26] = min(1.0, after_shape["isolated"] / 14.0)
     features[27] = min(1.0, float(state.get("turn_number", 0)) / 18.0)
     features[28] = min(1.0, float(state.get("remaining_draws_estimate", 0)) / 18.0)
+    features[29] = min(1.0, current_visible_effective_tile_copies / 136.0)
+    features[30] = min(1.0, after_visible_effective_tile_copies / 136.0)
+    features[31] = _scale_delta(
+        after_visible_effective_tile_copies - current_visible_effective_tile_copies,
+        136.0,
+    )
+    features[32] = 1.0 if opens_closed_hand else 0.0
+    features[33] = 1.0 if after_hand_is_open else 0.0
+    features[34] = 1.0 if call_is_valid and yaku_routes["yakuhai"] else 0.0
+    features[35] = 1.0 if call_is_valid and yaku_routes["tanyao"] else 0.0
+    features[36] = 1.0 if call_is_valid and yaku_routes["flush"] else 0.0
+    features[37] = 1.0 if call_is_valid and yaku_routes["toitoi"] else 0.0
+    features[38] = 1.0 if no_obvious_open_yaku else 0.0
+    features[39] = _scale_shanten(current_chiitoitsu_shanten)
+    features[40] = 1.0 if chiitoitsu_route_active else 0.0
+    features[41] = _scale_shanten(current_kokushi_shanten)
+    features[42] = 1.0 if kokushi_route_active or special_route_better_than_open else 0.0
     return features
 
 
@@ -427,6 +497,185 @@ def _effective_tile_copies(counts: list[int], effective_tiles) -> int:
         无。
     """
     return sum(max(0, 4 - counts[index]) for index in effective_tiles)
+
+
+def _visible_effective_tile_copies(
+    state: dict,
+    counts: list[int],
+    effective_tiles,
+    extra_visible_bases: list[int] | None = None,
+) -> int:
+    """按当前可见牌修正有效牌枚数。"""
+    extra_visible_bases = extra_visible_bases or []
+    return sum(
+        max(0, 4 - _visible_base_count_with_hand_counts(state, counts, index, extra_visible_bases))
+        for index in effective_tiles
+    )
+
+
+def _visible_base_count_with_hand_counts(
+    state: dict,
+    hand_counts: list[int],
+    base_index: int,
+    extra_visible_bases: list[int],
+) -> int:
+    """统计某 base tile 已知不可摸的张数。"""
+    visible = int(hand_counts[base_index])
+
+    for player_discards in state.get("all_discards", []):
+        for tile in player_discards:
+            if tile_to_base_index(str(tile)) == base_index:
+                visible += 1
+
+    for meld in _visible_melds(state):
+        for tile in _meld_visible_tiles(meld):
+            if tile_to_base_index(tile) == base_index:
+                visible += 1
+
+    for tile in state.get("dora_indicators", []):
+        if tile_to_base_index(str(tile)) == base_index:
+            visible += 1
+
+    visible += sum(1 for extra_base in extra_visible_bases if extra_base == base_index)
+    return min(4, visible)
+
+
+def _open_yaku_route_summary(
+    *,
+    state: dict,
+    kind: str,
+    target_base: int | None,
+    consumed_bases: list[int],
+    after_counts: list[int],
+) -> dict[str, bool]:
+    """粗粒度判断开副露后是否存在明显役路。"""
+    candidate_bases = ([target_base] if target_base is not None else []) + list(consumed_bases)
+    own_melds = list(state.get("own_melds", []))
+    meld_tile_bases = _existing_meld_tile_bases(own_melds) + candidate_bases
+    triplet_meld_bases = _triplet_meld_bases(own_melds)
+    if kind in {"pon", "daiminkan"} and target_base is not None:
+        triplet_meld_bases.append(target_base)
+
+    return {
+        "yakuhai": _has_yakuhai_route(state, after_counts, triplet_meld_bases),
+        "tanyao": _has_tanyao_route(after_counts, meld_tile_bases),
+        "flush": _has_flush_route(after_counts, meld_tile_bases),
+        "toitoi": _has_toitoi_route(kind, state, after_counts, triplet_meld_bases),
+    }
+
+
+def _has_yakuhai_route(
+    state: dict,
+    after_counts: list[int],
+    triplet_meld_bases: list[int],
+) -> bool:
+    if any(_is_yakuhai(state, base_index) for base_index in triplet_meld_bases):
+        return True
+    for base_index in range(27, 34):
+        if _is_yakuhai(state, base_index) and after_counts[base_index] >= 2:
+            return True
+    return False
+
+
+def _has_tanyao_route(after_counts: list[int], meld_tile_bases: list[int]) -> bool:
+    for base_index, count in enumerate(after_counts):
+        if count > 0 and not _is_simple(base_index):
+            return False
+    return all(_is_simple(base_index) for base_index in meld_tile_bases)
+
+
+def _has_flush_route(after_counts: list[int], meld_tile_bases: list[int]) -> bool:
+    suits = {
+        _tile_suit_index(base_index)
+        for base_index in _base_indices_from_counts(after_counts) + list(meld_tile_bases)
+        if base_index < 27
+    }
+    return len(suits) == 1
+
+
+def _has_toitoi_route(
+    kind: str,
+    state: dict,
+    after_counts: list[int],
+    triplet_meld_bases: list[int],
+) -> bool:
+    if kind == "chi" or any(str(meld.get("kind")) == "chi" for meld in state.get("own_melds", [])):
+        return False
+    if not triplet_meld_bases:
+        return False
+    pair_like = sum(1 for count in after_counts if count >= 2)
+    concealed_triplets = sum(1 for count in after_counts if count >= 3)
+    return len(triplet_meld_bases) + concealed_triplets >= 2 or pair_like >= 3
+
+
+def _existing_meld_tile_bases(melds: list[dict]) -> list[int]:
+    bases: list[int] = []
+    for meld in melds:
+        bases.extend(tile_to_base_index(tile) for tile in _meld_tiles(meld))
+    return bases
+
+
+def _triplet_meld_bases(melds: list[dict]) -> list[int]:
+    bases: list[int] = []
+    for meld in melds:
+        kind = str(meld.get("kind", ""))
+        if kind not in {"pon", "daiminkan", "ankan", "kakan"}:
+            continue
+        tiles = _meld_tiles(meld)
+        if not tiles:
+            continue
+        bases.append(tile_to_base_index(tiles[0]))
+    return bases
+
+
+def _meld_tiles(meld: dict) -> list[str]:
+    tiles: list[str] = []
+    called_tile = meld.get("called_tile")
+    if called_tile is not None:
+        tiles.append(str(called_tile))
+    tiles.extend(str(tile) for tile in meld.get("consumed_tiles", []))
+    return tiles
+
+
+def _meld_visible_tiles(meld: dict) -> list[str]:
+    kind = str(meld.get("kind", ""))
+    if kind == "ankan":
+        return _meld_tiles(meld)
+    return [str(tile) for tile in meld.get("consumed_tiles", [])]
+
+
+def _visible_melds(state: dict):
+    for player_melds in state["all_melds"]:
+        yield from player_melds
+
+
+def _base_indices_from_counts(counts: list[int]) -> list[int]:
+    return [base_index for base_index, count in enumerate(counts) for _ in range(int(count))]
+
+
+def _is_simple(base_index: int) -> bool:
+    return base_index < 27 and base_index % 9 not in {0, 8}
+
+
+def _tile_suit_index(base_index: int) -> int:
+    return base_index // 9
+
+
+def _has_open_melds(state: dict) -> bool:
+    return any(str(meld.get("kind")) in {"chi", "pon", "daiminkan", "kakan"} for meld in state.get("own_melds", []))
+
+
+def _chiitoitsu_shanten_from_counts(counts: tuple[int, ...]) -> int:
+    pair_count = sum(1 for count in counts if count >= 2)
+    unique_count = sum(1 for count in counts if count > 0)
+    return 6 - pair_count + max(0, 7 - unique_count)
+
+
+def _kokushi_shanten_from_counts(counts: tuple[int, ...]) -> int:
+    terminals = {0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33}
+    unique_terminals = sum(1 for index in terminals if counts[index] > 0)
+    has_terminal_pair = any(counts[index] >= 2 for index in terminals)
+    return 13 - unique_terminals - int(has_terminal_pair)
 
 
 def _scale_delta(value: int | float, denominator: float) -> float:

@@ -105,6 +105,19 @@ def test_response_samples_include_non_pass_labels():
     assert non_pass
 
 
+def test_response_sample_state_includes_all_melds_after_open_call():
+    """验证响应样本状态包含四家副露快照。"""
+    parser = TenhouParser()
+    builder = ResponseSampleBuilder()
+    path = FIXTURE_DIR / "2023010100gm-00e1-0000-8a80056a.xml"
+
+    samples = builder.build_samples(parser.parse_file(path))
+    sample_after_meld = next(sample for sample in samples if any(sample.state["all_melds"]))
+
+    assert len(sample_after_meld.state["all_melds"]) == 4
+    assert any(meld for player_melds in sample_after_meld.state["all_melds"] for meld in player_melds)
+
+
 def test_response_samples_include_ron_labels_on_real_fixtures():
     """验证真实夹具构建的响应样本包含荣和标签。
     

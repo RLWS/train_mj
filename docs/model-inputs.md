@@ -1,6 +1,6 @@
 # 模型输入特征说明
 
-更新时间：`2026-05-03`
+更新时间：`2026-05-09`
 
 本文记录当前 `turn` / `response` policy 模型实际吃到的输入张量、维度和每个维度的语义。这里描述的是 `build-dataset` 写入 `silver_samples` 后，训练和评估阶段从 parquet 读取的离线预编码特征。
 
@@ -11,7 +11,7 @@
 | 任务 | `state_feats` | `candidate_feats` | `candidate_mask` | `labels` |
 |---|---:|---:|---:|---:|
 | `turn` | `[B, 293]` | `[B, C, 69]` | `[B, C]` | `[B]` |
-| `response` | `[B, 336]` | `[B, C, 77]` | `[B, C]` | `[B]` |
+| `response` | `[B, 336]` | `[B, C, 91]` | `[B, C]` | `[B]` |
 
 含义：
 
@@ -141,16 +141,16 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 | `23` | 弃牌后是否进向听，`after_shanten < current_shanten` |
 | `24` | 弃牌后是否退向听，`after_shanten > current_shanten` |
 
-## 6. `response` candidate action，77 维
+## 6. `response` candidate action，91 维
 
-`RESPONSE_ACTION_DIM = 77`。
+`RESPONSE_ACTION_DIM = 91`。
 
 | 范围 | 维度 | 语义 |
 |---:|---:|---|
 | `0..6` | 7 | 动作类型 one-hot |
 | `7..43` | 37 | `action.tile` exact tile one-hot |
 | `44..47` | 4 | `action.source` actor one-hot；没有 source 时全 0 |
-| `48..76` | 29 | response call/context 候选特征 |
+| `48..90` | 43 | response call/context 候选特征 |
 
 动作类型顺序：
 
@@ -158,7 +158,7 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 pass, chi, pon, daiminkan, ron, chankan, unknown
 ```
 
-### 6.1 response call/context 特征，29 维
+### 6.1 response call/context 特征，43 维
 
 以下索引是相对于 call/context block 的局部索引；全局维度为 `48 + index`。
 
@@ -193,8 +193,24 @@ pass, chi, pon, daiminkan, ron, chankan, unknown
 | `26` | call 后孤张数，`isolated / 14` |
 | `27` | 巡目，`turn_number / 18`，截断到 `1.0` |
 | `28` | 估计剩余摸牌数，`remaining_draws_estimate / 18`，截断到 `1.0` |
+| `29` | 当前有效牌枚数，按手牌、牌河、四家副露、宝牌指示牌等可见牌修正后除以 `136` |
+| `30` | call 后有效牌枚数，按可见牌和本次消耗牌修正后除以 `136` |
+| `31` | 可见牌修正后的有效牌枚数变化，`(after - current) / 136`，范围截断到 `[-1, 1]` |
+| `32` | 本次 call 是否会从门清变为副露 |
+| `33` | call 后手牌是否处于副露状态 |
+| `34` | call 后是否有明显役牌路线，包括已有/本次役牌刻子，或手内役牌对子候选 |
+| `35` | call 后是否仍可能断幺路线 |
+| `36` | call 后是否有明显染手路线，手牌与副露的数牌只落在一种花色 |
+| `37` | call 后是否有明显对对和路线，粗略使用刻子副露、暗刻和对子数量判断 |
+| `38` | call 后是否没有明显开副露役路，即无役风险启发式 |
+| `39` | 当前七对子向听数，`chiitoitsu_shanten / 6`，范围截断到 `[-1, 1]` |
+| `40` | 当前七对子路线是否活跃且本次 call 会破坏门清七对子路线 |
+| `41` | 当前国士向听数，`kokushi_shanten / 6`，范围截断到 `[-1, 1]` |
+| `42` | 当前国士路线活跃或特殊闭门路线明显优于 call 后标准形时置位 |
 
 对 `pass / ron / chankan`，call 专属标志一般为 0；但当前向听、有效牌、目标牌属性、形状摘要和巡目信息仍会被填充，用于让模型在同一候选集合内比较 `pass/ron/chankan` 和 call 候选。
+
+新增的开副露役路特征是启发式信号，不等价于完整番种判定。它们用于降低“鸣牌后无役”“七对子/国士等门清路线被错误鸣牌破坏”这类 response false call。
 
 ## 7. 模型如何消费这些输入
 
@@ -216,7 +232,7 @@ candidate_mask: [B, C]
 
 当前 `turn` 和 `response` 是单任务训练入口；模型类有共享 encoder + 两个 head 的接口，但还没有实现真正 `task: multitask` 的 batch 混合与 loss 聚合。
 
-## 8. 兼容性提醒
+## 8. 数据重建提醒
 
 `state_features_bin` 和 `candidate_features_bin` 是固定维度 float32 二进制。只要上述任何维度或语义发生变化，都必须重新运行：
 
@@ -226,3 +242,5 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 ```
 
 否则训练/评估阶段会出现 feature byte length mismatch，或者更隐蔽的旧语义污染。
+
+2026-05-09 起，`response` 的 `candidate_features` 从 `77` 维增加到 `91` 维。已有 `data/silver_samples` 和 manifest 不再适用于当前代码，下一轮 response 训练前必须重建。

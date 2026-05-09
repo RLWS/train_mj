@@ -127,6 +127,7 @@ def test_encode_response_action_adds_call_shape_features():
         "temporary_furiten": False,
         "riichi_furiten": False,
         "own_melds": [],
+        "all_melds": [[], [], [], []],
         "last_discard_actor": 3,
         "last_discard_tile": "3m",
         "response_target": {"source": 3, "tile": "3m"},
@@ -169,6 +170,7 @@ def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
         "temporary_furiten": False,
         "riichi_furiten": False,
         "own_melds": [],
+        "all_melds": [[], [], [], []],
         "last_discard_actor": 0,
         "last_discard_tile": "5z",
         "response_target": {"source": 0, "tile": "5z"},
@@ -193,6 +195,114 @@ def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
     assert pon_features[16] == 1.0
     assert red_features[11] == 1.0
     assert red_features[12] == 1.0
+
+
+def test_encode_response_action_marks_open_yaku_routes_and_no_yaku_risk():
+    """验证响应动作编码标记开副露役路与无役风险。"""
+    no_yaku_state = {
+        "actor": 0,
+        "hand": {
+            "2m": 1,
+            "4m": 1,
+            "7m": 1,
+            "8m": 1,
+            "9m": 1,
+            "2p": 1,
+            "3p": 1,
+            "4p": 1,
+            "5z": 1,
+            "6z": 1,
+            "7z": 1,
+        },
+        "all_discards": [[], [], [], ["3m"]],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "all_melds": [[], [], [], []],
+        "last_discard_actor": 3,
+        "last_discard_tile": "3m",
+        "response_target": {"source": 3, "tile": "3m"},
+        "dealer": 0,
+        "seat_wind": 0,
+        "dora_base_indices": [],
+        "turn_number": 5,
+        "remaining_draws_estimate": 13,
+    }
+    tanyao_state = {
+        **no_yaku_state,
+        "hand": {
+            "2m": 1,
+            "4m": 1,
+            "3p": 1,
+            "4p": 1,
+            "5p": 1,
+            "6p": 1,
+            "7p": 1,
+            "3s": 1,
+            "4s": 1,
+            "5s": 1,
+            "6s": 1,
+        },
+    }
+
+    no_yaku_vector = encode_response_action(
+        {"kind": "chi", "tile": "3m", "source": 3, "consumed_tiles": ["2m", "4m"]},
+        no_yaku_state,
+    )
+    tanyao_vector = encode_response_action(
+        {"kind": "chi", "tile": "3m", "source": 3, "consumed_tiles": ["2m", "4m"]},
+        tanyao_state,
+    )
+
+    no_yaku_features = no_yaku_vector[-RESPONSE_CALL_FEATURE_DIM:]
+    tanyao_features = tanyao_vector[-RESPONSE_CALL_FEATURE_DIM:]
+    assert no_yaku_features[32] == 1.0
+    assert no_yaku_features[33] == 1.0
+    assert no_yaku_features[38] == 1.0
+    assert tanyao_features[35] == 1.0
+    assert tanyao_features[38] == 0.0
+
+
+def test_encode_response_action_marks_chiitoitsu_route_break_and_visible_wait_copies():
+    """验证响应动作编码标记七对子路线破坏与可见牌修正有效牌枚数。"""
+    state = {
+        "actor": 0,
+        "hand": {
+            "1m": 2,
+            "2m": 2,
+            "3m": 2,
+            "4m": 2,
+            "5p": 2,
+            "6p": 2,
+            "7z": 1,
+        },
+        "all_discards": [["7z"], ["7z"], ["7z"], ["1m"]],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "all_melds": [[], [], [], []],
+        "last_discard_actor": 3,
+        "last_discard_tile": "1m",
+        "response_target": {"source": 3, "tile": "1m"},
+        "dealer": 0,
+        "seat_wind": 0,
+        "dora_base_indices": [],
+        "turn_number": 7,
+        "remaining_draws_estimate": 11,
+    }
+
+    vector = encode_response_action(
+        {"kind": "pon", "tile": "1m", "source": 3, "consumed_tiles": ["1m", "1m"]},
+        state,
+    )
+
+    call_features = vector[-RESPONSE_CALL_FEATURE_DIM:]
+    assert call_features[29] < call_features[8]
+    assert call_features[30] <= call_features[9]
+    assert call_features[39] == 0.0
+    assert call_features[40] == 1.0
 
 
 def test_encode_turn_state_includes_furiten_flags():

@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-05-06`
+更新时间：`2026-05-09`
 
 ## 1. 总体判断
 
@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `97 passed`；新增 response 校准路径后，`python -m compileall -q mjai tests` 和 `tests/test_train_smoke.py::test_eval_response_smoke_from_generated_checkpoint` 已通过。
+- `pytest` 全量通过，当前结果为 `100 passed`；新增 response 役路/可见牌特征后，`python -m compileall -q mjai tests` 和 `tests/test_train_smoke.py::test_eval_response_smoke_from_generated_checkpoint` 已通过。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -116,6 +116,7 @@
 - `mjai/features/`
   - 已有最小 `turn/response` 状态特征与动作特征编码。
   - response 候选动作特征已补充第一版 call 收益/代价信息：叫牌前后向听、有效牌数量、有效牌枚数、赤牌/dora 消耗、对子/搭子消耗、役牌碰、chi 形状、巡目和剩余巡目。
+  - 2026-05-09 已继续增强 response call/context 特征：`RESPONSE_ACTION_DIM` 从 `77` 增至 `91`，新增可见牌修正有效牌枚数、开副露后明显役路启发式、无役风险、七对子/国士等门清特殊路线破坏信号；样本状态同步写出 `all_melds`，用于扣除其他玩家副露里的可见牌。该特征是启发式，不等价于完整番种判定。
 - `mjai/models/`
   - 已有最小共享编码器与 `turn/response` 候选打分头。
 - `mjai/training/`
@@ -222,9 +223,9 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - 更高吞吐的数据格式后续方向：当前已经完成 state/action 特征离线预编码，下一步应根据 `data_wait`、GPU 利用率和内存占用决定是否继续推进 mmap/Arrow streaming 数据集，而不是回到训练期规则特征重算。
 - 根据错例聚合决定是否回补规则
 
-数据兼容性与 P800 大数据训练提醒：
+数据重建与 P800 大数据训练提醒：
 
-- response action feature 维度已变化，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配当前 `RESPONSE_ACTION_DIM`。下一轮 response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
+- response action feature 维度已变化，当前 `RESPONSE_ACTION_DIM=91`，旧 `data/silver_samples` 中的 `candidate_features_bin` 不再匹配。下一轮 response 训练前必须重新运行 `build-dataset` 和 `make-manifest`。
 - 20 万局量级的 `response_p800.yaml` 和 `turn_p800.yaml` 单任务 baseline 已经跑完，且 valid/test 指标稳定；下一轮不要把 response 校准、turn 特征、DDP、多任务和复杂模型混在同一次实验里。
 - 当前缺口不是“能否训练”：`runs/2026-05-06_p800_baseline/` 中的 preprocess/validation/build/manifest 摘要已和训练样本数对齐。后续应继续按 `runs/<date>_<exp>/` 固化每轮数据与模型证据，并尽量把非法标签复核结果固化成文件。
 - response 已完成 P800 valid/test pass/call 校准扫描。test 上 `pass_bias=0.4` 达到 `false_call_rate=0.952%`、`missed_call_rate=8.83%`、`chi/pon top1=79.5%/93.3%`；`pass_bias=0.8` 达到 `false_call_rate=0.751%`、`missed_call_rate=11.84%`、`chi/pon top1=74.5%/90.7%`。valid/test 曲线几乎重合，默认 operating point 建议先用 `0.4`，保守候选用 `0.8`，暂不把 `1.0` 作为默认值。

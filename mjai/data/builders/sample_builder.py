@@ -331,6 +331,18 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
             }
             for meld in state.melds[actor]
         ],
+        "all_melds": [
+            [
+                {
+                    "kind": meld.kind,
+                    "source": meld.source,
+                    "called_tile": meld.called_tile,
+                    "consumed_tiles": list(meld.consumed_tiles),
+                }
+                for meld in player_melds
+            ]
+            for player_melds in state.melds
+        ],
         "riichi_declared": state.riichi_declared[actor],
         "temporary_furiten": state.temporary_furiten[actor],
         "riichi_furiten": state.riichi_furiten[actor],
