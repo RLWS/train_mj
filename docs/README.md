@@ -7,7 +7,7 @@
 1. [status.md](status.md)：当前项目状态、已验证结果、主要缺口和下一步任务。
 2. [smoke-training.md](smoke-training.md)：用夹具数据跑通预处理、构建样本、训练、评估和调试链路。
 3. [model-inputs.md](model-inputs.md)：当前 turn / response 模型输入张量、维度和特征语义。
-4. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：turn / response 训练效果分析、response 特征增强记录，以及 2026-05-06 P800 大数据 baseline 结论。
+4. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：turn / response 训练效果分析、response 特征增强记录、2026-05-06 P800 baseline 和 2026-05-10 improved 结论。
 5. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
 6. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
 7. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。

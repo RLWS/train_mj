@@ -1,0 +1,42 @@
+# P800 eval runner.
+#
+# Usage on the Linux training machine, from the repository root:
+#   docker compose -f docker-compose.p800.yml up
+#
+# Common overrides:
+#   TASKS=response docker compose -f docker-compose.p800.yml up
+#   TASKS=turn EVAL_SPLIT=valid docker compose -f docker-compose.p800.yml up
+#   P800_DATASET_DIR=/other/dataset docker compose -f docker-compose.p800.yml up
+
+services:
+  pytorch:
+    image: 173.0.23.200:8021/library/pytorch:klx_p800_ubuntu_2004_x86_64_v34
+    container_name: train_mj_p800
+    privileged: true
+    shm_size: "500g"
+    environment:
+      CXPU_VISIBLE_DEVICES: ${CXPU_VISIBLE_DEVICES:-all}
+
+      # Default to eval-only. Enable these explicitly only when rebuilding data.
+      RUN_PREPROCESS: ${RUN_PREPROCESS:-0}
+      RUN_VALIDATE: ${RUN_VALIDATE:-0}
+      RUN_BUILD_DATASET: ${RUN_BUILD_DATASET:-0}
+      RUN_MANIFEST: ${RUN_MANIFEST:-0}
+      RUN_TRAIN: ${RUN_TRAIN:-0}
+      RUN_EVAL: ${RUN_EVAL:-1}
+      SKIP_BUILD_VALIDATION: ${SKIP_BUILD_VALIDATION:-1}
+
+      EVAL_SPLIT: ${EVAL_SPLIT:-test}
+      TASKS: ${TASKS:-turn response}
+
+      TURN_EVAL_CKPT: ${TURN_EVAL_CKPT:-runs/2026-05-10_p800_improved/turn/checkpoints/best.pt}
+      RESPONSE_EVAL_CKPT: ${RESPONSE_EVAL_CKPT:-runs/2026-05-10_p800_improved/response/checkpoints/best.pt}
+      TURN_EVAL_REPORT: ${TURN_EVAL_REPORT:-runs/2026-05-10_p800_improved/turn/eval/turn_p800_test_eval.json}
+      RESPONSE_EVAL_REPORT: ${RESPONSE_EVAL_REPORT:-runs/2026-05-10_p800_improved/response/eval/response_p800_test_eval.json}
+    volumes:
+      - ./:/workspace/code/train_mj-main
+      - ${P800_DATASET_DIR:-/data/app/dataset}:/workspace/dataset:ro
+    working_dir: /workspace/code/train_mj-main
+    stdin_open: true
+    tty: true
+    command: conda run -n python310_torch25_cuda bash ./start.sh

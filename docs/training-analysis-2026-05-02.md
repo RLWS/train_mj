@@ -550,8 +550,8 @@ python -m mjai.cli build-dataset --input data/bronze_events --output data/silver
 python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
 
 python -m mjai.cli train --config configs/response_p800.yaml
-python -m mjai.cli eval --ckpt outputs/checkpoints/response_p800/best.pt --split valid --report outputs/checkpoints/response_p800/eval_valid_best.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/response_p800/best.pt --split test --report outputs/checkpoints/response_p800/eval_test_best.json
+python -m mjai.cli eval --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split valid --report runs/2026-05-06_p800_baseline/response/eval/eval_valid_best.json
+python -m mjai.cli eval --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split test --report runs/2026-05-06_p800_baseline/response/eval/eval_test_best.json
 ```
 
 P800 上 `build-dataset --workers` 可从 `32` 起步，再根据 CLI 输出的 `samples_per_s` 试 `48` 或 `64`。第一轮 response baseline 先用 `configs/response_p800.yaml`，不要同时改 class weight、selection score 或模型结构。
@@ -582,22 +582,24 @@ P800 上 `build-dataset --workers` 可从 `32` 起步，再根据 CLI 输出的 
 
 ## 10. 2026-05-06 P800 大数据 baseline 结果
 
-本节记录本轮已经拷贝到 `outputs/` 的 P800 训练产物：
+本节记录本轮 P800 训练产物。原始训练输出曾落在 `outputs/`，现已按 run 归档：
 
-- `outputs/checkpoints/turn_p800`
-- `outputs/checkpoints/response_p800`
-- `outputs/turn_p800.log`
-- `outputs/response_p800.log`
+- `runs/2026-05-06_p800_baseline/run_summary.json`
+- `runs/2026-05-06_p800_baseline/turn/checkpoints`
+- `runs/2026-05-06_p800_baseline/response/checkpoints`
+- `runs/2026-05-06_p800_baseline/turn/logs`
+- `runs/2026-05-06_p800_baseline/response/logs`
 
-本轮数据版本摘要已归档到 `runs/2026-05-06_p800_baseline/`：
+本轮数据版本摘要已归档到可复用数据集目录 `runs/_datasets/tenhou_20w_2026-05-06/`：
 
-- `runs/2026-05-06_p800_baseline/preprocess_summary.json`
-- `runs/2026-05-06_p800_baseline/event_validation_20w.json`
-- `runs/2026-05-06_p800_baseline/build_summary.json`
-- `runs/2026-05-06_p800_baseline/manifest_summary.json`
-- `runs/2026-05-06_p800_baseline/train.jsonl`
-- `runs/2026-05-06_p800_baseline/valid.jsonl`
-- `runs/2026-05-06_p800_baseline/test.jsonl`
+- `runs/_datasets/tenhou_20w_2026-05-06/dataset_summary.json`
+- `runs/_datasets/tenhou_20w_2026-05-06/preprocess_summary.json`
+- `runs/_datasets/tenhou_20w_2026-05-06/event_validation_20w.json`
+- `runs/_datasets/tenhou_20w_2026-05-06/build_summary.json`
+- `runs/_datasets/tenhou_20w_2026-05-06/manifest_summary.json`
+- `runs/_datasets/tenhou_20w_2026-05-06/train.jsonl`
+- `runs/_datasets/tenhou_20w_2026-05-06/valid.jsonl`
+- `runs/_datasets/tenhou_20w_2026-05-06/test.jsonl`
 
 下面的数据规模、校验结果、split 和动作分布来自该 run 目录，并已和 P800 训练日志、`train_metrics.json`、valid/test eval report 交叉核对。
 
@@ -678,8 +680,8 @@ P800 上 `build-dataset --workers` 可从 `32` 起步，再根据 CLI 输出的 
 
 | 任务 | checkpoint | 训练配置要点 | 有效 train 样本 | valid 样本 | test 样本 |
 |---|---|---|---:|---:|---:|
-| turn | `outputs/checkpoints/turn_p800/best.pt` | `hidden_size=512`，`batch_size=8192`，`epochs=10`，`candidate_limit=64`，`bf16` | `83077288` | `10404270` | `10393095` |
-| response | `outputs/checkpoints/response_p800/best.pt` | `hidden_size=256`，`batch_size=8192`，`epochs=10`，`candidate_limit=16`，`bf16`，训练过滤 `candidate_count >= 2` | `23120538` | `30955527` | `30923082` |
+| turn | `runs/2026-05-06_p800_baseline/turn/checkpoints/best.pt` | `hidden_size=512`，`batch_size=8192`，`epochs=10`，`candidate_limit=64`，`bf16` | `83077288` | `10404270` | `10393095` |
+| response | `runs/2026-05-06_p800_baseline/response/checkpoints/best.pt` | `hidden_size=256`，`batch_size=8192`，`epochs=10`，`candidate_limit=16`，`bf16`，训练过滤 `candidate_count >= 2` | `23120538` | `30955527` | `30923082` |
 
 response 的原始 train 样本为 `247177362`，训练过滤掉 `224056824` 条 pass-only 单候选样本，实际保留 `23120538` 条，保留率约 `9.35%`。这是符合预期的：valid/test 仍保留全量样本，其中单候选 pass-only 约占 `90.64%`，所以 response 的 overall accuracy 仍然不能单独作为质量判断。
 
@@ -765,13 +767,13 @@ checkpoint 选择方面，`best.pt` / `best_response.pt` 仍按 `non_pass_f1 - f
 
 - turn 如何把 discard top3 内的候选重新排序到 top1。
 - response 如何在保持高 recall 的同时控制 pass hard negative 上的 false call。
-- 后续 run 管理如何把 summary、manifest、config、checkpoint 索引和 eval report 固定放在同一个目录，避免再次靠人工对齐。
+- 后续 run 管理如何把 dataset summary、manifest、config、checkpoint 索引和 eval report 固定到可追溯目录结构里，避免再次靠人工对齐。
 
 ### 10.7 下一步建议
 
 优先级从高到低：
 
-1. 后续继续使用 `runs/<date>_<exp>/` 结构，并增加一个轻量 `run_summary.md` 或 `run_summary.json`，记录数据摘要、checkpoint 路径、配置路径和 eval report 路径；大文件本身继续不进 git。
+1. 后续继续使用 `runs/<date>_<exp>/` 结构，并保留轻量 `run_summary.json`，记录 `dataset_id`、checkpoint 路径、配置路径和 eval report 路径；数据集级摘要和 manifest 统一放在 `runs/_datasets/<dataset_id>/`，大文件本身继续不进 git。
 2. 对 response 做 pass/call 校准实验。固定当前 `response_p800/best.pt`，在 valid 上扫描 `pass` logit bias 或 score margin，输出不同 false call 目标下的 `non_pass precision/recall/F1`、`missed_call_rate`、`chi/pon top1`。建议至少看 `false_call_rate <= 0.010 / 0.008 / 0.005` 三档；当前仓库已提供 `calibrate-response` 命令，下一步应直接在 P800 baseline checkpoint 上跑 valid/test 校准报告。
 3. 对 response 错例做抽样。使用 `sample-response-errors` 分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 各 `100` 条，用 `inspect-sample` 和 `dump-case` 判断误差来自玩家风格、点况/防守信息缺失，还是 action feature 仍不足。
 4. 对 turn 做 top-k 错例聚合。使用 `sample-turn-errors` 重点抽 label rank 为 `2/3` 的 discard 样本，而不是泛泛抽所有错误；这些样本最能说明缺哪些排序特征。
@@ -792,7 +794,7 @@ best_non_pass_score > pass_score + pass_bias
 P800 baseline 的第一步命令：
 
 ```powershell
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --report runs/2026-05-06_p800_baseline/response_calibration_valid_best.json --pass-biases 0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00 --false-call-targets 1%,0.8%,0.5%
+python -m mjai.cli calibrate-response --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split valid --manifest runs/_datasets/tenhou_20w_2026-05-06/valid.jsonl --report runs/2026-05-06_p800_baseline/response/calibration/response_calibration_valid_best.json --pass-biases 0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00 --false-call-targets 1%,0.8%,0.5%
 ```
 
 报告会写出：
@@ -803,14 +805,14 @@ python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/b
 valid 上选出 bias 后，再在 test 上复核一次，不用重新训练：
 
 ```powershell
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/best.pt --split test --manifest runs/2026-05-06_p800_baseline/test.jsonl --report runs/2026-05-06_p800_baseline/response_calibration_test_best.json --pass-biases <valid_selected_biases> --false-call-targets 1%,0.8%,0.5%
+python -m mjai.cli calibrate-response --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split test --manifest runs/_datasets/tenhou_20w_2026-05-06/test.jsonl --report runs/2026-05-06_p800_baseline/response/calibration/response_calibration_test_best.json --pass-biases <valid_selected_biases> --false-call-targets 1%,0.8%,0.5%
 ```
 
 这一步产物仍属于本地 run 证据，`runs/` 目录继续由 `.gitignore` 忽略；文档只记录结论、命令和关键指标。
 
 ### 10.9 response 校准 valid 结果
 
-`runs/2026-05-06_p800_baseline/response_calibration_valid_best.json` 已生成。报告覆盖 P800 valid 全量 `30,955,527` 条 response 样本，其中 `actual_pass=30,432,678`、`actual_non_pass=522,849`、`multi_candidate_samples=2,898,544`。
+`runs/2026-05-06_p800_baseline/response/calibration/response_calibration_valid_best.json` 已生成。报告覆盖 P800 valid 全量 `30,955,527` 条 response 样本，其中 `actual_pass=30,432,678`、`actual_non_pass=522,849`、`multi_candidate_samples=2,898,544`。
 
 关键扫描点如下：
 
@@ -833,12 +835,12 @@ python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/b
 test split 复核命令：
 
 ```powershell
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_p800/best.pt --split test --manifest runs/2026-05-06_p800_baseline/test.jsonl --report runs/2026-05-06_p800_baseline/response_calibration_test_selected.json --pass-biases 0,0.4,0.8,1.0 --false-call-targets 1%,0.8%,0.5%
+python -m mjai.cli calibrate-response --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split test --manifest runs/_datasets/tenhou_20w_2026-05-06/test.jsonl --report runs/2026-05-06_p800_baseline/response/calibration/response_calibration_test_selected.json --pass-biases 0,0.4,0.8,1.0 --false-call-targets 1%,0.8%,0.5%
 ```
 
 ### 10.10 response 校准 test 复核结果
 
-`runs/2026-05-06_p800_baseline/response_calibration_test_selected.json` 已生成。报告覆盖 P800 test 全量 `30,923,082` 条 response 样本，其中 `actual_pass=30,400,805`、`actual_non_pass=522,277`、`multi_candidate_samples=2,895,681`。
+`runs/2026-05-06_p800_baseline/response/calibration/response_calibration_test_selected.json` 已生成。报告覆盖 P800 test 全量 `30,923,082` 条 response 样本，其中 `actual_pass=30,400,805`、`actual_non_pass=522,277`、`multi_candidate_samples=2,895,681`。
 
 test 四个复核点如下：
 
@@ -870,13 +872,13 @@ valid/test 对比非常稳定：
 建议先按当前默认 operating point 抽 `pass_bias=0.4`：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_pb0.4.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
+python -m mjai.cli sample-response-errors --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split valid --manifest runs/_datasets/tenhou_20w_2026-05-06/valid.jsonl --output runs/2026-05-06_p800_baseline/response/error_samples/response_error_samples_valid_pb0.4.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
 ```
 
 如果需要和原始 eval confusion 对齐，再补一份 raw argmax：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/response_error_samples_valid_raw.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0
+python -m mjai.cli sample-response-errors --ckpt runs/2026-05-06_p800_baseline/response/checkpoints/best.pt --split valid --manifest runs/_datasets/tenhou_20w_2026-05-06/valid.jsonl --output runs/2026-05-06_p800_baseline/response/error_samples/response_error_samples_valid_raw.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0
 ```
 
 `--seed` 默认继承 checkpoint config 的全局 `seed`，需要另一组随机样本时才显式覆盖。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
@@ -888,13 +890,13 @@ turn 侧不要从 `eval.misclassified_examples` 里随手挑样本；那个字�
 P800 baseline 建议先抽 valid：
 
 ```powershell
-python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_p800/best.pt --split valid --manifest runs/2026-05-06_p800_baseline/valid.jsonl --output runs/2026-05-06_p800_baseline/turn_discard_rank23_valid.jsonl --label-kinds discard --ranks 2,3 --per-rank 100
+python -m mjai.cli sample-turn-errors --ckpt runs/2026-05-06_p800_baseline/turn/checkpoints/best.pt --split valid --manifest runs/_datasets/tenhou_20w_2026-05-06/valid.jsonl --output runs/2026-05-06_p800_baseline/turn/error_samples/turn_discard_rank23_valid.jsonl --label-kinds discard --ranks 2,3 --per-rank 100
 ```
 
 如果 valid 分析已经形成明确结论，再补 test 复核：
 
 ```powershell
-python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_p800/best.pt --split test --manifest runs/2026-05-06_p800_baseline/test.jsonl --output runs/2026-05-06_p800_baseline/turn_discard_rank23_test.jsonl --label-kinds discard --ranks 2,3 --per-rank 100
+python -m mjai.cli sample-turn-errors --ckpt runs/2026-05-06_p800_baseline/turn/checkpoints/best.pt --split test --manifest runs/_datasets/tenhou_20w_2026-05-06/test.jsonl --output runs/2026-05-06_p800_baseline/turn/error_samples/turn_discard_rank23_test.jsonl --label-kinds discard --ranks 2,3 --per-rank 100
 ```
 
 命令默认 `--label-kinds discard --ranks 2,3`，保留显式参数是为了让 run 记录自解释。输出 JSONL 每行包含 `sample_id`、`target`（例如 `discard@rank2`）、`label_rank`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。后续人工分析应优先按候选弃牌、向听变化、有效牌变化、dora/赤损失、危险度、局面阶段和点况聚合。
@@ -921,3 +923,120 @@ python -m mjai.cli train --config configs/turn_p800.yaml
 ```
 
 验收指标优先看 `discard top1`，同时确认 `discard top3` 基本稳定；复训后再用 `sample-turn-errors` 抽 `discard@rank2/rank3` 对比错例是否少了安全性/近期现物相关混淆。
+
+## 11. 2026-05-10 P800 improved 结果
+
+本轮 run 归档在 `runs/2026-05-10_p800_improved/`，继续使用同一份数据版本 `tenhou_20w_2026-05-06`。本节只保留最终对比结论；逐点 eval 和 calibration 原始报告见 run 目录。
+
+### 11.1 turn 结果
+
+turn improved 在 valid/test 上稳定优于 2026-05-06 baseline。test 关键指标如下：
+
+| 指标 | baseline | improved | 变化 |
+| --- | ---: | ---: | ---: |
+| loss | `0.8206` | `0.8000` | `-0.0206` |
+| top1 | `70.08%` | `70.75%` | `+0.67pp` |
+| top3 | `94.46%` | `94.93%` | `+0.48pp` |
+| top5 | `98.53%` | `98.68%` | `+0.15pp` |
+| discard top1 | `69.58%` | `70.24%` | `+0.66pp` |
+| discard top3 | `94.34%` | `94.83%` | `+0.49pp` |
+| riichi_discard top1 | `85.34%` | `87.13%` | `+1.78pp` |
+| non_discard top1 | `90.49%` | `91.37%` | `+0.88pp` |
+
+这说明牌河时序 V1 对主目标有效：discard top1/top3 同时提升，且 valid/test 变化一致。当前可以采用 improved turn checkpoint 作为新基线。
+
+需要记录的副作用是 `ankan top1` 从 `96.02%` 降到 `89.88%`，`kakan top1` 从 `97.26%` 降到 `96.27%`。`ankan` test 只有 `9,940` 条，短期不应压过 discard 主线，但下一步应抽 `ankan` 与 `kakan` 错例，判断是否是新特征让杠类候选排序被 discard 安全性信号干扰。
+
+### 11.2 response 结果
+
+response improved 的总体排序、macro 指标和 pass/call 二分类 F1 有提升，但模型明显更保守。test 关键指标如下：
+
+| 指标 | baseline | improved | 变化 |
+| --- | ---: | ---: | ---: |
+| overall top1 | `98.707%` | `98.770%` | `+0.062pp` |
+| macro top1 | `89.74%` | `90.60%` | `+0.86pp` |
+| multi-candidate top1 | `86.19%` | `86.86%` | `+0.67pp` |
+| multi-candidate macro top1 | `87.42%` | `88.43%` | `+1.01pp` |
+| non-pass precision | `57.61%` | `59.04%` | `+1.43pp` |
+| non-pass recall | `93.56%` | `92.72%` | `-0.84pp` |
+| non-pass F1 | `71.31%` | `72.14%` | `+0.83pp` |
+| false call rate | `1.183%` | `1.105%` | `-0.078pp` |
+| missed call rate | `6.44%` | `7.28%` | `+0.84pp` |
+
+按条数看，test 上 false call 从 `359,516` 降到 `335,932`，少 `23,584` 条；missed call 从 `33,634` 增到 `38,033`，多 `4,399` 条。这个取舍整体提高了二分类 F1，但不是无代价提升。
+
+动作类别上，主要回退在吃碰 exact action：
+
+| 动作 | baseline top1 | improved top1 | 变化 |
+| --- | ---: | ---: | ---: |
+| chi | `83.76%` | `81.98%` | `-1.78pp` |
+| pon | `95.28%` | `94.75%` | `-0.54pp` |
+| daiminkan | `60.76%` | `68.17%` | `+7.41pp` |
+| ron | `99.84%` | `99.83%` | 基本持平 |
+
+因此 response improved 可以作为更保守的新候选，但不能简单理解为全面替代 baseline。是否采用它，取决于推理侧更重视降低误叫，还是更重视吃碰 exact action。
+
+### 11.3 response 校准结论
+
+improved 在同一 `pass_bias` 下比 baseline 误叫更少，但 missed call 更高、`chi/pon` top1 更低。test 关键点如下：
+
+| pass_bias | model | false call | missed call | non-pass F1 | multi top1 | chi / pon top1 |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `0.0` | baseline | `1.183%` | `6.44%` | `71.31%` | `86.19%` | `83.6 / 95.3` |
+| `0.0` | improved | `1.105%` | `7.28%` | `72.14%` | `86.85%` | `81.9 / 94.7` |
+| `0.4` | baseline | `0.952%` | `8.83%` | `73.95%` | `88.19%` | `79.5 / 93.3` |
+| `0.4` | improved | `0.869%` | `10.06%` | `74.80%` | `88.85%` | `77.1 / 92.4` |
+| `0.8` | baseline | `0.751%` | `11.84%` | `76.04%` | `89.78%` | `74.5 / 90.7` |
+| `0.8` | improved | `0.665%` | `13.62%` | `76.74%` | `90.36%` | `71.3 / 89.2` |
+
+baseline 的默认候选 `pass_bias=0.4` 不应直接迁移到 improved；它会让 improved 过度保守。补充的 test 中段扫描 `response_calibration_test_selected.json` 结果如下：
+
+| pass_bias | false call | missed call | non-pass F1 | multi top1 | chi / pon top1 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| `0.12` | `1.031%` | `8.04%` | `72.99%` | `87.50%` | `80.6 / 94.1` |
+| `0.16` | `1.007%` | `8.31%` | `73.27%` | `87.71%` | `80.1 / 93.9` |
+| `0.3` | `0.925%` | `9.29%` | `74.18%` | `88.40%` | `78.4 / 93.1` |
+| `0.4` | `0.869%` | `10.06%` | `74.80%` | `88.85%` | `77.1 / 92.4` |
+
+因此 v1.0.0 默认 response operating point 定为 `pass_bias=0.3`：它是当前中段扫描里第一个明确进入 `false_call_rate <= 1%` 的点，比 `0.4` 保留更多 `chi/pon` exact action。`pass_bias=0.16` 可作为偏召回候选，`pass_bias=0.4` 可作为保守候选，`0.8/1.0` 不作为默认候选。
+
+### 11.4 当前决策
+
+- turn：采用 `runs/2026-05-10_p800_improved/turn/checkpoints/best.pt` 作为 v1.0.0 基线。
+- response：采用 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为 v1.0.0 基线，默认 `pass_bias=0.3`。
+- baseline response 仍有对照价值，尤其用于判断 `chi/pon` exact action 的回退是否可接受。
+- 下一轮不要先上多任务或 DDP。当前主线应是 response operating point 定标、response 吃碰错例抽样、turn 杠类回退排查，以及基于证据决定下一组特征。
+
+## 12. 下一步核心工作
+
+### 12.1 接入 response operating point
+
+目标不是继续盲目提高 `non_pass_f1`，而是把 v1.0.0 的 response 默认点接入推理/服务配置，并让后续实验都能报告同一组 operating points。
+
+优先级：
+
+1. 将默认 `pass_bias=0.3` 写入后续推理/服务配置设计。
+2. 同时保留 raw `0.0`、偏召回候选 `0.16`、默认 `0.3`、保守候选 `0.4` 的报告口径。
+3. 后续多任务或新特征实验都必须同时报告 raw 与默认 calibrated 指标，避免只看单一 checkpoint top1。
+
+### 12.2 做 response 定向错例抽样
+
+当前 response 的关键矛盾已经不是“能不能叫”，而是“何时不该叫”和“叫了以后 exact action 是否对”。下一步应分别抽：
+
+- `pass->chi` / `pass->pon`：误叫来源，重点看防守、点况、安全牌、无役风险和玩家风格。
+- `chi->pass` / `pon->pass`：漏叫来源，重点看 improved 更保守后漏掉了哪些收益明确的副露。
+- `chi->wrong_chi` 与 `pon->wrong_pon` 如后续命令支持，也应单独抽，用于解释 exact action 回退。
+
+错例应按 raw 和选定默认 bias 各抽一份，避免只分析阈值后的单一视角。
+
+### 12.3 排查 turn 杠类回退
+
+turn improved 的主线收益明确，但 `ankan` 回退稳定出现在 valid/test。下一步应扩展或复用 `sample-turn-errors`，抽 `ankan`、`kakan` 的 rank 2/3 与错误样本，确认：
+
+- 是否被 discard 候选的牌河安全性特征压过。
+- 是否只是少数类样本波动。
+- 是否需要对杠类动作加独立特征或调整 `turn_class_weights`。
+
+### 12.4 后置多任务、DDP 和复杂模型
+
+多任务训练、8 卡 DDP、复杂模型结构都继续后置。当前每个 checkpoint 的主要收益和代价还可以通过特征、阈值和错例分析解释；过早引入多任务或分布式工程会混淆变量。
