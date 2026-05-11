@@ -1,13 +1,14 @@
 # P800 eval runner.
 #
 # Usage on the Linux training machine, from the repository root:
-#   docker compose -f docker-compose.p800.yml up
+#   docker-compose -f docker-compose.p800.yml up
 #
 # Common overrides:
-#   TASKS=response docker compose -f docker-compose.p800.yml up
-#   TASKS=turn EVAL_SPLIT=valid docker compose -f docker-compose.p800.yml up
-#   TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 docker compose -f docker-compose.p800.yml up
-#   P800_DATASET_DIR=/other/dataset docker compose -f docker-compose.p800.yml up
+#   env TASKS=response docker-compose -f docker-compose.p800.yml up --force-recreate
+#   env TASKS=turn EVAL_SPLIT=valid docker-compose -f docker-compose.p800.yml up --force-recreate
+#   env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 docker-compose -f docker-compose.p800.yml up --force-recreate
+#   docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
+#   env P800_DATASET_DIR=/other/dataset docker-compose -f docker-compose.p800.yml up --force-recreate
 
 services:
   pytorch:
@@ -45,4 +46,11 @@ services:
     working_dir: /workspace/code/train_mj-main
     stdin_open: true
     tty: true
-    command: conda run -n python310_torch25_cuda bash ./start.sh
+    entrypoint:
+      - conda
+      - run
+      - --no-capture-output
+      - -n
+      - python310_torch25_cuda
+      - bash
+      - ./start.sh

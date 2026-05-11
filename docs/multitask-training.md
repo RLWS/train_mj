@@ -66,13 +66,21 @@ configs/multitask_p800.yaml
 在 P800/Linux 训练机上，从仓库根目录直接运行：
 
 ```bash
-TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 docker compose -f docker-compose.p800.yml up
+docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
 ```
 
-如果已经有 `data/bronze_events`、`data/silver_samples` 和 `data/manifests`，保持 compose 默认即可复用现有数据：
+`docker-compose.p800.multitask.yml` 会显式设置 `TASKS=multitask`、`RUN_TRAIN=1`、`RUN_EVAL=1`，并跳过 preprocess / validate / build / manifest，适合复用已有 `data/bronze_events`、`data/silver_samples` 和 `data/manifests`。
+
+如果要临时不用 override 文件，也可以在 shell 环境变量能被 `docker-compose` 正确读取的机器上运行：
 
 ```bash
-TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 RUN_PREPROCESS=0 RUN_VALIDATE=0 RUN_BUILD_DATASET=0 RUN_MANIFEST=0 docker compose -f docker-compose.p800.yml up
+env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 RUN_PREPROCESS=0 RUN_VALIDATE=0 RUN_BUILD_DATASET=0 RUN_MANIFEST=0 docker-compose -f docker-compose.p800.yml up --force-recreate
+```
+
+启动前可以先检查最终 compose 配置，确认环境变量已经进入容器：
+
+```bash
+docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml config | grep -E 'TASKS|RUN_TRAIN|RUN_EVAL|RUN_PREPROCESS|RUN_BUILD_DATASET|RUN_MANIFEST'
 ```
 
 训练输出默认写入：

@@ -1,0 +1,15 @@
+# P800 multitask training override.
+#
+# Usage:
+#   docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
+
+services:
+  pytorch:
+    environment:
+      RUN_PREPROCESS: "0"
+      RUN_VALIDATE: "0"
+      RUN_BUILD_DATASET: "0"
+      RUN_MANIFEST: "0"
+      RUN_TRAIN: "1"
+      RUN_EVAL: "1"
+      TASKS: multitask
