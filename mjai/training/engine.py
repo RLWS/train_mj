@@ -25,6 +25,7 @@ from mjai.data.datasets.parquet_dataset import (
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
+from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
@@ -95,9 +96,11 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         ValueError: 当输入数据不满足函数约束时抛出。
     """
     task_name = str(config.get("task", {}).get("task", ""))
+    if task_name == "multitask":
+        return _train_multitask_model(config)
     if task_name not in {"turn", "response"}:
         raise ValueError(
-            f"minimal training path currently supports only task=turn/response, got: {task_name}"
+            f"minimal training path currently supports only task=turn/response/multitask, got: {task_name}"
         )
     seed_everything(int(config.get("seed", 20260423)))
 
@@ -360,6 +363,412 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     )
 
 
+def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
+    seed_everything(int(config.get("seed", 20260423)))
+
+    output_dir = ensure_dir(config.get("output_dir", "outputs/checkpoints/multitask_p800_v1_1"))
+    log_dir = ensure_dir(config.get("log_dir", "outputs/logs/multitask_p800_v1_1"))
+    dump_yaml(output_dir / "config.resolved.yaml", config)
+    data_config = config.get("data", {})
+    train_config = config.get("train", {})
+    train_manifest = data_config["train_manifest"]
+    valid_manifest = data_config.get("valid_manifest")
+    print(
+        "[train] preparing datasets "
+        f"task=multitask train_manifest={train_manifest} valid_manifest={valid_manifest}",
+        flush=True,
+    )
+
+    turn_train_dataset = _build_dataset("turn", train_manifest, train_config=train_config, split="train")
+    response_train_dataset = _build_dataset(
+        "response",
+        train_manifest,
+        train_config=train_config,
+        split="train",
+    )
+    turn_valid_dataset = None
+    response_valid_dataset = None
+    if valid_manifest and Path(valid_manifest).exists():
+        turn_valid_dataset = _build_dataset(
+            "turn",
+            valid_manifest,
+            train_config=train_config,
+            split="valid",
+        )
+        response_valid_dataset = _build_dataset(
+            "response",
+            valid_manifest,
+            train_config=train_config,
+            split="valid",
+        )
+
+    device = _resolve_training_device(train_config.get("device"))
+    precision_config = _resolve_precision_config(train_config, device)
+    _configure_matmul_precision(train_config, device)
+    train_num_workers = int(train_config.get("num_workers", 0))
+    valid_num_workers = int(train_config.get("valid_num_workers", 0))
+    pin_memory = bool(train_config.get("pin_memory", device.type == "cuda"))
+    turn_candidate_limit = _candidate_limit_for_task(config, "turn")
+    response_candidate_limit = _candidate_limit_for_task(config, "response")
+    turn_batch_size = _batch_size_for_task(train_config, "turn")
+    response_batch_size = _batch_size_for_task(train_config, "response")
+
+    turn_train_loader = DataLoader(
+        turn_train_dataset,
+        batch_size=turn_batch_size,
+        shuffle=_dataloader_shuffle(turn_train_dataset, train=True),
+        num_workers=train_num_workers,
+        collate_fn=_build_collate_fn("turn", turn_candidate_limit),
+        pin_memory=pin_memory,
+        **_worker_loader_kwargs(train_config, train_num_workers),
+    )
+    response_train_loader = DataLoader(
+        response_train_dataset,
+        batch_size=response_batch_size,
+        shuffle=_dataloader_shuffle(response_train_dataset, train=True),
+        num_workers=train_num_workers,
+        collate_fn=_build_collate_fn("response", response_candidate_limit),
+        pin_memory=pin_memory,
+        **_worker_loader_kwargs(train_config, train_num_workers),
+    )
+    turn_valid_loader = None
+    if turn_valid_dataset is not None and len(turn_valid_dataset) > 0:
+        turn_valid_loader = DataLoader(
+            turn_valid_dataset,
+            batch_size=turn_batch_size,
+            shuffle=False,
+            num_workers=valid_num_workers,
+            collate_fn=_build_collate_fn("turn", turn_candidate_limit),
+            pin_memory=pin_memory,
+            **_worker_loader_kwargs(train_config, valid_num_workers),
+        )
+    response_valid_loader = None
+    if response_valid_dataset is not None and len(response_valid_dataset) > 0:
+        response_valid_loader = DataLoader(
+            response_valid_dataset,
+            batch_size=response_batch_size,
+            shuffle=False,
+            num_workers=valid_num_workers,
+            collate_fn=_build_collate_fn("response", response_candidate_limit),
+            pin_memory=pin_memory,
+            **_worker_loader_kwargs(train_config, valid_num_workers),
+        )
+
+    model = MultitaskMahjongPolicyNet(
+        hidden_size=int(config.get("model", {}).get("hidden_size", 512)),
+        dropout=float(config.get("model", {}).get("dropout", 0.1)),
+    ).to(device)
+    optimizer = AdamW(
+        model.parameters(),
+        lr=float(train_config.get("lr", 1e-3)),
+        weight_decay=float(train_config.get("weight_decay", 0.0)),
+    )
+    turn_weight_map = class_weight_map("turn", train_config)
+    response_weight_map = class_weight_map("response", train_config)
+    losses_config = config.get("task", {}).get("losses", {})
+    turn_loss_scale = float(losses_config.get("turn_ce", 1.0))
+    response_loss_scale = float(losses_config.get("response_ce", 1.0))
+    log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
+    epochs = int(train_config.get("epochs", 1))
+
+    _print_multitask_training_start(
+        device=device,
+        output_dir=output_dir,
+        log_dir=log_dir,
+        turn_train_dataset=turn_train_dataset,
+        response_train_dataset=response_train_dataset,
+        turn_valid_dataset=turn_valid_dataset,
+        response_valid_dataset=response_valid_dataset,
+        turn_train_loader=turn_train_loader,
+        response_train_loader=response_train_loader,
+        turn_valid_loader=turn_valid_loader,
+        response_valid_loader=response_valid_loader,
+        train_config=train_config,
+        model_config=config.get("model", {}),
+        turn_candidate_limit=turn_candidate_limit,
+        response_candidate_limit=response_candidate_limit,
+        turn_batch_size=turn_batch_size,
+        response_batch_size=response_batch_size,
+        pin_memory=pin_memory,
+        train_num_workers=train_num_workers,
+        valid_num_workers=valid_num_workers,
+        log_every_n_steps=log_every_n_steps,
+        epochs=epochs,
+        precision_config=precision_config,
+        turn_loss_scale=turn_loss_scale,
+        response_loss_scale=response_loss_scale,
+    )
+
+    epoch_summaries: list[dict[str, Any]] = []
+    multitask_epoch_summaries: list[dict[str, Any]] = []
+    best_turn_accuracy = float("-inf")
+    best_response_selection_score = float("-inf")
+    best_multitask_score = float("-inf")
+    best_valid_accuracy = float("-inf")
+    best_valid_loss = float("inf")
+    best_valid_macro_accuracy = float("-inf")
+    best_checkpoint_path = output_dir / "best.pt"
+    best_multitask_checkpoint_path = output_dir / "best_multitask.pt"
+    best_turn_checkpoint_path = output_dir / "best_turn.pt"
+    best_response_checkpoint_path = output_dir / "best_response.pt"
+    best_accuracy_checkpoint_path = output_dir / "best_accuracy.pt"
+    best_loss_checkpoint_path = output_dir / "best_loss.pt"
+    best_macro_checkpoint_path = output_dir / "best_macro.pt"
+    final_checkpoint_path = output_dir / "final.pt"
+
+    last_turn_train_summary: EpochSummary | None = None
+    last_response_train_summary: EpochSummary | None = None
+    last_train_summary: EpochSummary | None = None
+    last_valid_summary: EpochSummary | None = None
+
+    for epoch in range(1, epochs + 1):
+        last_turn_train_summary = _run_epoch(
+            model=model,
+            data_loader=turn_train_loader,
+            optimizer=optimizer,
+            device=device,
+            epoch=epoch,
+            split="train_turn",
+            task_name="turn",
+            train=True,
+            weight_map=turn_weight_map,
+            log_every_n_steps=log_every_n_steps,
+            precision_config=precision_config,
+            collect_response_diagnostics=False,
+            loss_scale=turn_loss_scale,
+        )
+        epoch_summaries.append({"task": "turn", **asdict(last_turn_train_summary)})
+
+        last_response_train_summary = _run_epoch(
+            model=model,
+            data_loader=response_train_loader,
+            optimizer=optimizer,
+            device=device,
+            epoch=epoch,
+            split="train_response",
+            task_name="response",
+            train=True,
+            weight_map=response_weight_map,
+            log_every_n_steps=log_every_n_steps,
+            precision_config=precision_config,
+            collect_response_diagnostics=_collect_response_diagnostics(
+                "response",
+                train_config,
+                split="train",
+            ),
+            loss_scale=response_loss_scale,
+        )
+        epoch_summaries.append({"task": "response", **asdict(last_response_train_summary)})
+        last_train_summary = _combine_epoch_summaries(
+            epoch=epoch,
+            split="train_multitask",
+            summaries=[last_turn_train_summary, last_response_train_summary],
+            response_summary=last_response_train_summary,
+        )
+        multitask_epoch_summaries.append(asdict(last_train_summary))
+
+        turn_valid_summary = None
+        response_valid_summary = None
+        if turn_valid_loader is not None:
+            turn_valid_summary = _run_epoch(
+                model=model,
+                data_loader=turn_valid_loader,
+                optimizer=None,
+                device=device,
+                epoch=epoch,
+                split="valid_turn",
+                task_name="turn",
+                train=False,
+                weight_map=turn_weight_map,
+                log_every_n_steps=0,
+                precision_config=precision_config,
+                collect_response_diagnostics=False,
+            )
+            epoch_summaries.append({"task": "turn", **asdict(turn_valid_summary)})
+            if turn_valid_summary.accuracy >= best_turn_accuracy:
+                best_turn_accuracy = turn_valid_summary.accuracy
+                _save_checkpoint(best_turn_checkpoint_path, model, optimizer, config, turn_valid_summary)
+
+        if response_valid_loader is not None:
+            response_valid_summary = _run_epoch(
+                model=model,
+                data_loader=response_valid_loader,
+                optimizer=None,
+                device=device,
+                epoch=epoch,
+                split="valid_response",
+                task_name="response",
+                train=False,
+                weight_map=response_weight_map,
+                log_every_n_steps=0,
+                precision_config=precision_config,
+                collect_response_diagnostics=_collect_response_diagnostics(
+                    "response",
+                    train_config,
+                    split="valid",
+                ),
+            )
+            epoch_summaries.append({"task": "response", **asdict(response_valid_summary)})
+            current_response_score = response_selection_score(response_valid_summary.response)
+            if (
+                current_response_score is not None
+                and current_response_score >= best_response_selection_score
+            ):
+                best_response_selection_score = current_response_score
+                _save_checkpoint(
+                    best_response_checkpoint_path,
+                    model,
+                    optimizer,
+                    config,
+                    response_valid_summary,
+                )
+
+        if turn_valid_summary is not None or response_valid_summary is not None:
+            valid_summaries = [
+                summary
+                for summary in (turn_valid_summary, response_valid_summary)
+                if summary is not None
+            ]
+            last_valid_summary = _combine_epoch_summaries(
+                epoch=epoch,
+                split="valid_multitask",
+                summaries=valid_summaries,
+                response_summary=response_valid_summary,
+            )
+            multitask_epoch_summaries.append(asdict(last_valid_summary))
+            multitask_score = _multitask_selection_score(
+                turn_valid_summary=turn_valid_summary,
+                response_valid_summary=response_valid_summary,
+            )
+            if multitask_score >= best_multitask_score:
+                best_multitask_score = multitask_score
+                _save_checkpoint(
+                    best_multitask_checkpoint_path,
+                    model,
+                    optimizer,
+                    config,
+                    last_valid_summary,
+                )
+                _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_valid_summary)
+            if last_valid_summary.accuracy >= best_valid_accuracy:
+                best_valid_accuracy = last_valid_summary.accuracy
+                _save_checkpoint(
+                    best_accuracy_checkpoint_path,
+                    model,
+                    optimizer,
+                    config,
+                    last_valid_summary,
+                )
+            if last_valid_summary.loss <= best_valid_loss:
+                best_valid_loss = last_valid_summary.loss
+                _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
+            if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
+                best_valid_macro_accuracy = last_valid_summary.macro_accuracy
+                _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
+        else:
+            _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
+            _save_checkpoint(
+                best_multitask_checkpoint_path,
+                model,
+                optimizer,
+                config,
+                last_train_summary,
+            )
+            _save_checkpoint(best_turn_checkpoint_path, model, optimizer, config, last_turn_train_summary)
+            _save_checkpoint(
+                best_response_checkpoint_path,
+                model,
+                optimizer,
+                config,
+                last_response_train_summary,
+            )
+            _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
+            _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
+            _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
+
+    assert last_turn_train_summary is not None
+    assert last_response_train_summary is not None
+    assert last_train_summary is not None
+    _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
+
+    turn_train_samples = int(last_turn_train_summary.samples)
+    response_train_samples = int(last_response_train_summary.samples)
+    observed_train_samples = int(last_train_summary.samples)
+    observed_valid_samples = 0 if last_valid_summary is None else int(last_valid_summary.samples)
+    turn_original_train_samples = _dataset_original_rows(turn_train_dataset)
+    response_original_train_samples = _dataset_original_rows(response_train_dataset)
+    turn_filtered_train_samples = _observed_filtered_rows(
+        turn_train_dataset,
+        turn_train_samples,
+    )
+    response_filtered_train_samples = _observed_filtered_rows(
+        response_train_dataset,
+        response_train_samples,
+    )
+    original_train_samples = turn_original_train_samples + response_original_train_samples
+    filtered_train_samples = turn_filtered_train_samples + response_filtered_train_samples
+
+    metrics_payload = {
+        "schedule": "epoch_sequential",
+        "epoch_summaries": epoch_summaries,
+        "multitask_epoch_summaries": multitask_epoch_summaries,
+        "train_samples": observed_train_samples,
+        "valid_samples": observed_valid_samples,
+        "turn_train_samples": turn_train_samples,
+        "response_train_samples": response_train_samples,
+        "original_train_samples": original_train_samples,
+        "filtered_train_samples": filtered_train_samples,
+        "turn_original_train_samples": turn_original_train_samples,
+        "response_original_train_samples": response_original_train_samples,
+        "turn_filtered_train_samples": turn_filtered_train_samples,
+        "response_filtered_train_samples": response_filtered_train_samples,
+        "best_turn_accuracy": None if best_turn_accuracy == float("-inf") else best_turn_accuracy,
+        "best_response_selection_score": (
+            None
+            if best_response_selection_score == float("-inf")
+            else best_response_selection_score
+        ),
+        "best_multitask_selection_score": (
+            None if best_multitask_score == float("-inf") else best_multitask_score
+        ),
+        "best_turn_checkpoint": str(best_turn_checkpoint_path),
+        "best_response_checkpoint": str(best_response_checkpoint_path),
+        "best_multitask_checkpoint": str(best_multitask_checkpoint_path),
+    }
+    (output_dir / "train_metrics.json").write_text(
+        json.dumps(metrics_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (log_dir / "epoch_metrics.jsonl").write_text(
+        "".join(
+            json.dumps(summary, ensure_ascii=False) + "\n"
+            for summary in [*epoch_summaries, *multitask_epoch_summaries]
+        ),
+        encoding="utf-8",
+    )
+
+    return TrainSummary(
+        task="multitask",
+        epochs=epochs,
+        train_loss=last_train_summary.loss,
+        train_accuracy=last_train_summary.accuracy,
+        train_macro_accuracy=last_train_summary.macro_accuracy,
+        valid_loss=None if last_valid_summary is None else last_valid_summary.loss,
+        valid_accuracy=None if last_valid_summary is None else last_valid_summary.accuracy,
+        valid_macro_accuracy=None if last_valid_summary is None else last_valid_summary.macro_accuracy,
+        train_samples=observed_train_samples,
+        valid_samples=observed_valid_samples,
+        original_train_samples=original_train_samples,
+        filtered_train_samples=filtered_train_samples,
+        best_checkpoint=str(best_checkpoint_path),
+        best_response_checkpoint=str(best_response_checkpoint_path),
+        best_loss_checkpoint=str(best_loss_checkpoint_path),
+        best_macro_checkpoint=str(best_macro_checkpoint_path),
+        final_checkpoint=str(final_checkpoint_path),
+        used_device=str(device),
+    )
+
+
 def _run_epoch(
     model: nn.Module,
     data_loader: DataLoader,
@@ -373,6 +782,7 @@ def _run_epoch(
     log_every_n_steps: int,
     precision_config: dict[str, Any],
     collect_response_diagnostics: bool,
+    loss_scale: float = 1.0,
 ) -> EpochSummary:
     """运行与函数名对应的处理流程。
     
@@ -446,7 +856,7 @@ def _run_epoch(
         if train:
             assert optimizer is not None
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            (loss * float(loss_scale)).backward()
             optimizer.step()
 
         batch_size = prepared_batch["labels"].shape[0]
@@ -1092,6 +1502,175 @@ def _print_training_start(
         f"log_dir={log_dir}",
         flush=True,
     )
+
+
+def _print_multitask_training_start(
+    *,
+    device: torch.device,
+    output_dir: Path,
+    log_dir: Path,
+    turn_train_dataset,
+    response_train_dataset,
+    turn_valid_dataset,
+    response_valid_dataset,
+    turn_train_loader: DataLoader,
+    response_train_loader: DataLoader,
+    turn_valid_loader: DataLoader | None,
+    response_valid_loader: DataLoader | None,
+    train_config: dict[str, Any],
+    model_config: dict[str, Any],
+    turn_candidate_limit: int,
+    response_candidate_limit: int,
+    turn_batch_size: int,
+    response_batch_size: int,
+    pin_memory: bool,
+    train_num_workers: int,
+    valid_num_workers: int,
+    log_every_n_steps: int,
+    epochs: int,
+    precision_config: dict[str, Any],
+    turn_loss_scale: float,
+    response_loss_scale: float,
+) -> None:
+    turn_valid_samples = 0 if turn_valid_dataset is None else len(turn_valid_dataset)
+    response_valid_samples = 0 if response_valid_dataset is None else len(response_valid_dataset)
+    turn_valid_batches = 0 if turn_valid_loader is None else len(turn_valid_loader)
+    response_valid_batches = 0 if response_valid_loader is None else len(response_valid_loader)
+    print(
+        "[train] starting "
+        "task=multitask "
+        f"device={device} "
+        f"cuda_available={torch.cuda.is_available()} "
+        f"xpu_available={_xpu_is_available()} "
+        f"epochs={epochs} "
+        f"turn_train_samples={len(turn_train_dataset)} "
+        f"response_train_samples={len(response_train_dataset)} "
+        f"turn_valid_samples={turn_valid_samples} "
+        f"response_valid_samples={response_valid_samples} "
+        f"turn_train_batches={len(turn_train_loader)} "
+        f"response_train_batches={len(response_train_loader)} "
+        f"turn_valid_batches={turn_valid_batches} "
+        f"response_valid_batches={response_valid_batches} "
+        f"turn_batch_size={turn_batch_size} "
+        f"response_batch_size={response_batch_size} "
+        f"turn_candidate_limit={turn_candidate_limit} "
+        f"response_candidate_limit={response_candidate_limit} "
+        f"num_workers={train_num_workers} "
+        f"valid_num_workers={valid_num_workers} "
+        f"pin_memory={pin_memory} "
+        f"precision={precision_config['precision']} "
+        f"autocast={bool(precision_config['autocast_enabled'])} "
+        f"autocast_dtype={_format_autocast_dtype(precision_config)} "
+        f"allow_tf32={_cuda_tf32_enabled()} "
+        f"float32_matmul_precision={torch.get_float32_matmul_precision()} "
+        f"persistent_workers={bool(train_config.get('persistent_workers', True)) if train_num_workers > 0 else False} "
+        f"prefetch_factor={int(train_config.get('prefetch_factor', 2)) if train_num_workers > 0 else 0} "
+        f"hidden_size={int(model_config.get('hidden_size', 512))} "
+        f"dropout={float(model_config.get('dropout', 0.1))} "
+        f"lr={float(train_config.get('lr', 1e-3))} "
+        f"weight_decay={float(train_config.get('weight_decay', 0.0))} "
+        f"turn_loss_scale={turn_loss_scale} "
+        f"response_loss_scale={response_loss_scale} "
+        f"log_every_n_steps={log_every_n_steps} "
+        f"response_train_diagnostics={_collect_response_diagnostics('response', train_config, 'train')} "
+        f"response_eval_diagnostics={_collect_response_diagnostics('response', train_config, 'valid')} "
+        f"output_dir={output_dir} "
+        f"log_dir={log_dir}",
+        flush=True,
+    )
+
+
+def _candidate_limit_for_task(config: dict[str, Any], task_name: str) -> int:
+    data_config = config.get("data", {})
+    task_key = f"{task_name}_candidate_limit"
+    if task_key in data_config:
+        return int(data_config[task_key])
+    if "candidate_limit" in data_config:
+        return int(data_config["candidate_limit"])
+    return 16 if task_name == "response" else 64
+
+
+def _batch_size_for_task(train_config: dict[str, Any], task_name: str) -> int:
+    return int(train_config.get(f"{task_name}_batch_size", train_config.get("batch_size", 32)))
+
+
+def _combine_epoch_summaries(
+    *,
+    epoch: int,
+    split: str,
+    summaries: list[EpochSummary],
+    response_summary: EpochSummary | None,
+) -> EpochSummary:
+    total_samples = sum(summary.samples for summary in summaries)
+    total_batches = sum(summary.batches for summary in summaries)
+    if total_samples <= 0:
+        return EpochSummary(
+            epoch=epoch,
+            split=split,
+            loss=0.0,
+            accuracy=0.0,
+            macro_accuracy=0.0,
+            batches=total_batches,
+            samples=0,
+            per_kind={},
+            class_groups={},
+            response=None,
+        )
+
+    average_loss = sum(summary.loss * summary.samples for summary in summaries) / total_samples
+    accuracy = sum(summary.accuracy * summary.samples for summary in summaries) / total_samples
+    per_kind: dict[str, LabelMetricSummary] = {}
+    class_groups: dict[str, LabelMetricSummary] = {}
+    for summary in summaries:
+        task_prefix = _summary_task_prefix(summary)
+        per_kind.update(
+            {
+                f"{task_prefix}/{kind}": metric
+                for kind, metric in summary.per_kind.items()
+            }
+        )
+        class_groups.update(
+            {
+                f"{task_prefix}/{group}": metric
+                for group, metric in summary.class_groups.items()
+            }
+        )
+    return EpochSummary(
+        epoch=epoch,
+        split=split,
+        loss=average_loss,
+        accuracy=accuracy,
+        macro_accuracy=_macro_accuracy(per_kind),
+        batches=total_batches,
+        samples=total_samples,
+        per_kind=per_kind,
+        class_groups=class_groups,
+        response=None if response_summary is None else response_summary.response,
+    )
+
+
+def _summary_task_prefix(summary: EpochSummary) -> str:
+    if "response" in summary.split:
+        return "response"
+    if "turn" in summary.split:
+        return "turn"
+    return "task"
+
+
+def _multitask_selection_score(
+    *,
+    turn_valid_summary: EpochSummary | None,
+    response_valid_summary: EpochSummary | None,
+) -> float:
+    scores: list[float] = []
+    if turn_valid_summary is not None:
+        scores.append(turn_valid_summary.accuracy)
+    if response_valid_summary is not None:
+        response_score = response_selection_score(response_valid_summary.response)
+        scores.append(response_valid_summary.accuracy if response_score is None else response_score)
+    if not scores:
+        return float("-inf")
+    return sum(scores) / len(scores)
 
 
 def _worker_loader_kwargs(train_config: dict[str, Any], num_workers: int) -> dict[str, Any]:

@@ -15,7 +15,9 @@ from mjai.data.datasets.parquet_dataset import (
     StreamingManifestResponseDataset,
 )
 from mjai.eval.offline import (
+    _batch_size_for_task,
     _build_top_predictions,
+    _candidate_limit_for_task,
     _merge_dicts,
     _resolve_bronze_dir,
     _resolve_dataset_dir,
@@ -27,6 +29,7 @@ from mjai.eval.offline import (
 from mjai.eval.response_calibration import _candidate_kind_ids
 from mjai.features.action_features import RESPONSE_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM
+from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.metrics import RESPONSE_KIND_RANK
 from mjai.utils.paths import ensure_dir
@@ -95,11 +98,13 @@ def sample_response_errors(
         raise TypeError(f"checkpoint config is missing or invalid: {checkpoint_path}")
 
     config = _merge_dicts(base_config, config_override or {})
-    task_name = str(config.get("task", {}).get("task", ""))
-    if task_name != "response":
+    checkpoint_task_name = str(base_config.get("task", {}).get("task", ""))
+    if checkpoint_task_name not in {"response", "multitask"}:
         raise ValueError(
-            f"response error sampling requires task=response checkpoint, got: {task_name}"
+            "response error sampling requires task=response or task=multitask checkpoint, "
+            f"got: {checkpoint_task_name}"
         )
+    task_name = "response"
 
     resolved_targets = _normalize_targets(targets)
     resolved_per_target = _normalize_per_target(per_target)
@@ -107,8 +112,8 @@ def sample_response_errors(
     resolved_seed = int(config.get("seed", 20260423) if seed is None else seed)
     resolved_manifest_path = _resolve_sampling_manifest_path(config, split, manifest_path)
     resolved_output_path = Path(output_path)
-    candidate_limit = int(config.get("data", {}).get("candidate_limit", 16))
-    batch_size = int(config.get("train", {}).get("batch_size", 32))
+    candidate_limit = _candidate_limit_for_task(config, "response")
+    batch_size = _batch_size_for_task(config, "response")
     device = _resolve_device(config.get("train", {}).get("device"))
     num_workers = _resolve_eval_num_workers(config)
     pin_memory = bool(config.get("eval", {}).get("pin_memory", device.type == "cuda"))
@@ -140,12 +145,18 @@ def sample_response_errors(
         **_worker_loader_kwargs(config, num_workers),
     )
 
-    model = MahjongPolicyNet(
-        state_dim=RESPONSE_STATE_DIM,
-        action_dim=RESPONSE_ACTION_DIM,
-        hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
-        dropout=float(config.get("model", {}).get("dropout", 0.1)),
-    ).to(device)
+    if checkpoint_task_name == "multitask":
+        model = MultitaskMahjongPolicyNet(
+            hidden_size=int(config.get("model", {}).get("hidden_size", 512)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
+    else:
+        model = MahjongPolicyNet(
+            state_dim=RESPONSE_STATE_DIM,
+            action_dim=RESPONSE_ACTION_DIM,
+            hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

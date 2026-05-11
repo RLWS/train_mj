@@ -11,7 +11,9 @@ from torch.utils.data import DataLoader
 
 from mjai.data.datasets.parquet_dataset import StreamingManifestTurnDataset, TurnBatchCollator
 from mjai.eval.offline import (
+    _batch_size_for_task,
     _build_top_predictions,
+    _candidate_limit_for_task,
     _compute_label_ranks,
     _merge_dicts,
     _resolve_bronze_dir,
@@ -23,6 +25,7 @@ from mjai.eval.offline import (
 )
 from mjai.features.action_features import TURN_ACTION_DIM
 from mjai.features.state_features import TURN_STATE_DIM
+from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.utils.paths import ensure_dir
 
@@ -93,9 +96,13 @@ def sample_turn_errors(
         raise TypeError(f"checkpoint config is missing or invalid: {checkpoint_path}")
 
     config = _merge_dicts(base_config, config_override or {})
-    task_name = str(config.get("task", {}).get("task", ""))
-    if task_name != "turn":
-        raise ValueError(f"turn error sampling requires task=turn checkpoint, got: {task_name}")
+    checkpoint_task_name = str(base_config.get("task", {}).get("task", ""))
+    if checkpoint_task_name not in {"turn", "multitask"}:
+        raise ValueError(
+            "turn error sampling requires task=turn or task=multitask checkpoint, "
+            f"got: {checkpoint_task_name}"
+        )
+    task_name = "turn"
 
     resolved_label_kinds = _normalize_label_kinds(label_kinds)
     resolved_ranks = _normalize_ranks(ranks)
@@ -103,8 +110,8 @@ def sample_turn_errors(
     resolved_seed = int(config.get("seed", 20260423) if seed is None else seed)
     resolved_manifest_path = _resolve_sampling_manifest_path(config, split, manifest_path)
     resolved_output_path = Path(output_path)
-    candidate_limit = int(config.get("data", {}).get("candidate_limit", 64))
-    batch_size = int(config.get("train", {}).get("batch_size", 32))
+    candidate_limit = _candidate_limit_for_task(config, "turn")
+    batch_size = _batch_size_for_task(config, "turn")
     device = _resolve_device(config.get("train", {}).get("device"))
     num_workers = _resolve_eval_num_workers(config)
     pin_memory = bool(config.get("eval", {}).get("pin_memory", device.type == "cuda"))
@@ -135,12 +142,18 @@ def sample_turn_errors(
         **_worker_loader_kwargs(config, num_workers),
     )
 
-    model = MahjongPolicyNet(
-        state_dim=TURN_STATE_DIM,
-        action_dim=TURN_ACTION_DIM,
-        hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
-        dropout=float(config.get("model", {}).get("dropout", 0.1)),
-    ).to(device)
+    if checkpoint_task_name == "multitask":
+        model = MultitaskMahjongPolicyNet(
+            hidden_size=int(config.get("model", {}).get("hidden_size", 512)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
+    else:
+        model = MahjongPolicyNet(
+            state_dim=TURN_STATE_DIM,
+            action_dim=TURN_ACTION_DIM,
+            hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

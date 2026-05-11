@@ -10,9 +10,16 @@ import torch
 from torch.utils.data import DataLoader
 
 from mjai.data.datasets.parquet_dataset import ResponseBatchCollator, StreamingManifestResponseDataset
-from mjai.eval.offline import _merge_dicts, _resolve_device, _resolve_manifest_path
+from mjai.eval.offline import (
+    _batch_size_for_task,
+    _candidate_limit_for_task,
+    _merge_dicts,
+    _resolve_device,
+    _resolve_manifest_path,
+)
 from mjai.features.action_features import RESPONSE_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM
+from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.metrics import RESPONSE_KIND_RANK
 from mjai.utils.paths import ensure_dir
@@ -111,13 +118,17 @@ def calibrate_response_checkpoint(
         raise TypeError(f"checkpoint config is missing or invalid: {checkpoint_path}")
 
     config = _merge_dicts(base_config, config_override or {})
-    task_name = str(config.get("task", {}).get("task", ""))
-    if task_name != "response":
-        raise ValueError(f"response calibration requires task=response checkpoint, got: {task_name}")
+    checkpoint_task_name = str(base_config.get("task", {}).get("task", ""))
+    if checkpoint_task_name not in {"response", "multitask"}:
+        raise ValueError(
+            "response calibration requires task=response or task=multitask checkpoint, "
+            f"got: {checkpoint_task_name}"
+        )
+    task_name = "response"
 
     resolved_manifest_path = _resolve_calibration_manifest_path(config, split, manifest_path)
-    candidate_limit = int(config.get("data", {}).get("candidate_limit", 16))
-    batch_size = int(config.get("train", {}).get("batch_size", 32))
+    candidate_limit = _candidate_limit_for_task(config, "response")
+    batch_size = _batch_size_for_task(config, "response")
     device = _resolve_device(config.get("train", {}).get("device"))
 
     dataset = _build_calibration_dataset(resolved_manifest_path)
@@ -134,12 +145,18 @@ def calibrate_response_checkpoint(
         collate_fn=ResponseBatchCollator(candidate_limit=candidate_limit),
     )
 
-    model = MahjongPolicyNet(
-        state_dim=RESPONSE_STATE_DIM,
-        action_dim=RESPONSE_ACTION_DIM,
-        hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
-        dropout=float(config.get("model", {}).get("dropout", 0.1)),
-    ).to(device)
+    if checkpoint_task_name == "multitask":
+        model = MultitaskMahjongPolicyNet(
+            hidden_size=int(config.get("model", {}).get("hidden_size", 512)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
+    else:
+        model = MahjongPolicyNet(
+            state_dim=RESPONSE_STATE_DIM,
+            action_dim=RESPONSE_ACTION_DIM,
+            hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 

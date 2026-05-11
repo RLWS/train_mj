@@ -283,6 +283,197 @@ def test_train_response_smoke_from_generated_dataset(tmp_path: Path):
     assert valid_epoch["response"]
 
 
+def test_train_multitask_smoke_from_generated_dataset(tmp_path: Path):
+    bronze_dir = tmp_path / "bronze_events"
+    silver_dir = tmp_path / "silver_samples"
+    manifest_dir = tmp_path / "manifests"
+
+    assert main(["preprocess", "--input", str(FIXTURE_DIR), "--output", str(bronze_dir)]) == 0
+    assert main(["build-dataset", "--input", str(bronze_dir), "--output", str(silver_dir)]) == 0
+    assert main(["make-manifest", "--input", str(silver_dir), "--output", str(manifest_dir)]) == 0
+
+    train_manifest = manifest_dir / "train_small.jsonl"
+    valid_manifest = manifest_dir / "valid_small.jsonl"
+    train_line = (manifest_dir / "train.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    valid_line = (manifest_dir / "valid.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    train_manifest.write_text(train_line + "\n", encoding="utf-8")
+    valid_manifest.write_text(valid_line + "\n", encoding="utf-8")
+
+    output_dir = tmp_path / "outputs" / "checkpoints" / "multitask_smoke_test"
+    log_dir = tmp_path / "outputs" / "logs" / "multitask_smoke_test"
+    config_path = tmp_path / "multitask_smoke.yaml"
+    turn_report_path = tmp_path / "reports" / "multitask_turn_valid_eval.json"
+    response_report_path = tmp_path / "reports" / "multitask_response_valid_eval.json"
+    calibration_report_path = tmp_path / "reports" / "multitask_response_calibration.json"
+    turn_error_samples_path = tmp_path / "reports" / "multitask_turn_errors.jsonl"
+    response_error_samples_path = tmp_path / "reports" / "multitask_response_errors.jsonl"
+    config_path.write_text(
+        "\n".join(
+            [
+                "seed: 20260423",
+                "exp_name: multitask_smoke_test",
+                f"output_dir: {output_dir.as_posix()}",
+                f"log_dir: {log_dir.as_posix()}",
+                "data:",
+                f"  train_manifest: {train_manifest.as_posix()}",
+                f"  valid_manifest: {valid_manifest.as_posix()}",
+                "  turn_candidate_limit: 64",
+                "  response_candidate_limit: 16",
+                "task:",
+                "  task: multitask",
+                "  losses:",
+                "    turn_ce: 1.0",
+                "    response_ce: 1.0",
+                "model:",
+                "  hidden_size: 32",
+                "  dropout: 0.0",
+                "train:",
+                "  device: cpu",
+                "  turn_batch_size: 64",
+                "  response_batch_size: 128",
+                "  num_workers: 0",
+                "  epochs: 1",
+                "  lr: 0.005",
+                "  weight_decay: 0.0",
+                "  response_min_train_candidate_count: 2",
+                "  turn_class_weights:",
+                "    discard: 1.0",
+                "    riichi_discard: 2.0",
+                "    tsumo: 3.0",
+                "    ankan: 4.0",
+                "    kakan: 4.0",
+                "    kyuushu_kyuuhai: 4.0",
+                "  response_class_weights:",
+                "    pass: 1.0",
+                "    chi: 6.0",
+                "    pon: 6.0",
+                "    daiminkan: 6.0",
+                "    ron: 10.0",
+                "    chankan: 10.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["train", "--config", str(config_path)]) == 0
+    assert main(
+        [
+            "eval",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--task",
+            "turn",
+            "--split",
+            "valid",
+            "--report",
+            str(turn_report_path),
+        ]
+    ) == 0
+    assert main(
+        [
+            "eval",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--task",
+            "response",
+            "--split",
+            "valid",
+            "--report",
+            str(response_report_path),
+        ]
+    ) == 0
+    assert main(
+        [
+            "calibrate-response",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--split",
+            "valid",
+            "--manifest",
+            str(valid_manifest),
+            "--report",
+            str(calibration_report_path),
+            "--pass-biases",
+            "0,0.1",
+            "--false-call-targets",
+            "100%",
+            "--log-every-n-batches",
+            "0",
+        ]
+    ) == 0
+    assert main(
+        [
+            "sample-turn-errors",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--split",
+            "valid",
+            "--manifest",
+            str(valid_manifest),
+            "--output",
+            str(turn_error_samples_path),
+            "--label-kinds",
+            "discard",
+            "--ranks",
+            "1,2",
+            "--per-rank",
+            "1",
+            "--log-every-n-batches",
+            "0",
+        ]
+    ) == 0
+    assert main(
+        [
+            "sample-response-errors",
+            "--ckpt",
+            str(output_dir / "best.pt"),
+            "--split",
+            "valid",
+            "--manifest",
+            str(valid_manifest),
+            "--output",
+            str(response_error_samples_path),
+            "--targets",
+            "pass->pass,pass->chi,chi->pass,chi->chi,pon->pass,pon->pon",
+            "--per-target",
+            "1",
+            "--log-every-n-batches",
+            "0",
+        ]
+    ) == 0
+
+    metrics = json.loads((output_dir / "train_metrics.json").read_text(encoding="utf-8"))
+    assert (output_dir / "config.resolved.yaml").exists()
+    assert (output_dir / "best.pt").exists()
+    assert (output_dir / "best_multitask.pt").exists()
+    assert (output_dir / "best_turn.pt").exists()
+    assert (output_dir / "best_response.pt").exists()
+    assert (output_dir / "final.pt").exists()
+    assert (log_dir / "epoch_metrics.jsonl").exists()
+    assert metrics["schedule"] == "epoch_sequential"
+    assert metrics["turn_train_samples"] > 0
+    assert metrics["response_train_samples"] > 0
+    assert metrics["train_samples"] == (
+        metrics["turn_train_samples"] + metrics["response_train_samples"]
+    )
+    assert metrics["epoch_summaries"]
+    assert metrics["multitask_epoch_summaries"]
+
+    turn_report = json.loads(turn_report_path.read_text(encoding="utf-8"))
+    response_report = json.loads(response_report_path.read_text(encoding="utf-8"))
+    assert turn_report["task"] == "turn"
+    assert response_report["task"] == "response"
+    assert turn_report["samples"] > 0
+    assert response_report["samples"] > 0
+    assert response_report["response"]
+    calibration_report = json.loads(calibration_report_path.read_text(encoding="utf-8"))
+    assert calibration_report["task"] == "response"
+    assert calibration_report["pass_biases"] == [0.0, 0.1]
+    assert turn_error_samples_path.exists()
+    assert response_error_samples_path.exists()
+
+
 def test_eval_turn_smoke_from_generated_checkpoint(tmp_path: Path):
     """验证基于生成检查点的自摸巡评估冒烟流程。
     

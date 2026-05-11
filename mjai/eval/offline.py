@@ -16,6 +16,7 @@ from mjai.data.datasets.parquet_dataset import (
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
+from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
@@ -110,6 +111,7 @@ def evaluate_checkpoint(
     split: str,
     config_override: dict[str, Any] | None = None,
     report_path: str | Path | None = None,
+    task_override: str | None = None,
 ) -> EvalSummary:
     """加载检查点并执行离线评估。
     
@@ -133,13 +135,18 @@ def evaluate_checkpoint(
         raise TypeError(f"checkpoint config is missing or invalid: {checkpoint_path}")
 
     config = _merge_dicts(base_config, config_override or {})
-    task_name = str(config.get("task", {}).get("task", ""))
+    checkpoint_task_name = str(base_config.get("task", {}).get("task", ""))
+    task_name = _resolve_eval_task(
+        checkpoint_task_name=checkpoint_task_name,
+        config=config,
+        task_override=task_override,
+    )
     if task_name not in {"turn", "response"}:
         raise ValueError(f"offline eval currently supports only task=turn/response, got: {task_name}")
 
     manifest_path = _resolve_manifest_path(config, split)
-    candidate_limit = int(config.get("data", {}).get("candidate_limit", 64))
-    batch_size = int(config.get("train", {}).get("batch_size", 32))
+    candidate_limit = _candidate_limit_for_task(config, task_name)
+    batch_size = _batch_size_for_task(config, task_name)
     max_misclassified_examples = int(config.get("eval", {}).get("max_misclassified_examples", 10))
     device = _resolve_device(config.get("train", {}).get("device"))
     num_workers = _resolve_eval_num_workers(config)
@@ -161,12 +168,18 @@ def evaluate_checkpoint(
         **_worker_loader_kwargs(config, num_workers),
     )
 
-    model = MahjongPolicyNet(
-        state_dim=TURN_STATE_DIM if task_name == "turn" else RESPONSE_STATE_DIM,
-        action_dim=TURN_ACTION_DIM if task_name == "turn" else RESPONSE_ACTION_DIM,
-        hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
-        dropout=float(config.get("model", {}).get("dropout", 0.1)),
-    ).to(device)
+    if checkpoint_task_name == "multitask":
+        model = MultitaskMahjongPolicyNet(
+            hidden_size=int(config.get("model", {}).get("hidden_size", 512)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
+    else:
+        model = MahjongPolicyNet(
+            state_dim=TURN_STATE_DIM if task_name == "turn" else RESPONSE_STATE_DIM,
+            action_dim=TURN_ACTION_DIM if task_name == "turn" else RESPONSE_ACTION_DIM,
+            hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
+            dropout=float(config.get("model", {}).get("dropout", 0.1)),
+        ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -373,6 +386,56 @@ def _resolve_manifest_path(config: dict[str, Any], split: str) -> Path:
     if not manifest_path.exists():
         raise FileNotFoundError(f"manifest file not found for split '{split}': {manifest_path}")
     return manifest_path
+
+
+def _resolve_eval_task(
+    *,
+    checkpoint_task_name: str,
+    config: dict[str, Any],
+    task_override: str | None,
+) -> str:
+    if task_override is not None:
+        selected = str(task_override)
+        if selected not in {"turn", "response"}:
+            raise ValueError(f"eval --task must be turn or response, got: {selected}")
+        if checkpoint_task_name not in {"multitask", selected}:
+            raise ValueError(
+                f"eval --task={selected} does not match checkpoint task={checkpoint_task_name}"
+            )
+        return selected
+
+    configured_task = str(config.get("task", {}).get("task", ""))
+    eval_task = config.get("eval", {}).get("task")
+    if eval_task is not None:
+        selected = str(eval_task)
+        if selected not in {"turn", "response"}:
+            raise ValueError(f"eval.task must be turn or response, got: {selected}")
+        return selected
+
+    if checkpoint_task_name == "multitask":
+        raise ValueError("multitask checkpoints require eval --task turn or --task response")
+    return configured_task
+
+
+def _candidate_limit_for_task(config: dict[str, Any], task_name: str) -> int:
+    data_config = config.get("data", {})
+    task_key = f"{task_name}_candidate_limit"
+    if task_key in data_config:
+        return int(data_config[task_key])
+    if "candidate_limit" in data_config:
+        return int(data_config["candidate_limit"])
+    return 16 if task_name == "response" else 64
+
+
+def _batch_size_for_task(config: dict[str, Any], task_name: str) -> int:
+    eval_config = config.get("eval", {})
+    train_config = config.get("train", {})
+    task_key = f"{task_name}_batch_size"
+    if task_key in eval_config:
+        return int(eval_config[task_key])
+    if "batch_size" in eval_config:
+        return int(eval_config["batch_size"])
+    return int(train_config.get(task_key, train_config.get("batch_size", 32)))
 
 
 def _resolve_report_path(

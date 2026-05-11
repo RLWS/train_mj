@@ -2,8 +2,4 @@ task: multitask
 losses:
   turn_ce: 1.0
   response_ce: 1.0
-  value_mse: 0.2
-sampling:
-  turn_weight: 1.0
-  response_weight: 1.5
-  value_weight: 0.5
+schedule: epoch_sequential

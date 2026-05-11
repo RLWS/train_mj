@@ -6,6 +6,7 @@
 # Common overrides:
 #   TASKS=response docker compose -f docker-compose.p800.yml up
 #   TASKS=turn EVAL_SPLIT=valid docker compose -f docker-compose.p800.yml up
+#   TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 docker compose -f docker-compose.p800.yml up
 #   P800_DATASET_DIR=/other/dataset docker compose -f docker-compose.p800.yml up
 
 services:
@@ -28,6 +29,11 @@ services:
 
       EVAL_SPLIT: ${EVAL_SPLIT:-test}
       TASKS: ${TASKS:-turn response}
+
+      MULTITASK_TRAIN_CONFIG: ${MULTITASK_TRAIN_CONFIG:-configs/multitask_p800.yaml}
+      MULTITASK_EVAL_CKPT: ${MULTITASK_EVAL_CKPT:-outputs/checkpoints/multitask_p800_v1_1/best.pt}
+      MULTITASK_TURN_EVAL_REPORT: ${MULTITASK_TURN_EVAL_REPORT:-outputs/reports/multitask_p800_v1_1_turn_test_eval.json}
+      MULTITASK_RESPONSE_EVAL_REPORT: ${MULTITASK_RESPONSE_EVAL_REPORT:-outputs/reports/multitask_p800_v1_1_response_test_eval.json}
 
       TURN_EVAL_CKPT: ${TURN_EVAL_CKPT:-runs/2026-05-10_p800_improved/turn/checkpoints/best.pt}
       RESPONSE_EVAL_CKPT: ${RESPONSE_EVAL_CKPT:-runs/2026-05-10_p800_improved/response/checkpoints/best.pt}

@@ -9,7 +9,7 @@
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
 - `Phase 1` 已推进到大数据单任务 baseline 之后的第一轮特征复训：`turn/response` 都已经有 P800 baseline 与 improved 两轮 valid/test eval、response calibration 和可对照指标。
 
-换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准和分析模型取舍”的阶段。当前主线不是继续证明能训练，而是为 response 选择可解释 operating point、排查 turn 少数类回退，并通过错例抽样决定下一组特征；多任务、DDP 和系统化 serving 仍未完成。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准和分析模型取舍”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 主线已经转向多任务训练，当前已具备可直接在 P800 上训练的 turn/response 共享状态 encoder baseline。DDP 和系统化 serving 仍未完成。
 
 ## 2. 已验证结果
 
@@ -218,8 +218,10 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 多头边界现状：
 
-- 当前模型类暴露共享 encoder + `turn_head` / `response_head` 的接口，但训练入口仍是单任务 `turn` / `response`，尚未实现 `task: multitask` 的 batch 混合与 loss 聚合。
-- 本轮 response 优化只改变 response 训练集过滤、response 指标和 response checkpoint 选择标准；不会改变 turn 配置、turn 数据集、turn loss 或 turn checkpoint 选择。
+- v1.1 已新增 `MultitaskMahjongPolicyNet`：`turn/response` 各自保留 state projection、action encoder 和 head，共享一段状态 encoder 主干，解决两个任务输入维度不同但仍需共享表征的问题。
+- 训练入口已支持 `task: multitask`，当前 baseline 使用 epoch 级顺序调度：每个 epoch 先完整训练 `turn`，再完整训练 `response`，valid 阶段分别评估两路指标。
+- 多任务 checkpoint 可通过 `python -m mjai.cli eval --ckpt <ckpt> --task turn|response` 分别评估，也已兼容 `calibrate-response`、`sample-response-errors` 和 `sample-turn-errors`。
+- 首轮多任务训练仍待 P800 正式结果验证；batch-level interleave、自动 loss scale、value head 与 DDP 暂不纳入 v1.1 baseline。
 
 下一阶段优先补：
 
@@ -233,7 +235,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 数据重建与 P800 大数据训练提醒：
 
 - turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 improved run 的样本数和训练日志对齐。后续只要 feature schema、parser/rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`。
-- 20 万局量级的 baseline 与 improved 单任务训练都已跑完，valid/test 指标稳定。下一轮不要把 response operating point、turn 少数类修复、DDP、多任务和复杂模型混在同一次实验里。
+- 20 万局量级的 baseline 与 improved 单任务训练都已跑完，valid/test 指标稳定。下一轮主线是 v1.1 多任务 baseline；不要同时混入 response operating point 调整、turn 少数类修复、DDP 和复杂模型。
 - 当前缺口不是“能否训练”：后续应继续按 `runs/<date>_<exp>/` 固化每轮模型证据，并通过 `dataset_id` 引用 `runs/_datasets/<dataset_id>/` 中的数据证据。
 - v1.0.0 response 默认 operating point 已定为 `pass_bias=0.3`；`0.16` 作为偏召回候选，`0.4` 作为保守候选。后续推理/服务配置应显式记录该值。
 
@@ -249,7 +251,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `preprocess / validate-events`：已完成第一版
 - `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版，并已跑通 P800 大数据单任务 baseline
 - `Task 7` 离线评估：已完成第一版
-- `Task 8` 多任务训练：未开始
+- `Task 8` 多任务训练：已完成可训练 baseline，待 P800 首轮结果验证
 - `Task 9` 训练机适配：P800 单卡 baseline 已验证；8 卡 DDP 仍未实现/验证
 
 ## 6. 建议的下一步任务

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# P800/Linux 默认一键流程：
-#   ./start.sh
+# P800/Linux one-command pipeline.
 #
-# 默认只把原始 XML 放在 /workspace/dataset，其余产物仍写到当前仓库的 data/ 和 outputs/。
-# 常用开关：
-#   TASKS=turn ./start.sh                         # 只跑 turn 训练和对应 eval
-#   TASKS=response ./start.sh                     # 只跑 response 训练和对应 eval
-#   RUN_VALIDATE=0 ./start.sh                     # 跳过独立 validate-events 报告
-#   RUN_TRAIN=0 RUN_EVAL=0 ./start.sh             # 只生成 preprocess/build/manifest 数据
-#   RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh  # 复用已校验事件数据
+# Common examples:
+#   ./start.sh
+#   TASKS=turn ./start.sh
+#   TASKS=response ./start.sh
+#   TASKS=multitask ./start.sh
+#   RUN_VALIDATE=0 ./start.sh
+#   RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+#   RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -46,7 +46,8 @@ require_dir() {
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
-# 目录约定：RAW_XML_DIR 在训练机数据盘，其余默认都在仓库当前目录下。
+# RAW_XML_DIR is usually the mounted dataset path on the training machine.
+# Generated data, reports, checkpoints, and logs stay under the repository by default.
 RAW_XML_DIR="${RAW_XML_DIR:-/workspace/dataset}"
 DATA_ROOT="${DATA_ROOT:-data}"
 BRONZE_EVENTS_DIR="${BRONZE_EVENTS_DIR:-$DATA_ROOT/bronze_events}"
@@ -57,11 +58,12 @@ EVENT_VALIDATION_REPORT="${EVENT_VALIDATION_REPORT:-$REPORT_DIR/event_validation
 
 WORKERS="${WORKERS:-$(default_workers)}"
 
-# TASKS 控制训练/评估哪些任务；默认 turn 和 response 都跑。
-# 可选值：turn、response，多个任务用空格分隔，例如 TASKS="turn response"。
+# TASKS controls train/eval tasks. Valid values: turn, response, multitask.
+# Multiple tasks are space-separated, for example TASKS="turn response".
 TASKS="${TASKS:-turn response}"
 TURN_TRAIN_CONFIG="${TURN_TRAIN_CONFIG:-configs/turn_p800.yaml}"
 RESPONSE_TRAIN_CONFIG="${RESPONSE_TRAIN_CONFIG:-configs/response_p800.yaml}"
+MULTITASK_TRAIN_CONFIG="${MULTITASK_TRAIN_CONFIG:-configs/multitask_p800.yaml}"
 
 RUN_PREPROCESS="${RUN_PREPROCESS:-1}"
 RUN_VALIDATE="${RUN_VALIDATE:-1}"
@@ -74,8 +76,11 @@ SKIP_BUILD_VALIDATION="${SKIP_BUILD_VALIDATION:-0}"
 EVAL_SPLIT="${EVAL_SPLIT:-valid}"
 TURN_EVAL_CKPT="${TURN_EVAL_CKPT:-outputs/checkpoints/turn_p800/best.pt}"
 RESPONSE_EVAL_CKPT="${RESPONSE_EVAL_CKPT:-outputs/checkpoints/response_p800/best.pt}"
+MULTITASK_EVAL_CKPT="${MULTITASK_EVAL_CKPT:-outputs/checkpoints/multitask_p800_v1_1/best.pt}"
 TURN_EVAL_REPORT="${TURN_EVAL_REPORT:-$REPORT_DIR/turn_p800_${EVAL_SPLIT}_eval.json}"
 RESPONSE_EVAL_REPORT="${RESPONSE_EVAL_REPORT:-$REPORT_DIR/response_p800_${EVAL_SPLIT}_eval.json}"
+MULTITASK_TURN_EVAL_REPORT="${MULTITASK_TURN_EVAL_REPORT:-$REPORT_DIR/multitask_p800_v1_1_turn_${EVAL_SPLIT}_eval.json}"
+MULTITASK_RESPONSE_EVAL_REPORT="${MULTITASK_RESPONSE_EVAL_REPORT:-$REPORT_DIR/multitask_p800_v1_1_response_${EVAL_SPLIT}_eval.json}"
 
 train_config_for_task() {
   case "$1" in
@@ -85,8 +90,11 @@ train_config_for_task() {
     response)
       printf '%s\n' "$RESPONSE_TRAIN_CONFIG"
       ;;
+    multitask)
+      printf '%s\n' "$MULTITASK_TRAIN_CONFIG"
+      ;;
     *)
-      echo "unsupported task in TASKS: $1 (expected turn or response)" >&2
+      echo "unsupported task in TASKS: $1 (expected turn, response, or multitask)" >&2
       exit 1
       ;;
   esac
@@ -100,8 +108,11 @@ eval_ckpt_for_task() {
     response)
       printf '%s\n' "$RESPONSE_EVAL_CKPT"
       ;;
+    multitask)
+      printf '%s\n' "$MULTITASK_EVAL_CKPT"
+      ;;
     *)
-      echo "unsupported task in TASKS: $1 (expected turn or response)" >&2
+      echo "unsupported task in TASKS: $1 (expected turn, response, or multitask)" >&2
       exit 1
       ;;
   esac
@@ -115,8 +126,11 @@ eval_report_for_task() {
     response)
       printf '%s\n' "$RESPONSE_EVAL_REPORT"
       ;;
+    multitask)
+      printf '%s\n' "$MULTITASK_TURN_EVAL_REPORT"
+      ;;
     *)
-      echo "unsupported task in TASKS: $1 (expected turn or response)" >&2
+      echo "unsupported task in TASKS: $1 (expected turn, response, or multitask)" >&2
       exit 1
       ;;
   esac
@@ -161,8 +175,8 @@ if [ "$RUN_BUILD_DATASET" = "1" ]; then
     --output "$SAMPLES_DIR"
     --workers "$WORKERS"
   )
-  # 已经单独跑过 validate-events 时，build-dataset 不再重复回放校验。
-  # 如果跳过独立 validate 但仍想在 build 阶段校验，保持 SKIP_BUILD_VALIDATION=0。
+  # If validate-events already ran, do not replay-validate every shard again.
+  # If validation was skipped but build-time validation is desired, keep SKIP_BUILD_VALIDATION=0.
   if [ "$RUN_VALIDATE" = "1" ] || [ "$SKIP_BUILD_VALIDATION" = "1" ]; then
     build_args+=(--skip-validation)
   fi
@@ -196,16 +210,30 @@ fi
 if [ "$RUN_EVAL" = "1" ]; then
   for task in $TASKS; do
     ckpt="$(eval_ckpt_for_task "$task")"
-    report="$(eval_report_for_task "$task")"
     if [ ! -f "$ckpt" ]; then
       echo "missing $task eval checkpoint: $ckpt" >&2
       exit 1
     fi
-    mkdir -p "$(dirname "$report")"
-    run "$PYTHON_BIN" -m mjai.cli eval \
-      --ckpt "$ckpt" \
-      --split "$EVAL_SPLIT" \
-      --report "$report"
+    if [ "$task" = "multitask" ]; then
+      mkdir -p "$(dirname "$MULTITASK_TURN_EVAL_REPORT")" "$(dirname "$MULTITASK_RESPONSE_EVAL_REPORT")"
+      run "$PYTHON_BIN" -m mjai.cli eval \
+        --ckpt "$ckpt" \
+        --task turn \
+        --split "$EVAL_SPLIT" \
+        --report "$MULTITASK_TURN_EVAL_REPORT"
+      run "$PYTHON_BIN" -m mjai.cli eval \
+        --ckpt "$ckpt" \
+        --task response \
+        --split "$EVAL_SPLIT" \
+        --report "$MULTITASK_RESPONSE_EVAL_REPORT"
+    else
+      report="$(eval_report_for_task "$task")"
+      mkdir -p "$(dirname "$report")"
+      run "$PYTHON_BIN" -m mjai.cli eval \
+        --ckpt "$ckpt" \
+        --split "$EVAL_SPLIT" \
+        --report "$report"
+    fi
   done
 else
   log "skip eval"

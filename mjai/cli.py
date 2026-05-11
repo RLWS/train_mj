@@ -249,6 +249,7 @@ def _run_eval(args: argparse.Namespace) -> int:
         split=args.split,
         config_override=config_override,
         report_path=getattr(args, "report", None),
+        task_override=getattr(args, "task", None),
     )
     print(
         f"evaluated task={summary.task} split={summary.split} "
@@ -659,6 +660,12 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--ckpt", required=True, help="Checkpoint path.")
     eval_parser.add_argument("--split", default="valid", choices=["train", "valid", "test"])
     eval_parser.add_argument("--report", default=None, help="Optional output report path.")
+    eval_parser.add_argument(
+        "--task",
+        default=None,
+        choices=["turn", "response"],
+        help="Task to evaluate from a multitask checkpoint.",
+    )
     _add_config_arg(eval_parser)
 
     calibrate_response = subparsers.add_parser(
