@@ -222,7 +222,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 多头边界现状：
 
 - v1.1 已新增 `MultitaskMahjongPolicyNet`：`turn/response` 各自保留 state projection、action encoder 和 head，共享一段状态 encoder 主干，解决两个任务输入维度不同但仍需共享表征的问题。
-- 训练入口已支持 `task: multitask`。v1.1 使用 epoch 级顺序调度；当前代码已新增 `batch_interleave`，会按两个 loader 的 batch 进度比例交错更新 `turn` / `response`，valid 阶段仍分别评估两路指标。
+- 训练入口已支持 `task: multitask`。v1.1 使用 epoch 级顺序调度；当前代码已新增 `batch_interleave`，会按有效训练 batch 进度比例交错更新 `turn` / `response`，valid 阶段仍分别评估两路指标。由于 response train 会过滤 pass-only 样本，P800 v1.2 显式配置 `task.interleave_batches`，避免用 response 原始行数高估调度权重。
 - 多任务 checkpoint 可通过 `python -m mjai.cli eval --ckpt <ckpt> --task turn|response` 分别评估，也已兼容 `calibrate-response`、`sample-response-errors` 和 `sample-turn-errors`。
 - 首轮 P800 多任务训练已经完成：`turn` 收益明确，`response` 在 `best_response.pt` raw test 与 valid/test calibration 下仍弱于 improved。v1.2 已将默认多任务调度切到 `batch_interleave`，用于验证 epoch-sequential 覆盖效应；自动 loss scale、value head 与 DDP 仍暂不混入本轮变量。
 

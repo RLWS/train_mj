@@ -19,6 +19,12 @@ model:
   hidden_size: 512
   dropout: 0.1
 
+task:
+  schedule: batch_interleave
+  interleave_batches:
+    turn: 10150
+    response: 1420
+
 train:
   precision: bf16
   allow_tf32: true

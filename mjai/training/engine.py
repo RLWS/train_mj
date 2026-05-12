@@ -508,6 +508,11 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
     turn_loss_scale = float(losses_config.get("turn_ce", 1.0))
     response_loss_scale = float(losses_config.get("response_ce", 1.0))
     multitask_schedule = _resolve_multitask_schedule(task_config)
+    interleave_batch_totals = _resolve_interleave_batch_totals(
+        task_config,
+        turn_loader=turn_train_loader,
+        response_loader=response_train_loader,
+    )
     log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
     epochs = int(train_config.get("epochs", 1))
 
@@ -538,6 +543,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
         turn_loss_scale=turn_loss_scale,
         response_loss_scale=response_loss_scale,
         schedule=multitask_schedule,
+        interleave_batch_totals=interleave_batch_totals,
     )
 
     epoch_summaries: list[dict[str, Any]] = []
@@ -582,6 +588,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
                 ),
                 turn_loss_scale=turn_loss_scale,
                 response_loss_scale=response_loss_scale,
+                interleave_batch_totals=interleave_batch_totals,
             )
         else:
             last_turn_train_summary = _run_epoch(
@@ -772,6 +779,10 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
 
     metrics_payload = {
         "schedule": multitask_schedule,
+        "interleave_batch_totals": {
+            "turn": interleave_batch_totals[0],
+            "response": interleave_batch_totals[1],
+        },
         "epoch_summaries": epoch_summaries,
         "multitask_epoch_summaries": multitask_epoch_summaries,
         "train_samples": observed_train_samples,
@@ -1020,6 +1031,7 @@ def _run_interleaved_multitask_epoch(
     collect_response_diagnostics: bool,
     turn_loss_scale: float,
     response_loss_scale: float,
+    interleave_batch_totals: tuple[float, float],
 ) -> tuple[EpochSummary, EpochSummary]:
     model.train(True)
     turn_accumulator = EpochAccumulator(
@@ -1030,7 +1042,8 @@ def _run_interleaved_multitask_epoch(
         task_name="response",
         collect_response_diagnostics=collect_response_diagnostics,
     )
-    total_batches = len(turn_loader) + len(response_loader)
+    turn_schedule_batches, response_schedule_batches = interleave_batch_totals
+    total_batches = max(1, int(round(turn_schedule_batches + response_schedule_batches)))
     epoch_start = time.perf_counter()
     next_batch_start = epoch_start
     executed_batches = 0
@@ -1046,8 +1059,8 @@ def _run_interleaved_multitask_epoch(
         task_name = _next_interleaved_task(
             turn_done=turn_done,
             response_done=response_done,
-            turn_total=len(turn_loader),
-            response_total=len(response_loader),
+            turn_total=turn_schedule_batches,
+            response_total=response_schedule_batches,
             turn_exhausted=turn_exhausted,
             response_exhausted=response_exhausted,
         )
@@ -1150,8 +1163,8 @@ def _next_interleaved_task(
     *,
     turn_done: int,
     response_done: int,
-    turn_total: int,
-    response_total: int,
+    turn_total: float,
+    response_total: float,
     turn_exhausted: bool,
     response_exhausted: bool,
 ) -> str:
@@ -1830,6 +1843,7 @@ def _print_multitask_training_start(
     turn_loss_scale: float,
     response_loss_scale: float,
     schedule: str,
+    interleave_batch_totals: tuple[float, float],
 ) -> None:
     turn_valid_samples = 0 if turn_valid_dataset is None else len(turn_valid_dataset)
     response_valid_samples = 0 if response_valid_dataset is None else len(response_valid_dataset)
@@ -1869,6 +1883,8 @@ def _print_multitask_training_start(
         f"lr={float(train_config.get('lr', 1e-3))} "
         f"weight_decay={float(train_config.get('weight_decay', 0.0))} "
         f"schedule={schedule} "
+        f"interleave_turn_batches={interleave_batch_totals[0]:.1f} "
+        f"interleave_response_batches={interleave_batch_totals[1]:.1f} "
         f"turn_loss_scale={turn_loss_scale} "
         f"response_loss_scale={response_loss_scale} "
         f"log_every_n_steps={log_every_n_steps} "
@@ -1906,6 +1922,28 @@ def _resolve_multitask_schedule(task_config: dict[str, Any]) -> str:
             f"{schedule}; expected epoch_sequential or batch_interleave"
         )
     return aliases[schedule]
+
+
+def _resolve_interleave_batch_totals(
+    task_config: dict[str, Any],
+    *,
+    turn_loader: DataLoader,
+    response_loader: DataLoader,
+) -> tuple[float, float]:
+    interleave_config = task_config.get("interleave_batches", {})
+    if interleave_config is None:
+        interleave_config = {}
+    if not isinstance(interleave_config, dict):
+        raise TypeError("task.interleave_batches must be a mapping when provided")
+
+    turn_total = float(interleave_config.get("turn", len(turn_loader)))
+    response_total = float(interleave_config.get("response", len(response_loader)))
+    if turn_total <= 0 or response_total <= 0:
+        raise ValueError(
+            "task.interleave_batches turn/response must be positive "
+            f"when provided, got turn={turn_total} response={response_total}"
+        )
+    return turn_total, response_total
 
 
 def _batch_size_for_task(train_config: dict[str, Any], task_name: str) -> int:

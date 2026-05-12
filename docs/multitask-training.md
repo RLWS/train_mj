@@ -58,11 +58,13 @@ checkpoint 选择：
 v1.2 将 P800 默认调度改成 `batch_interleave`，其它主要训练变量保持不变：
 
 1. 每个 epoch 同时打开 `turn` 与 `response` train loader。
-2. 按两个 loader 的总 batch 进度比例交错取 batch，而不是固定 1:1。
+2. 按有效训练 batch 进度比例交错取 batch，而不是固定 1:1。
 3. 每个 batch 仍然独立执行一次 forward/backward/optimizer step。
 4. valid、checkpoint 选择、loss scale 和 class weight 逻辑保持和 v1.1 一致。
 
 这样做的目的，是去掉 v1.1 里“每个 epoch 最后一大段总是 response 更新共享主干”的调度偏置。它不会让 response 不影响 turn；它只是让两个任务在整个 epoch 中更均匀地约束共享状态 encoder，便于判断 response 回退是否来自 epoch-sequential 覆盖效应。
+
+注意：response train 会过滤 pass-only 样本，`DataLoader.__len__()` 仍按原始 response 行数估算，因此 P800 v1.2 显式配置 `task.interleave_batches`。当前 20w 数据根据 v1.1 训练日志使用 `turn=10150`、`response=1420`，对应实际每 epoch 训练样本约 `8308 万` turn 和 `2312 万` filtered response。
 
 ## 4. P800 启动方式
 
