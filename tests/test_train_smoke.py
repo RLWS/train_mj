@@ -324,6 +324,7 @@ def test_train_multitask_smoke_from_generated_dataset(tmp_path: Path):
                 "  losses:",
                 "    turn_ce: 1.0",
                 "    response_ce: 1.0",
+                "  schedule: batch_interleave",
                 "model:",
                 "  hidden_size: 32",
                 "  dropout: 0.0",
@@ -451,7 +452,7 @@ def test_train_multitask_smoke_from_generated_dataset(tmp_path: Path):
     assert (output_dir / "best_response.pt").exists()
     assert (output_dir / "final.pt").exists()
     assert (log_dir / "epoch_metrics.jsonl").exists()
-    assert metrics["schedule"] == "epoch_sequential"
+    assert metrics["schedule"] == "batch_interleave"
     assert metrics["turn_train_samples"] > 0
     assert metrics["response_train_samples"] > 0
     assert metrics["train_samples"] == (

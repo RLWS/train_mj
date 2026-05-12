@@ -222,9 +222,9 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 多头边界现状：
 
 - v1.1 已新增 `MultitaskMahjongPolicyNet`：`turn/response` 各自保留 state projection、action encoder 和 head，共享一段状态 encoder 主干，解决两个任务输入维度不同但仍需共享表征的问题。
-- 训练入口已支持 `task: multitask`，当前 baseline 使用 epoch 级顺序调度：每个 epoch 先完整训练 `turn`，再完整训练 `response`，valid 阶段分别评估两路指标。
+- 训练入口已支持 `task: multitask`。v1.1 使用 epoch 级顺序调度；当前代码已新增 `batch_interleave`，会按两个 loader 的 batch 进度比例交错更新 `turn` / `response`，valid 阶段仍分别评估两路指标。
 - 多任务 checkpoint 可通过 `python -m mjai.cli eval --ckpt <ckpt> --task turn|response` 分别评估，也已兼容 `calibrate-response`、`sample-response-errors` 和 `sample-turn-errors`。
-- 首轮 P800 多任务训练已经完成：`turn` 收益明确，`response` 在 `best_response.pt` raw test 与 valid/test calibration 下仍弱于 improved。batch-level interleave、自动 loss scale、value head 与 DDP 仍暂不纳入首轮 baseline；下一步如果继续多任务 response，应优先验证调度/权重取舍和少数类质量，而不是继续调大 `pass_bias`。
+- 首轮 P800 多任务训练已经完成：`turn` 收益明确，`response` 在 `best_response.pt` raw test 与 valid/test calibration 下仍弱于 improved。v1.2 已将默认多任务调度切到 `batch_interleave`，用于验证 epoch-sequential 覆盖效应；自动 loss scale、value head 与 DDP 仍暂不混入本轮变量。
 
 下一阶段优先补：
 
@@ -238,7 +238,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 数据重建与 P800 大数据训练提醒：
 
 - turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 improved run 的样本数和训练日志对齐。后续只要 feature schema、parser/rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`。
-- 20 万局量级的 baseline、improved 单任务训练和首轮 v1.1 多任务训练都已跑完，valid/test 指标稳定。multitask response test calibration 已完成，下一轮主线是判断是否需要调整 epoch-sequential 调度、response loss scale 或少数类处理；不要同时混入 DDP、value head 和复杂模型。
+- 20 万局量级的 baseline、improved 单任务训练和首轮 v1.1 多任务训练都已跑完，valid/test 指标稳定。multitask response test calibration 已完成；下一轮主线是跑 v1.2 `batch_interleave` 调度并和 v1.1 对照，之后再判断是否需要调整 response loss scale 或少数类处理。不要同时混入 DDP、value head 和复杂模型。
 - 当前缺口不是“能否训练”：后续应继续按 `runs/<date>_<exp>/` 固化每轮模型证据，并通过 `dataset_id` 引用 `runs/_datasets/<dataset_id>/` 中的数据证据。
 - v1.0.0 response 默认 operating point 已定为 `pass_bias=0.3`；`0.16` 作为偏召回候选，`0.4` 作为保守候选。后续推理/服务配置应显式记录该值。
 

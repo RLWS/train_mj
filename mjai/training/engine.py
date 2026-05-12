@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from contextlib import nullcontext
@@ -59,6 +59,44 @@ class EpochSummary:
     per_kind: dict[str, LabelMetricSummary]
     class_groups: dict[str, LabelMetricSummary]
     response: ResponseDiagnostics | None = None
+
+
+@dataclass
+class EpochAccumulator:
+    task_name: str
+    collect_response_diagnostics: bool
+    total_loss: float = 0.0
+    total_correct: int = 0
+    total_samples: int = 0
+    batches: int = 0
+    running_loss: float = 0.0
+    running_correct: int = 0
+    running_samples: int = 0
+    running_time: float = 0.0
+    running_data_wait_time: float = 0.0
+    running_compute_time: float = 0.0
+    kind_totals: dict[str, int] = field(default_factory=dict)
+    kind_correct: dict[str, int] = field(default_factory=dict)
+    kind_loss_totals: dict[str, float] = field(default_factory=dict)
+    group_totals: dict[str, int] = field(default_factory=dict)
+    group_correct: dict[str, int] = field(default_factory=dict)
+    group_loss_totals: dict[str, float] = field(default_factory=dict)
+    response_metrics: ResponseMetricsAccumulator | None = None
+
+    def __post_init__(self) -> None:
+        if self.task_name == "response" and self.collect_response_diagnostics:
+            self.response_metrics = ResponseMetricsAccumulator()
+
+
+@dataclass(slots=True, frozen=True)
+class BatchStepResult:
+    batch_size: int
+    batch_correct: int
+    loss_value: float
+    correct: torch.Tensor
+    predictions: torch.Tensor
+    per_sample_losses: torch.Tensor
+    label_ranks: torch.Tensor | None
 
 
 @dataclass(slots=True, frozen=True)
@@ -465,9 +503,11 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
     )
     turn_weight_map = class_weight_map("turn", train_config)
     response_weight_map = class_weight_map("response", train_config)
-    losses_config = config.get("task", {}).get("losses", {})
+    task_config = config.get("task", {})
+    losses_config = task_config.get("losses", {})
     turn_loss_scale = float(losses_config.get("turn_ce", 1.0))
     response_loss_scale = float(losses_config.get("response_ce", 1.0))
+    multitask_schedule = _resolve_multitask_schedule(task_config)
     log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
     epochs = int(train_config.get("epochs", 1))
 
@@ -497,6 +537,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
         precision_config=precision_config,
         turn_loss_scale=turn_loss_scale,
         response_loss_scale=response_loss_scale,
+        schedule=multitask_schedule,
     )
 
     epoch_summaries: list[dict[str, Any]] = []
@@ -522,42 +563,63 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
     last_valid_summary: EpochSummary | None = None
 
     for epoch in range(1, epochs + 1):
-        last_turn_train_summary = _run_epoch(
-            model=model,
-            data_loader=turn_train_loader,
-            optimizer=optimizer,
-            device=device,
-            epoch=epoch,
-            split="train_turn",
-            task_name="turn",
-            train=True,
-            weight_map=turn_weight_map,
-            log_every_n_steps=log_every_n_steps,
-            precision_config=precision_config,
-            collect_response_diagnostics=False,
-            loss_scale=turn_loss_scale,
-        )
-        epoch_summaries.append({"task": "turn", **asdict(last_turn_train_summary)})
+        if multitask_schedule == "batch_interleave":
+            last_turn_train_summary, last_response_train_summary = _run_interleaved_multitask_epoch(
+                model=model,
+                turn_loader=turn_train_loader,
+                response_loader=response_train_loader,
+                optimizer=optimizer,
+                device=device,
+                epoch=epoch,
+                turn_weight_map=turn_weight_map,
+                response_weight_map=response_weight_map,
+                log_every_n_steps=log_every_n_steps,
+                precision_config=precision_config,
+                collect_response_diagnostics=_collect_response_diagnostics(
+                    "response",
+                    train_config,
+                    split="train",
+                ),
+                turn_loss_scale=turn_loss_scale,
+                response_loss_scale=response_loss_scale,
+            )
+        else:
+            last_turn_train_summary = _run_epoch(
+                model=model,
+                data_loader=turn_train_loader,
+                optimizer=optimizer,
+                device=device,
+                epoch=epoch,
+                split="train_turn",
+                task_name="turn",
+                train=True,
+                weight_map=turn_weight_map,
+                log_every_n_steps=log_every_n_steps,
+                precision_config=precision_config,
+                collect_response_diagnostics=False,
+                loss_scale=turn_loss_scale,
+            )
 
-        last_response_train_summary = _run_epoch(
-            model=model,
-            data_loader=response_train_loader,
-            optimizer=optimizer,
-            device=device,
-            epoch=epoch,
-            split="train_response",
-            task_name="response",
-            train=True,
-            weight_map=response_weight_map,
-            log_every_n_steps=log_every_n_steps,
-            precision_config=precision_config,
-            collect_response_diagnostics=_collect_response_diagnostics(
-                "response",
-                train_config,
-                split="train",
-            ),
-            loss_scale=response_loss_scale,
-        )
+            last_response_train_summary = _run_epoch(
+                model=model,
+                data_loader=response_train_loader,
+                optimizer=optimizer,
+                device=device,
+                epoch=epoch,
+                split="train_response",
+                task_name="response",
+                train=True,
+                weight_map=response_weight_map,
+                log_every_n_steps=log_every_n_steps,
+                precision_config=precision_config,
+                collect_response_diagnostics=_collect_response_diagnostics(
+                    "response",
+                    train_config,
+                    split="train",
+                ),
+                loss_scale=response_loss_scale,
+            )
+        epoch_summaries.append({"task": "turn", **asdict(last_turn_train_summary)})
         epoch_summaries.append({"task": "response", **asdict(last_response_train_summary)})
         last_train_summary = _combine_epoch_summaries(
             epoch=epoch,
@@ -709,7 +771,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
     filtered_train_samples = turn_filtered_train_samples + response_filtered_train_samples
 
     metrics_payload = {
-        "schedule": "epoch_sequential",
+        "schedule": multitask_schedule,
         "epoch_summaries": epoch_summaries,
         "multitask_epoch_summaries": multitask_epoch_summaries,
         "train_samples": observed_train_samples,
@@ -769,6 +831,339 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
     )
 
 
+def _prepare_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
+    return {
+        key: value.to(device, non_blocking=device.type == "cuda")
+        if isinstance(value, torch.Tensor)
+        else value
+        for key, value in batch.items()
+    }
+
+
+def _run_policy_batch(
+    *,
+    model: nn.Module,
+    prepared_batch: dict[str, Any],
+    optimizer: AdamW | None,
+    device: torch.device,
+    task_name: str,
+    train: bool,
+    weight_map: dict[str, float],
+    precision_config: dict[str, Any],
+    collect_response_diagnostics: bool,
+    loss_scale: float,
+) -> BatchStepResult:
+    with _autocast_context(device, precision_config):
+        if task_name == "turn":
+            logits = model.forward_turn(prepared_batch)
+        else:
+            logits = model.forward_response(prepared_batch)
+        sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
+        loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
+        per_sample_losses = F.cross_entropy(logits, prepared_batch["labels"], reduction="none")
+
+    if train:
+        assert optimizer is not None
+        optimizer.zero_grad(set_to_none=True)
+        (loss * float(loss_scale)).backward()
+        optimizer.step()
+
+    predictions = logits.argmax(dim=1)
+    label_ranks = (
+        _compute_label_ranks(logits, prepared_batch["labels"])
+        if task_name == "response" and collect_response_diagnostics
+        else None
+    )
+    correct = predictions == prepared_batch["labels"]
+    return BatchStepResult(
+        batch_size=int(prepared_batch["labels"].shape[0]),
+        batch_correct=int(correct.sum().detach().item()),
+        loss_value=float(loss.detach().item()),
+        correct=correct,
+        predictions=predictions,
+        per_sample_losses=per_sample_losses,
+        label_ranks=label_ranks,
+    )
+
+
+def _update_epoch_accumulator(
+    accumulator: EpochAccumulator,
+    prepared_batch: dict[str, Any],
+    result: BatchStepResult,
+    *,
+    data_wait_elapsed: float,
+    compute_elapsed: float,
+) -> None:
+    batch_elapsed = data_wait_elapsed + compute_elapsed
+    accumulator.batches += 1
+    accumulator.total_loss += result.loss_value * result.batch_size
+    accumulator.total_correct += result.batch_correct
+    accumulator.total_samples += result.batch_size
+    accumulator.running_loss += result.loss_value * result.batch_size
+    accumulator.running_correct += result.batch_correct
+    accumulator.running_samples += result.batch_size
+    accumulator.running_time += batch_elapsed
+    accumulator.running_data_wait_time += data_wait_elapsed
+    accumulator.running_compute_time += compute_elapsed
+
+    response_metrics = accumulator.response_metrics
+    if response_metrics is None:
+        _update_fast_label_summaries(
+            task_name=accumulator.task_name,
+            label_kind_ids=prepared_batch["label_kind_ids"],
+            correct=result.correct,
+            per_sample_losses=result.per_sample_losses,
+            kind_totals=accumulator.kind_totals,
+            kind_correct=accumulator.kind_correct,
+            kind_loss_totals=accumulator.kind_loss_totals,
+            group_totals=accumulator.group_totals,
+            group_correct=accumulator.group_correct,
+            group_loss_totals=accumulator.group_loss_totals,
+        )
+        return
+
+    assert result.label_ranks is not None
+    correct_list = result.correct.detach().to("cpu").tolist()
+    per_sample_loss_list = result.per_sample_losses.detach().to("cpu").tolist()
+    prediction_list = result.predictions.detach().to("cpu").tolist()
+    label_rank_list = result.label_ranks.detach().to("cpu").tolist()
+    for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
+        is_correct = int(correct_list[batch_index])
+        sample_loss = float(per_sample_loss_list[batch_index])
+        accumulator.kind_totals[label_kind] = accumulator.kind_totals.get(label_kind, 0) + 1
+        accumulator.kind_correct[label_kind] = accumulator.kind_correct.get(label_kind, 0) + is_correct
+        accumulator.kind_loss_totals[label_kind] = (
+            accumulator.kind_loss_totals.get(label_kind, 0.0) + sample_loss
+        )
+
+        group_name = class_group_name(accumulator.task_name, label_kind)
+        accumulator.group_totals[group_name] = accumulator.group_totals.get(group_name, 0) + 1
+        accumulator.group_correct[group_name] = (
+            accumulator.group_correct.get(group_name, 0) + is_correct
+        )
+        accumulator.group_loss_totals[group_name] = (
+            accumulator.group_loss_totals.get(group_name, 0.0) + sample_loss
+        )
+        legal_actions = prepared_batch["legal_actions"][batch_index]
+        predicted_index = int(prediction_list[batch_index])
+        predicted_action = legal_actions[predicted_index]
+        response_metrics.update(
+            label_kind=label_kind,
+            predicted_kind=str(predicted_action.get("kind", "unknown")),
+            candidate_kinds=[str(action.get("kind", "unknown")) for action in legal_actions],
+            candidate_count=int(prepared_batch["candidate_counts"][batch_index]),
+            label_rank=int(label_rank_list[batch_index]),
+        )
+
+
+def _reset_running_accumulator(accumulator: EpochAccumulator) -> None:
+    accumulator.running_loss = 0.0
+    accumulator.running_correct = 0
+    accumulator.running_samples = 0
+    accumulator.running_time = 0.0
+    accumulator.running_data_wait_time = 0.0
+    accumulator.running_compute_time = 0.0
+
+
+def _summary_from_accumulator(
+    accumulator: EpochAccumulator,
+    *,
+    epoch: int,
+    split: str,
+) -> EpochSummary:
+    average_loss = (
+        0.0 if accumulator.total_samples == 0 else accumulator.total_loss / accumulator.total_samples
+    )
+    accuracy = (
+        0.0
+        if accumulator.total_samples == 0
+        else accumulator.total_correct / accumulator.total_samples
+    )
+    per_kind = _build_label_metric_summary(
+        accumulator.kind_totals,
+        accumulator.kind_correct,
+        accumulator.kind_loss_totals,
+    )
+    class_groups = _build_label_metric_summary(
+        accumulator.group_totals,
+        accumulator.group_correct,
+        accumulator.group_loss_totals,
+    )
+    return EpochSummary(
+        epoch=epoch,
+        split=split,
+        loss=average_loss,
+        accuracy=accuracy,
+        macro_accuracy=_macro_accuracy(per_kind),
+        batches=accumulator.batches,
+        samples=accumulator.total_samples,
+        per_kind=per_kind,
+        class_groups=class_groups,
+        response=None
+        if accumulator.response_metrics is None
+        else accumulator.response_metrics.summary(),
+    )
+
+
+def _run_interleaved_multitask_epoch(
+    *,
+    model: nn.Module,
+    turn_loader: DataLoader,
+    response_loader: DataLoader,
+    optimizer: AdamW,
+    device: torch.device,
+    epoch: int,
+    turn_weight_map: dict[str, float],
+    response_weight_map: dict[str, float],
+    log_every_n_steps: int,
+    precision_config: dict[str, Any],
+    collect_response_diagnostics: bool,
+    turn_loss_scale: float,
+    response_loss_scale: float,
+) -> tuple[EpochSummary, EpochSummary]:
+    model.train(True)
+    turn_accumulator = EpochAccumulator(
+        task_name="turn",
+        collect_response_diagnostics=False,
+    )
+    response_accumulator = EpochAccumulator(
+        task_name="response",
+        collect_response_diagnostics=collect_response_diagnostics,
+    )
+    total_batches = len(turn_loader) + len(response_loader)
+    epoch_start = time.perf_counter()
+    next_batch_start = epoch_start
+    executed_batches = 0
+
+    turn_iter = iter(turn_loader)
+    response_iter = iter(response_loader)
+    turn_done = 0
+    response_done = 0
+    turn_exhausted = False
+    response_exhausted = False
+
+    while not (turn_exhausted and response_exhausted):
+        task_name = _next_interleaved_task(
+            turn_done=turn_done,
+            response_done=response_done,
+            turn_total=len(turn_loader),
+            response_total=len(response_loader),
+            turn_exhausted=turn_exhausted,
+            response_exhausted=response_exhausted,
+        )
+        if task_name == "turn":
+            try:
+                batch = next(turn_iter)
+            except StopIteration:
+                turn_exhausted = True
+                continue
+            turn_done += 1
+            accumulator = turn_accumulator
+            weight_map = turn_weight_map
+            loss_scale = turn_loss_scale
+        else:
+            try:
+                batch = next(response_iter)
+            except StopIteration:
+                response_exhausted = True
+                continue
+            response_done += 1
+            accumulator = response_accumulator
+            weight_map = response_weight_map
+            loss_scale = response_loss_scale
+
+        batch_ready = time.perf_counter()
+        data_wait_elapsed = batch_ready - next_batch_start
+        batch_start = batch_ready
+        prepared_batch = _prepare_batch(batch, device)
+        result = _run_policy_batch(
+            model=model,
+            prepared_batch=prepared_batch,
+            optimizer=optimizer,
+            device=device,
+            task_name=task_name,
+            train=True,
+            weight_map=weight_map,
+            precision_config=precision_config,
+            collect_response_diagnostics=task_name == "response" and collect_response_diagnostics,
+            loss_scale=loss_scale,
+        )
+        compute_elapsed = time.perf_counter() - batch_start
+        batch_elapsed = data_wait_elapsed + compute_elapsed
+        _update_epoch_accumulator(
+            accumulator,
+            prepared_batch,
+            result,
+            data_wait_elapsed=data_wait_elapsed,
+            compute_elapsed=compute_elapsed,
+        )
+        executed_batches += 1
+
+        if (
+            log_every_n_steps > 0
+            and (
+                executed_batches == 1
+                or executed_batches % log_every_n_steps == 0
+                or executed_batches == total_batches
+            )
+        ):
+            _print_batch_progress(
+                epoch=epoch,
+                split=f"train_interleave_{task_name}",
+                batch_index=executed_batches,
+                total_batches=total_batches,
+                total_samples=turn_accumulator.total_samples + response_accumulator.total_samples,
+                batch_samples=result.batch_size,
+                batch_elapsed=batch_elapsed,
+                data_wait_elapsed=data_wait_elapsed,
+                compute_elapsed=compute_elapsed,
+                running_time=turn_accumulator.running_time + response_accumulator.running_time,
+                running_data_wait_time=(
+                    turn_accumulator.running_data_wait_time
+                    + response_accumulator.running_data_wait_time
+                ),
+                running_compute_time=(
+                    turn_accumulator.running_compute_time
+                    + response_accumulator.running_compute_time
+                ),
+                running_loss=turn_accumulator.running_loss + response_accumulator.running_loss,
+                running_correct=(
+                    turn_accumulator.running_correct + response_accumulator.running_correct
+                ),
+                running_samples=(
+                    turn_accumulator.running_samples + response_accumulator.running_samples
+                ),
+                epoch_start=epoch_start,
+            )
+            _reset_running_accumulator(turn_accumulator)
+            _reset_running_accumulator(response_accumulator)
+
+        next_batch_start = time.perf_counter()
+
+    return (
+        _summary_from_accumulator(turn_accumulator, epoch=epoch, split="train_turn"),
+        _summary_from_accumulator(response_accumulator, epoch=epoch, split="train_response"),
+    )
+
+
+def _next_interleaved_task(
+    *,
+    turn_done: int,
+    response_done: int,
+    turn_total: int,
+    response_total: int,
+    turn_exhausted: bool,
+    response_exhausted: bool,
+) -> str:
+    if turn_exhausted:
+        return "response"
+    if response_exhausted:
+        return "turn"
+    turn_progress = turn_done / max(1, turn_total)
+    response_progress = response_done / max(1, response_total)
+    return "turn" if turn_progress <= response_progress else "response"
+
+
 def _run_epoch(
     model: nn.Module,
     data_loader: DataLoader,
@@ -806,26 +1201,9 @@ def _run_epoch(
     异常:
         无。
     """
-    total_loss = 0.0
-    total_correct = 0
-    total_samples = 0
-    batches = 0
-    running_loss = 0.0
-    running_correct = 0
-    running_samples = 0
-    running_time = 0.0
-    running_data_wait_time = 0.0
-    running_compute_time = 0.0
-    kind_totals: dict[str, int] = {}
-    kind_correct: dict[str, int] = {}
-    kind_loss_totals: dict[str, float] = {}
-    group_totals: dict[str, int] = {}
-    group_correct: dict[str, int] = {}
-    group_loss_totals: dict[str, float] = {}
-    response_metrics = (
-        ResponseMetricsAccumulator()
-        if task_name == "response" and collect_response_diagnostics
-        else None
+    accumulator = EpochAccumulator(
+        task_name=task_name,
+        collect_response_diagnostics=collect_response_diagnostics,
     )
 
     model.train(train)
@@ -836,143 +1214,63 @@ def _run_epoch(
         batch_ready = time.perf_counter()
         data_wait_elapsed = batch_ready - next_batch_start
         batch_start = batch_ready
-        batches += 1
-        prepared_batch = {
-            key: value.to(device, non_blocking=device.type == "cuda")
-            if isinstance(value, torch.Tensor)
-            else value
-            for key, value in batch.items()
-        }
-
-        with _autocast_context(device, precision_config):
-            if task_name == "turn":
-                logits = model.forward_turn(prepared_batch)
-            else:
-                logits = model.forward_response(prepared_batch)
-            sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
-            loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
-            per_sample_losses = F.cross_entropy(logits, prepared_batch["labels"], reduction="none")
-
-        if train:
-            assert optimizer is not None
-            optimizer.zero_grad(set_to_none=True)
-            (loss * float(loss_scale)).backward()
-            optimizer.step()
-
-        batch_size = prepared_batch["labels"].shape[0]
-        predictions = logits.argmax(dim=1)
-        label_ranks = (
-            _compute_label_ranks(logits, prepared_batch["labels"])
-            if response_metrics is not None
-            else None
+        prepared_batch = _prepare_batch(batch, device)
+        result = _run_policy_batch(
+            model=model,
+            prepared_batch=prepared_batch,
+            optimizer=optimizer,
+            device=device,
+            task_name=task_name,
+            train=train,
+            weight_map=weight_map,
+            precision_config=precision_config,
+            collect_response_diagnostics=collect_response_diagnostics,
+            loss_scale=loss_scale,
         )
-        correct = predictions == prepared_batch["labels"]
-        loss_value = float(loss.detach().item())
-        if response_metrics is not None:
-            assert label_ranks is not None
-            correct_list = correct.detach().to("cpu").tolist()
-            per_sample_loss_list = per_sample_losses.detach().to("cpu").tolist()
-            prediction_list = predictions.detach().to("cpu").tolist()
-            label_rank_list = label_ranks.detach().to("cpu").tolist()
-        else:
-            correct_list = []
-            per_sample_loss_list = []
-            prediction_list = []
-            label_rank_list = []
-        batch_correct = int(correct.sum().detach().item())
-        total_loss += loss_value * batch_size
-        total_correct += batch_correct
-        total_samples += batch_size
         compute_elapsed = time.perf_counter() - batch_start
         batch_elapsed = data_wait_elapsed + compute_elapsed
-        running_loss += loss_value * batch_size
-        running_correct += batch_correct
-        running_samples += batch_size
-        running_time += batch_elapsed
-        running_data_wait_time += data_wait_elapsed
-        running_compute_time += compute_elapsed
-        if response_metrics is None:
-            _update_fast_label_summaries(
-                task_name=task_name,
-                label_kind_ids=prepared_batch["label_kind_ids"],
-                correct=correct,
-                per_sample_losses=per_sample_losses,
-                kind_totals=kind_totals,
-                kind_correct=kind_correct,
-                kind_loss_totals=kind_loss_totals,
-                group_totals=group_totals,
-                group_correct=group_correct,
-                group_loss_totals=group_loss_totals,
-            )
-        else:
-            for batch_index, label_kind in enumerate(prepared_batch["label_kinds"]):
-                is_correct = int(correct_list[batch_index])
-                sample_loss = float(per_sample_loss_list[batch_index])
-                kind_totals[label_kind] = kind_totals.get(label_kind, 0) + 1
-                kind_correct[label_kind] = kind_correct.get(label_kind, 0) + is_correct
-                kind_loss_totals[label_kind] = kind_loss_totals.get(label_kind, 0.0) + sample_loss
-
-                group_name = class_group_name(task_name, label_kind)
-                group_totals[group_name] = group_totals.get(group_name, 0) + 1
-                group_correct[group_name] = group_correct.get(group_name, 0) + is_correct
-                group_loss_totals[group_name] = group_loss_totals.get(group_name, 0.0) + sample_loss
-                legal_actions = prepared_batch["legal_actions"][batch_index]
-                predicted_index = int(prediction_list[batch_index])
-                predicted_action = legal_actions[predicted_index]
-                response_metrics.update(
-                    label_kind=label_kind,
-                    predicted_kind=str(predicted_action.get("kind", "unknown")),
-                    candidate_kinds=[str(action.get("kind", "unknown")) for action in legal_actions],
-                    candidate_count=int(prepared_batch["candidate_counts"][batch_index]),
-                    label_rank=int(label_rank_list[batch_index]),
-                )
+        _update_epoch_accumulator(
+            accumulator,
+            prepared_batch,
+            result,
+            data_wait_elapsed=data_wait_elapsed,
+            compute_elapsed=compute_elapsed,
+        )
 
         if (
             train
             and log_every_n_steps > 0
-            and (batches == 1 or batches % log_every_n_steps == 0 or batches == total_batches)
+            and (
+                accumulator.batches == 1
+                or accumulator.batches % log_every_n_steps == 0
+                or accumulator.batches == total_batches
+            )
         ):
             _print_batch_progress(
                 epoch=epoch,
                 split=split,
-                batch_index=batches,
+                batch_index=accumulator.batches,
                 total_batches=total_batches,
-                total_samples=total_samples,
-                batch_samples=batch_size,
+                total_samples=accumulator.total_samples,
+                batch_samples=result.batch_size,
                 batch_elapsed=batch_elapsed,
                 data_wait_elapsed=data_wait_elapsed,
                 compute_elapsed=compute_elapsed,
-                running_time=running_time,
-                running_data_wait_time=running_data_wait_time,
-                running_compute_time=running_compute_time,
-                running_loss=running_loss,
-                running_correct=running_correct,
-                running_samples=running_samples,
+                running_time=accumulator.running_time,
+                running_data_wait_time=accumulator.running_data_wait_time,
+                running_compute_time=accumulator.running_compute_time,
+                running_loss=accumulator.running_loss,
+                running_correct=accumulator.running_correct,
+                running_samples=accumulator.running_samples,
                 epoch_start=epoch_start,
             )
-            running_loss = 0.0
-            running_correct = 0
-            running_samples = 0
-            running_time = 0.0
-            running_data_wait_time = 0.0
-            running_compute_time = 0.0
+            _reset_running_accumulator(accumulator)
         next_batch_start = time.perf_counter()
 
-    average_loss = 0.0 if total_samples == 0 else total_loss / total_samples
-    accuracy = 0.0 if total_samples == 0 else total_correct / total_samples
-    per_kind = _build_label_metric_summary(kind_totals, kind_correct, kind_loss_totals)
-    class_groups = _build_label_metric_summary(group_totals, group_correct, group_loss_totals)
-    return EpochSummary(
+    return _summary_from_accumulator(
+        accumulator,
         epoch=epoch,
         split=split,
-        loss=average_loss,
-        accuracy=accuracy,
-        macro_accuracy=_macro_accuracy(per_kind),
-        batches=batches,
-        samples=total_samples,
-        per_kind=per_kind,
-        class_groups=class_groups,
-        response=None if response_metrics is None else response_metrics.summary(),
     )
 
 
@@ -1531,6 +1829,7 @@ def _print_multitask_training_start(
     precision_config: dict[str, Any],
     turn_loss_scale: float,
     response_loss_scale: float,
+    schedule: str,
 ) -> None:
     turn_valid_samples = 0 if turn_valid_dataset is None else len(turn_valid_dataset)
     response_valid_samples = 0 if response_valid_dataset is None else len(response_valid_dataset)
@@ -1569,6 +1868,7 @@ def _print_multitask_training_start(
         f"dropout={float(model_config.get('dropout', 0.1))} "
         f"lr={float(train_config.get('lr', 1e-3))} "
         f"weight_decay={float(train_config.get('weight_decay', 0.0))} "
+        f"schedule={schedule} "
         f"turn_loss_scale={turn_loss_scale} "
         f"response_loss_scale={response_loss_scale} "
         f"log_every_n_steps={log_every_n_steps} "
@@ -1588,6 +1888,24 @@ def _candidate_limit_for_task(config: dict[str, Any], task_name: str) -> int:
     if "candidate_limit" in data_config:
         return int(data_config["candidate_limit"])
     return 16 if task_name == "response" else 64
+
+
+def _resolve_multitask_schedule(task_config: dict[str, Any]) -> str:
+    schedule = str(task_config.get("schedule", "epoch_sequential")).lower()
+    aliases = {
+        "epoch": "epoch_sequential",
+        "sequential": "epoch_sequential",
+        "epoch_sequential": "epoch_sequential",
+        "interleave": "batch_interleave",
+        "batch_interleave": "batch_interleave",
+        "batch_interleaved": "batch_interleave",
+    }
+    if schedule not in aliases:
+        raise ValueError(
+            "unsupported multitask schedule: "
+            f"{schedule}; expected epoch_sequential or batch_interleave"
+        )
+    return aliases[schedule]
 
 
 def _batch_size_for_task(train_config: dict[str, Any], task_name: str) -> int:

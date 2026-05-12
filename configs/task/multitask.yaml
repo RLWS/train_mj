@@ -2,4 +2,4 @@ task: multitask
 losses:
   turn_ce: 1.0
   response_ce: 1.0
-schedule: epoch_sequential
+schedule: batch_interleave

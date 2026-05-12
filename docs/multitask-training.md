@@ -1,4 +1,4 @@
-# v1.1 多任务训练方案
+# 多任务训练方案
 
 更新时间：`2026-05-12`
 
@@ -55,6 +55,15 @@ checkpoint 选择：
 - `best_multitask.pt` / `best.pt`：按 `turn` accuracy 与 response selection score 的简单平均。
 - `final.pt`：最后一个 epoch。
 
+v1.2 将 P800 默认调度改成 `batch_interleave`，其它主要训练变量保持不变：
+
+1. 每个 epoch 同时打开 `turn` 与 `response` train loader。
+2. 按两个 loader 的总 batch 进度比例交错取 batch，而不是固定 1:1。
+3. 每个 batch 仍然独立执行一次 forward/backward/optimizer step。
+4. valid、checkpoint 选择、loss scale 和 class weight 逻辑保持和 v1.1 一致。
+
+这样做的目的，是去掉 v1.1 里“每个 epoch 最后一大段总是 response 更新共享主干”的调度偏置。它不会让 response 不影响 turn；它只是让两个任务在整个 epoch 中更均匀地约束共享状态 encoder，便于判断 response 回退是否来自 epoch-sequential 覆盖效应。
+
 ## 4. P800 启动方式
 
 默认配置：
@@ -86,22 +95,22 @@ docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml c
 训练输出默认写入：
 
 ```text
-outputs/checkpoints/multitask_p800_v1_1/
-outputs/logs/multitask_p800_v1_1/
+outputs/checkpoints/multitask_p800_v1_2_interleave/
+outputs/logs/multitask_p800_v1_2_interleave/
 ```
 
 eval 默认产出两份报告：
 
 ```text
-outputs/reports/multitask_p800_v1_1_turn_test_eval.json
-outputs/reports/multitask_p800_v1_1_response_test_eval.json
+outputs/reports/multitask_p800_v1_2_interleave_turn_test_eval.json
+outputs/reports/multitask_p800_v1_2_interleave_response_test_eval.json
 ```
 
 手动评估同一个多任务 checkpoint 时，需要显式指定任务：
 
 ```bash
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt --task turn --split test --report outputs/reports/multitask_turn_test_eval.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt --task response --split test --report outputs/reports/multitask_response_test_eval.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_2_interleave/best.pt --task turn --split test --report outputs/reports/multitask_turn_test_eval.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_2_interleave/best.pt --task response --split test --report outputs/reports/multitask_response_test_eval.json
 ```
 
 ## 5. 首轮对照指标
