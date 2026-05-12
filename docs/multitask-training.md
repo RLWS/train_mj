@@ -1,6 +1,6 @@
 # v1.1 多任务训练方案
 
-更新时间：`2026-05-10`
+更新时间：`2026-05-12`
 
 ## 1. 目标
 
@@ -137,3 +137,164 @@ python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt -
 - response calibration 默认阈值迁移
 
 response calibration 仍然要在多任务 checkpoint 训练完成后单独跑，不应直接沿用 v1.0.0 improved 的 `pass_bias=0.3`。
+
+## 7. 2026-05-12 P800 首轮结果
+
+本轮 run 已归档到 `runs/2026-05-12_p800_multitask_v1_1/`，继续使用数据集 `runs/_datasets/tenhou_20w_2026-05-06/`。训练产物来自：
+
+```text
+outputs/checkpoints/multitask_p800_v1_1/
+outputs/logs/multitask_p800_v1_1/
+outputs/reports/multitask_p800_v1_1_*_test_eval.json
+```
+
+归档后对应路径为：
+
+```text
+runs/2026-05-12_p800_multitask_v1_1/multitask/checkpoints/
+runs/2026-05-12_p800_multitask_v1_1/multitask/logs/
+runs/2026-05-12_p800_multitask_v1_1/multitask/eval/
+```
+
+### 7.1 Turn 对比
+
+`turn` 是本轮最明确的收益点。相比 2026-05-10 improved 单任务 run，multitask test 指标整体上升：
+
+| 指标 | 2026-05-06 baseline | 2026-05-10 improved | multitask v1.1 | 相对 improved |
+| --- | ---: | ---: | ---: | ---: |
+| loss | `0.8206` | `0.8000` | `0.7724` | `-0.0276` |
+| top1 | `70.08%` | `70.75%` | `71.69%` | `+0.94pp` |
+| top3 | `94.46%` | `94.93%` | `95.38%` | `+0.45pp` |
+| top5 | `98.53%` | `98.68%` | `98.84%` | `+0.16pp` |
+| macro top1 | `91.34%` | `90.57%` | `91.46%` | `+0.89pp` |
+| discard top1 | `69.58%` | `70.24%` | `71.18%` | `+0.94pp` |
+| riichi_discard top1 | `85.34%` | `87.13%` | `88.03%` | `+0.90pp` |
+| ankan top1 | `96.02%` | `89.88%` | `91.86%` | `+1.98pp` |
+| kakan top1 | `97.26%` | `96.27%` | `97.71%` | `+1.45pp` |
+| non_discard top1 | `90.49%` | `91.37%` | `92.07%` | `+0.71pp` |
+
+结论：multitask 的共享状态主干对 `turn` 是正收益，收益不只来自总体 top1，`discard`、`riichi_discard`、`top3/top5` 和 `non_discard` 都同步改善。`ankan` 相比 2026-05-10 improved 有恢复，但仍低于 2026-05-06 baseline，因此少数类排查还不能完全关闭。
+
+### 7.2 Response raw eval 对比
+
+`response` 的 raw eval 不是全面提升。下面同时列出 multitask 的 `best.pt` 和 `best_response.pt`；其中 `best.pt` 是 turn 与 response 的折中 checkpoint，`best_response.pt` 是按 response selection score 选出的 checkpoint。
+
+| 指标 | 2026-05-10 improved | multitask `best.pt` | multitask `best_response.pt` | best_response vs improved |
+| --- | ---: | ---: | ---: | ---: |
+| overall top1 | `98.770%` | `98.681%` | `98.732%` | `-0.037pp` |
+| macro top1 | `90.60%` | `86.60%` | `87.42%` | `-3.18pp` |
+| multi-candidate top1 | `86.86%` | `85.91%` | `86.46%` | `-0.40pp` |
+| multi-candidate macro top1 | `88.43%` | `84.20%` | `85.18%` | `-3.25pp` |
+| non-pass precision | `59.04%` | `57.04%` | `58.27%` | `-0.77pp` |
+| non-pass recall | `92.72%` | `93.94%` | `92.45%` | `-0.27pp` |
+| non-pass F1 | `72.14%` | `70.98%` | `71.49%` | `-0.66pp` |
+| false call rate | `1.105%` | `1.216%` | `1.137%` | `+0.032pp` |
+| missed call rate | `7.28%` | `6.06%` | `7.55%` | `+0.27pp` |
+| false calls | `335,932` | `369,600` | `345,760` | `+9,828` |
+| missed calls | `38,033` | `31,630` | `39,434` | `+1,401` |
+| chi top1 | `81.98%` | `85.21%` | `81.76%` | `-0.22pp` |
+| pon top1 | `94.75%` | `95.12%` | `94.25%` | `-0.50pp` |
+| daiminkan top1 | `68.17%` | `40.64%` | `49.77%` | `-18.41pp` |
+
+结论：`best_response.pt` 比 multitask `best.pt` 更接近 improved response，false call 和 overall top1 都有恢复，但仍没有超过 2026-05-10 improved。它在 raw test 上仍有更多 false call、更多 missed call、更低 `non_pass_f1`，并且 `multi-candidate macro top1` 与 `daiminkan` 明显偏弱。因此当前不能用 multitask response 直接替代 2026-05-10 improved response。
+
+需要注意，response 对比不是纯粹的“是否多任务”变量：2026-05-10 improved response 单任务配置是 `hidden_size=256`，而本轮 multitask 使用 `hidden_size=512` 的共享主干。即便容量更大，raw response 仍没有超过 improved，因此下一步应优先做校准和调度实验，而不是直接扩大模型。
+
+### 7.3 Response calibration 对比
+
+本轮已经补跑 valid/test calibration：
+
+- `multitask_best_response_calibration_valid.json`：校准 `best_response.pt`。
+- `multitask_best_response_calibration_test.json`：在 test 上复核 `best_response.pt`。
+- `multitask_best_calibration_valid.json`：校准 `best.pt`，用于诊断折中 checkpoint。
+- `multitask_best_calibration_test.json`：在 test 上诊断 `best.pt`。
+
+valid 关键 bias 点如下：
+
+| checkpoint | pass_bias | false call | missed call | non-pass F1 | multi top1 | chi / pon / daiminkan top1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| improved | `0.0` | `1.103%` | `7.35%` | `72.14%` | `86.86%` | `81.7 / 94.7 / 66.7` |
+| multitask best | `0.0` | `1.215%` | `6.11%` | `70.97%` | `85.91%` | `85.0 / 95.1 / 42.0` |
+| multitask best_response | `0.0` | `1.136%` | `7.61%` | `71.48%` | `86.45%` | `81.4 / 94.3 / 51.2` |
+| improved | `0.2` | `0.982%` | `8.67%` | `73.52%` | `87.91%` | `79.5 / 93.6 / 62.5` |
+| multitask best_response | `0.2` | `0.997%` | `9.16%` | `73.01%` | `87.65%` | `78.8 / 93.0 / 42.7` |
+| improved | `0.6` | `0.760%` | `11.83%` | `75.88%` | `89.69%` | `74.2 / 90.9 / 50.3` |
+| multitask best_response | `0.6` | `0.749%` | `12.86%` | `75.54%` | `89.61%` | `73.0 / 89.6 / 28.4` |
+| improved | `1.0` | `0.575%` | `15.75%` | `77.38%` | `90.94%` | `67.9 / 87.3 / 37.4` |
+| multitask best_response | `1.0` | `0.544%` | `17.55%` | `77.02%` | `90.94%` | `65.9 / 84.9 / 18.1` |
+
+按“第一个进入目标 false call 档位”的口径：
+
+| checkpoint | target false call | first bias | false call | missed call | non-pass F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| improved | `1.0%` | `0.2` | `0.982%` | `8.67%` | `73.52%` |
+| multitask best_response | `1.0%` | `0.2` | `0.997%` | `9.16%` | `73.01%` |
+| improved | `0.8%` | `0.6` | `0.760%` | `11.83%` | `75.88%` |
+| multitask best_response | `0.8%` | `0.6` | `0.749%` | `12.86%` | `75.54%` |
+
+test 复核后的可比点如下：
+
+| checkpoint | pass_bias | false call | missed call | non-pass F1 | multi top1 | chi / pon / daiminkan top1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| improved | `0.3` | `0.925%` | `9.29%` | `74.18%` | `88.40%` | `78.4 / 93.1 / 61.6` |
+| multitask best_response | `0.3` | `0.933%` | `9.91%` | `73.73%` | `88.20%` | `77.8 / 92.2 / 40.3` |
+| improved | `0.4` | `0.869%` | `10.06%` | `74.80%` | `88.85%` | `77.1 / 92.4 / 58.7` |
+| multitask best_response | `0.4` | `0.869%` | `10.83%` | `74.38%` | `88.70%` | `76.3 / 91.4 / 36.3` |
+| improved | `0.6` | `0.763%` | `11.76%` | `75.86%` | `89.67%` | `74.4 / 90.9 / 50.9` |
+| multitask best_response | `0.6` | `0.750%` | `12.83%` | `75.54%` | `89.61%` | `73.1 / 89.5 / 27.9` |
+| improved | `1.0` | `0.578%` | `15.65%` | `77.39%` | `90.93%` | `68.1 / 87.3 / 38.1` |
+| multitask best_response | `1.0` | `0.543%` | `17.51%` | `77.06%` | `90.96%` | `66.1 / 84.9 / 18.2` |
+
+`best.pt` 的 test calibration 也确认了它更偏召回，而不是更好的 response 默认点：`pass_bias=0.6` 时 false call 为 `0.853%`、missed call 为 `9.95%`、`non_pass_f1=75.13%`，但 `daiminkan top1` 只有 `22.2%`；`pass_bias=1.0` 时 `non_pass_f1` 升到 `77.11%`，missed call 也升到 `13.56%`，`daiminkan top1` 降到 `11.1%`。
+
+结论：valid 和 test 曲线一致。校准后 `best_response.pt` 可以接近 improved response，但在相同或相近 false-call 区间仍略弱：`non_pass_f1` 更低、missed call 更高，`chi/pon` 略低，`daiminkan` 明显低。自动 target selection 会倾向选择更大的 `pass_bias` 来抬高 `non_pass_f1`，但这会把 missed call 和少数类质量压坏；不能只按 report 里的 selected point 决定默认 operating point。`best.pt` 适合诊断 epoch-sequential multitask 的偏召回行为，不适合作为 response 默认候选。
+
+### 7.4 当前决策
+
+- `turn`：multitask v1.1 可以作为新的候选 baseline，后续优先用 `runs/2026-05-12_p800_multitask_v1_1/multitask/checkpoints/best.pt` 或 `best_turn.pt` 做进一步验证。
+- `response`：继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为当前默认候选。multitask `best_response.pt` 的 raw test、valid calibration 和 test calibration 均未证明它能替代 improved。
+- 校准：multitask `best_response.pt` 的实验候选点可记录为 `pass_bias=0.2`（test `false_call=0.998%`、`missed=9.07%`、`F1=73.02%`）和 `pass_bias=0.6`（test `false_call=0.750%`、`missed=12.83%`、`F1=75.54%`）。它们可用于后续对照，但不建议直接沿用为默认；v1.0.0 improved 的默认 `pass_bias=0.3` 仍是当前 serving 候选。
+- 训练策略：test calibration 没有反转 response 结论。下一轮优先尝试调整 epoch-sequential 调度、降低 `response_ce` loss scale，或单独处理 `daiminkan`/少数类质量；不要只靠更大的 `pass_bias` 抬高 `non_pass_f1`。
+
+### 7.5 Multitask response calibration 使用说明
+
+多任务 checkpoint 下，`calibrate-response` 的命令入口和单任务 response 基本一致，不需要额外传 `--task response`。当前实现会读取 checkpoint 内的 `task.task`：
+
+- 如果是 `task=response`，按单任务 `MahjongPolicyNet` 加载。
+- 如果是 `task=multitask`，按 `MultitaskMahjongPolicyNet` 加载，并固定调用 `forward_response`。
+- 数据集、candidate limit 和 batch size 都走 response 分支：`StreamingManifestResponseDataset`、`response_candidate_limit`、`response_batch_size`。
+
+因此多任务场景真正需要注意的是 checkpoint 选择，而不是命令参数。用于 response calibration 时，优先校准 `best_response.pt`，不要默认拿 `best.pt`。`best.pt` / `best_multitask.pt` 是 turn accuracy 与 response score 的折中选择，可能不是 response operating point 的最佳基准。
+
+建议流程：
+
+1. 先跑 `best_response.pt` 的 raw test eval，确认它和 `best.pt` 的 response 行为是否不同。
+2. 在 valid split 上扫描 `best_response.pt` 的 pass bias。
+3. 根据 valid 选择候选 bias 后，在 test split 上复核同一组 bias。
+4. 和 2026-05-10 improved response 在相同 false-call 目标下比较，不直接迁移旧默认 `pass_bias=0.3`。
+
+本轮复现命令如下：
+
+```powershell
+python -m mjai.cli calibrate-response `
+  --ckpt runs/2026-05-12_p800_multitask_v1_1/multitask/checkpoints/best_response.pt `
+  --split valid `
+  --manifest runs/_datasets/tenhou_20w_2026-05-06/valid.jsonl `
+  --report runs/2026-05-12_p800_multitask_v1_1/multitask/calibration/multitask_best_response_calibration_valid.json `
+  --pass-biases 0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00 `
+  --false-call-targets 1%,0.8%,0.5%
+```
+
+test 复核已经按同一组 bias 扫描完成：
+
+```powershell
+python -m mjai.cli calibrate-response `
+  --ckpt runs/2026-05-12_p800_multitask_v1_1/multitask/checkpoints/best_response.pt `
+  --split test `
+  --manifest runs/_datasets/tenhou_20w_2026-05-06/test.jsonl `
+  --report runs/2026-05-12_p800_multitask_v1_1/multitask/calibration/multitask_best_response_calibration_test.json `
+  --pass-biases 0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00 `
+  --false-call-targets 1%,0.8%,0.5%
+```
+
+如果后续新 run 的 valid 选择出其他 bias，例如 `0.12` 或 `0.20`，把它们追加到 test 的 `--pass-biases`。最终比较时不要只看 `non_pass_f1`，还要同时看 `false_call_rate`、`missed_call_rate`、`multi_candidate_top1_accuracy` 和 `per_kind_top1_accuracy` 里的 `chi/pon/daiminkan`。

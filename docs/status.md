@@ -1,15 +1,15 @@
 # 项目进度状态
 
-更新时间：`2026-05-10`
+更新时间：`2026-05-12`
 
 ## 1. 总体判断
 
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
-- `Phase 1` 已推进到大数据单任务 baseline 之后的第一轮特征复训：`turn/response` 都已经有 P800 baseline 与 improved 两轮 valid/test eval、response calibration 和可对照指标。
+- `Phase 1` 已推进到大数据单任务 baseline、第一轮特征复训和首轮多任务 baseline 之后：`turn/response` 都已经有 P800 baseline 与 improved 两轮 valid/test eval，v1.1 multitask 也已经有首轮 test eval 和可对照指标。
 
-换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准和分析模型取舍”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 主线已经转向多任务训练，当前已具备可直接在 P800 上训练的 turn/response 共享状态 encoder baseline。DDP 和系统化 serving 仍未完成。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准和分析模型取舍”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 首轮多任务结果显示 `turn` 明确受益，但 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务，后续重点转为调度/权重和少数类质量实验。DDP 和系统化 serving 仍未完成。
 
 ## 2. 已验证结果
 
@@ -67,6 +67,9 @@
   - `turn` 明确进步：test `top1=0.7075`、`top3=0.9493`、`top5=0.9868`，相对 baseline 分别提升 `+0.67pp / +0.48pp / +0.15pp`；`discard top1=0.7024` 提升 `+0.66pp`，`riichi_discard top1=0.8713` 提升 `+1.78pp`。副作用是 `ankan top1` 从 `0.9602` 降到 `0.8988`，需要错例排查。
   - `response` 是更保守的候选：test `multi_candidate top1=0.8686`、`multi_candidate macro top1=0.8843`、`non_pass_f1=0.7214`、`false_call_rate=0.0111`，均优于 baseline；但 `missed_call_rate` 从 `0.0644` 升到 `0.0728`，`chi top1` 从 `0.8376` 降到 `0.8198`，`pon top1` 从 `0.9528` 降到 `0.9475`。
   - response calibration 已完成 valid/test。improved 在同一 `pass_bias` 下误叫更少但漏叫更多；baseline 的默认候选 `pass_bias=0.4` 不直接迁移到 improved。v1.0.0 默认 response operating point 定为 `pass_bias=0.3`：test `false_call_rate=0.925%`、`missed_call_rate=9.29%`、`non_pass_f1=74.18%`、`multi_candidate top1=88.40%`、`chi/pon top1=78.4%/93.1%`。
+- 2026-05-12 P800 multitask v1.1 首轮训练已完成，训练产物已归档到 `runs/2026-05-12_p800_multitask_v1_1/`，分析记录见 [multitask-training.md](multitask-training.md) 第 7 节和 run 目录下的 `analysis.md`。
+  - `turn` 明确优于 2026-05-10 improved：test `top1=0.7169`、`top3=0.9538`、`top5=0.9884`，相对 improved 分别提升 `+0.94pp / +0.45pp / +0.16pp`；`discard top1=0.7118`、`riichi_discard top1=0.8803`、`non_discard top1=0.9207` 均提升，`ankan top1` 也从 improved 的 `0.8988` 恢复到 `0.9186`。
+  - `response` 仍不能替代 improved 单任务：补跑 `best_response.pt` 后，raw test `multi_candidate top1=0.8646`、`multi_candidate macro top1=0.8518`、`non_pass_f1=0.7149`、`false_call_rate=0.0114`，比 multitask `best.pt` 更接近 improved，但仍弱于 improved 的 `0.8686 / 0.8843 / 0.7214 / 0.0111`。valid/test calibration 也未反转结论：test `pass_bias=0.3` 时 multitask best_response 为 `false_call=0.933%`、`missed=9.91%`、`non_pass_f1=73.73%`，弱于 improved 的 `0.925% / 9.29% / 74.18%`；test `pass_bias=0.4` 时 false call 基本持平，但 missed call 更高、F1 更低，且 `daiminkan` 明显偏低。不应把 multitask response 作为默认候选。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
@@ -221,7 +224,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - v1.1 已新增 `MultitaskMahjongPolicyNet`：`turn/response` 各自保留 state projection、action encoder 和 head，共享一段状态 encoder 主干，解决两个任务输入维度不同但仍需共享表征的问题。
 - 训练入口已支持 `task: multitask`，当前 baseline 使用 epoch 级顺序调度：每个 epoch 先完整训练 `turn`，再完整训练 `response`，valid 阶段分别评估两路指标。
 - 多任务 checkpoint 可通过 `python -m mjai.cli eval --ckpt <ckpt> --task turn|response` 分别评估，也已兼容 `calibrate-response`、`sample-response-errors` 和 `sample-turn-errors`。
-- 首轮多任务训练仍待 P800 正式结果验证；batch-level interleave、自动 loss scale、value head 与 DDP 暂不纳入 v1.1 baseline。
+- 首轮 P800 多任务训练已经完成：`turn` 收益明确，`response` 在 `best_response.pt` raw test 与 valid/test calibration 下仍弱于 improved。batch-level interleave、自动 loss scale、value head 与 DDP 仍暂不纳入首轮 baseline；下一步如果继续多任务 response，应优先验证调度/权重取舍和少数类质量，而不是继续调大 `pass_bias`。
 
 下一阶段优先补：
 
@@ -235,7 +238,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 数据重建与 P800 大数据训练提醒：
 
 - turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 improved run 的样本数和训练日志对齐。后续只要 feature schema、parser/rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`。
-- 20 万局量级的 baseline 与 improved 单任务训练都已跑完，valid/test 指标稳定。下一轮主线是 v1.1 多任务 baseline；不要同时混入 response operating point 调整、turn 少数类修复、DDP 和复杂模型。
+- 20 万局量级的 baseline、improved 单任务训练和首轮 v1.1 多任务训练都已跑完，valid/test 指标稳定。multitask response test calibration 已完成，下一轮主线是判断是否需要调整 epoch-sequential 调度、response loss scale 或少数类处理；不要同时混入 DDP、value head 和复杂模型。
 - 当前缺口不是“能否训练”：后续应继续按 `runs/<date>_<exp>/` 固化每轮模型证据，并通过 `dataset_id` 引用 `runs/_datasets/<dataset_id>/` 中的数据证据。
 - v1.0.0 response 默认 operating point 已定为 `pass_bias=0.3`；`0.16` 作为偏召回候选，`0.4` 作为保守候选。后续推理/服务配置应显式记录该值。
 
@@ -251,7 +254,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `preprocess / validate-events`：已完成第一版
 - `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版，并已跑通 P800 大数据单任务 baseline
 - `Task 7` 离线评估：已完成第一版
-- `Task 8` 多任务训练：已完成可训练 baseline，待 P800 首轮结果验证
+- `Task 8` 多任务训练：已完成可训练 baseline 和 P800 首轮验证；`turn` 正收益已确认，`response` 需要调度/权重和少数类质量改进
 - `Task 9` 训练机适配：P800 单卡 baseline 已验证；8 卡 DDP 仍未实现/验证
 
 ## 6. 建议的下一步任务
