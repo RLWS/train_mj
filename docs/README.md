@@ -8,10 +8,11 @@
 2. [smoke-training.md](smoke-training.md)：用夹具数据跑通预处理、构建样本、训练、评估和调试链路。
 3. [multitask-training.md](multitask-training.md)：v1.1 多任务模型结构、P800 启动方式、checkpoint 与评估口径。
 4. [model-inputs.md](model-inputs.md)：当前 turn / response 模型输入张量、维度和特征语义。
-5. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：turn / response 训练效果分析、response 特征增强记录、2026-05-06 P800 baseline 和 2026-05-10 improved 结论。
-6. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
-7. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
-8. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。
+5. [serving-api-plan.md](serving-api-plan.md)：新增 serving/API 模块的分层设计、接口约定、配置和落地顺序。
+6. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：turn / response 训练效果分析、response 特征增强记录、2026-05-06 P800 baseline 和 2026-05-10 improved 结论。
+7. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
+8. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
+9. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。
 
 ## 命名说明
 
@@ -22,3 +23,4 @@
 - `smoke-training.md` 原为 `SMOKE_TRAIN_TUTORIAL.md`，记录本地 smoke 工作流。
 - `model-inputs.md` 记录当前模型输入 schema；修改 state/action feature 维度时必须同步更新。
 - `multitask-training.md` 记录 v1.1 多任务训练主线；多任务实验结论优先写这里，不再继续扩张单任务训练分析文档。
+- `serving-api-plan.md` 记录 serving/API 模块方案；实现 API 前优先对齐该文档中的分层边界和 response operating point。

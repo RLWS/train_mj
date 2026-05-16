@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Sequence
 
 from mjai.data.builders.event_builder import EventBuilder
@@ -460,6 +461,25 @@ def _run_dump_case(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve_api(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise ImportError("uvicorn is required to run the serving API") from exc
+
+    os.environ["MJAI_API_CONFIG"] = args.config
+    api_config = load_resolved_yaml(args.config).get("api", {})
+    uvicorn.run(
+        "mjai.api.app:create_app",
+        host=args.host or str(api_config.get("host", "127.0.0.1")),
+        port=int(args.port or api_config.get("port", 8000)),
+        reload=bool(args.reload),
+        factory=True,
+        reload_dirs=[os.path.dirname(args.config) or "."],
+    )
+    return 0
+
+
 def _print_warnings(warnings: tuple[str, ...]) -> None:
     """打印与函数名对应的进度或诊断信息。
     
@@ -823,6 +843,12 @@ def build_parser() -> argparse.ArgumentParser:
     infer_on_state.add_argument("--state-json", required=True, help="State JSON path.")
     _add_config_arg(infer_on_state)
 
+    serve_api = subparsers.add_parser("serve-api", help="Start the MJAI serving HTTP API.")
+    serve_api.add_argument("--config", required=True, help="Path to the API config file.")
+    serve_api.add_argument("--host", default=None, help="Override API host from config.")
+    serve_api.add_argument("--port", type=int, default=None, help="Override API port from config.")
+    serve_api.add_argument("--reload", action="store_true", help="Enable uvicorn reload.")
+
     dump_case = subparsers.add_parser("dump-case", help="Dump a parsed decision case.")
     dump_case.add_argument("--game-id", required=True)
     dump_case.add_argument("--kyoku-id", required=True)
@@ -879,6 +905,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect_sample(args)
     if args.command == "dump-case":
         return _run_dump_case(args)
+    if args.command == "serve-api":
+        return _run_serve_api(args)
     return _not_implemented(args.command, getattr(args, "config", None))
 
 

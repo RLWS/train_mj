@@ -4,9 +4,18 @@ import json
 from pathlib import Path
 
 from mjai.cli import main
+from mjai.cli import build_parser
 
 
 FIXTURE_DIR = Path("tests/fixtures/tenhou")
+
+
+def test_cli_registers_serve_api_command():
+    parser = build_parser()
+    args = parser.parse_args(["serve-api", "--config", "configs/api_local.yaml"])
+
+    assert args.command == "serve-api"
+    assert args.config == "configs/api_local.yaml"
 
 
 def test_cli_preprocess_and_validate_events(tmp_path: Path, capsys):

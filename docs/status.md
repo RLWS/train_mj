@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-05-12`
+更新时间：`2026-05-16`
 
 ## 1. 总体判断
 
@@ -9,13 +9,14 @@
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
 - `Phase 1` 已推进到大数据单任务 baseline、第一轮特征复训和首轮多任务 baseline 之后：`turn/response` 都已经有 P800 baseline 与 improved 两轮 valid/test eval，v1.1 multitask 也已经有首轮 test eval 和可对照指标。
 
-换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准和分析模型取舍”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 首轮多任务结果显示 `turn` 明确受益，但 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务，后续重点转为调度/权重和少数类质量实验。DDP 和系统化 serving 仍未完成。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准、分析模型取舍，并提供第一版 HTTP 推理接口”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 首轮多任务结果显示 `turn` 明确受益，但 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务，后续重点转为调度/权重和少数类质量实验。DDP、服务端合法动作生成和在线对局代理仍未完成。
 
 ## 2. 已验证结果
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `101 passed`；本轮新增 turn 牌河时序 V1 特征后，`tests/test_action_features.py`、`tests/test_dataset_writer.py`、`tests/test_train_smoke.py` 和全量 `pytest` 已通过。
+- `pytest` 全量通过，当前结果为 `112 passed`；本轮新增 serving/API 代码后，全量回归已通过。
+- 新增 serving/API 代码后，`pytest tests/test_serving_predictor.py tests/test_api_routes.py tests/test_cli.py::test_cli_registers_serve_api_command` 通过，且 `python -m compileall -q mjai tests` 通过。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
@@ -147,9 +148,14 @@
   - 已新增 response pass/call 校准扫描：固定 checkpoint，在一组 `pass_bias` 下输出 false call、missed call、non-pass precision/recall/F1、multi-candidate top1 和按动作类别 top1，并按 false call 目标挑选 operating point。
   - 已新增 response 错例抽样命令：重新跑 manifest 推理后按 `label->pred` confusion 抽样，避免误用 `eval.misclassified_examples` 里默认最多 `10` 条的调试样本。
   - 已新增 turn top-k 错例抽样命令：重新跑 manifest 推理后按 label kind 与 label rank 抽样，默认目标为 `discard@rank2` 与 `discard@rank3`。
+- `mjai/serving/` 与 `mjai/api/`
+  - 已完成第一版外部调用接口：`mjai/serving` 负责 checkpoint 加载、模型推理、候选排序和请求内核校验；`mjai/api` 负责 FastAPI app factory、路由、Pydantic schema、API key middleware 和统一错误响应。
+  - 已支持 `/health`、`/v1/models`、`/v1/predict/turn`、`/v1/predict/response`。
+  - `response` 默认接入 v1.0.0 improved operating point：`pass_bias=0.3`；配置中同时保留 `recall=0.16` 与 `conservative=0.4`。
+  - 第一版仍要求调用方传入 `legal_actions`，服务端合法动作生成留到后续阶段。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。
-  - `turn/response` smoke train、offline eval、response/turn 错例抽样、`inspect-sample` 与 `dump-case` 都有回归测试。
+  - `turn/response` smoke train、offline eval、response/turn 错例抽样、`inspect-sample`、`dump-case` 与 serving/API 路由都有回归测试。
 
 ### 部分完成
 
@@ -163,9 +169,9 @@
 
 ### 尚未开始或基本未开始
 
-- `mjai/serving/`
+- `mjai/serving/` 的阶段 3 和阶段 4。
 
-这些目录目前仍只有包骨架或说明性占位，还不能支持推理闭环。
+其中合法动作服务端生成与在线对局代理仍待后续实现；但纯推理内核和 FastAPI 薄封装已完成第一版。
 
 ## 4. 当前最关键的差距
 
