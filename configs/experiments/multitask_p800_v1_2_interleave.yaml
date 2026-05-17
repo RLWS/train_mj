@@ -1,0 +1,82 @@
+seed: 20260423
+exp_name: multitask_p800_v1_2_interleave
+output_dir: outputs/checkpoints/multitask_p800_v1_2_interleave
+log_dir: outputs/logs/multitask_p800_v1_2_interleave
+
+data:
+  ruleset: tenhou_4p_red
+  tile_encoding: mahjong_34_plus_aka
+  input_root: data/bronze_events
+  train_manifest: data/manifests/train.jsonl
+  valid_manifest: data/manifests/valid.jsonl
+  test_manifest: data/manifests/test.jsonl
+  max_history_len: 192
+  candidate_limit: 64
+  turn_candidate_limit: 64
+  response_candidate_limit: 16
+
+model:
+  name: hybrid_transformer_ranker
+  hidden_size: 512
+  num_layers: 8
+  num_heads: 8
+  dropout: 0.1
+  state_mlp_dim: 1024
+  action_mlp_dim: 512
+  share_encoder: true
+  heads:
+    turn: true
+    response: true
+    value: true
+
+task:
+  task: multitask
+  losses:
+    turn_ce: 1.0
+    response_ce: 1.0
+  schedule: batch_interleave
+  interleave_batches:
+    turn: 10150
+    response: 1420
+
+train:
+  device: cuda
+  precision: bf16
+  allow_tf32: true
+  float32_matmul_precision: high
+  batch_size: 128
+  turn_batch_size: 8192
+  response_batch_size: 16384
+  num_workers: 16
+  valid_num_workers: 4
+  epochs: 10
+  grad_accum_steps: 1
+  distributed: false
+  log_every_n_steps: 500
+  val_every_n_steps: 500
+  save_every_n_steps: 1000
+  lr: 0.001
+  weight_decay: 0.0001
+  response_min_train_candidate_count: 2
+  response_train_diagnostics: false
+  response_eval_diagnostics: true
+  turn_class_weights:
+    discard: 1.0
+    riichi_discard: 4.0
+    tsumo: 6.0
+    ankan: 8.0
+    kakan: 8.0
+    kyuushu_kyuuhai: 8.0
+  response_class_weights:
+    pass: 1.0
+    chi: 8.0
+    pon: 8.0
+    daiminkan: 8.0
+    ron: 12.0
+    chankan: 12.0
+
+eval:
+  turn_batch_size: 8192
+  response_batch_size: 16384
+  num_workers: 4
+  max_misclassified_examples: 10

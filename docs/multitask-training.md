@@ -1,6 +1,6 @@
 # 多任务训练方案
 
-更新时间：`2026-05-12`
+更新时间：`2026-05-17`
 
 ## 1. 目标
 
@@ -55,7 +55,7 @@ checkpoint 选择：
 - `best_multitask.pt` / `best.pt`：按 `turn` accuracy 与 response selection score 的简单平均。
 - `final.pt`：最后一个 epoch。
 
-v1.2 将 P800 默认调度改成 `batch_interleave`，其它主要训练变量保持不变：
+v1.2 这轮实验使用 `batch_interleave`，其它主要训练变量保持不变：
 
 1. 每个 epoch 同时打开 `turn` 与 `response` train loader。
 2. 按有效训练 batch 进度比例交错取 batch，而不是固定 1:1。
@@ -68,10 +68,16 @@ v1.2 将 P800 默认调度改成 `batch_interleave`，其它主要训练变量�
 
 ## 4. P800 启动方式
 
-默认配置：
+默认配置当前回到 v1.1 epoch-sequential：
 
 ```bash
 configs/multitask_p800.yaml
+```
+
+v1.2 interleave 只作为显式实验配置保留，不再放在主配置入口目录：
+
+```bash
+configs/experiments/multitask_p800_v1_2_interleave.yaml
 ```
 
 在 P800/Linux 训练机上，从仓库根目录直接运行：
@@ -94,25 +100,36 @@ env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 RUN_PREPROCESS=0 RUN_VALIDATE=0 RUN_B
 docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml config | grep -E 'TASKS|RUN_TRAIN|RUN_EVAL|RUN_PREPROCESS|RUN_BUILD_DATASET|RUN_MANIFEST'
 ```
 
-训练输出默认写入：
+默认训练输出写入：
 
 ```text
-outputs/checkpoints/multitask_p800_v1_2_interleave/
-outputs/logs/multitask_p800_v1_2_interleave/
+outputs/checkpoints/multitask_p800_v1_1/
+outputs/logs/multitask_p800_v1_1/
 ```
 
-eval 默认产出两份报告：
+默认 eval 产出两份报告：
 
 ```text
-outputs/reports/multitask_p800_v1_2_interleave_turn_test_eval.json
-outputs/reports/multitask_p800_v1_2_interleave_response_test_eval.json
+outputs/reports/multitask_p800_v1_1_turn_test_eval.json
+outputs/reports/multitask_p800_v1_1_response_test_eval.json
 ```
 
 手动评估同一个多任务 checkpoint 时，需要显式指定任务：
 
 ```bash
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_2_interleave/best.pt --task turn --split test --report outputs/reports/multitask_turn_test_eval.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_2_interleave/best.pt --task response --split test --report outputs/reports/multitask_response_test_eval.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt --task turn --split test --report outputs/reports/multitask_turn_test_eval.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt --task response --split test --report outputs/reports/multitask_response_test_eval.json
+```
+
+如果需要复现 v1.2 interleave，显式覆盖多任务配置和报告路径：
+
+```bash
+env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 RUN_PREPROCESS=0 RUN_VALIDATE=0 RUN_BUILD_DATASET=0 RUN_MANIFEST=0 \
+  MULTITASK_TRAIN_CONFIG=configs/experiments/multitask_p800_v1_2_interleave.yaml \
+  MULTITASK_EVAL_CKPT=outputs/checkpoints/multitask_p800_v1_2_interleave/best.pt \
+  MULTITASK_TURN_EVAL_REPORT=outputs/reports/multitask_p800_v1_2_interleave_turn_test_eval.json \
+  MULTITASK_RESPONSE_EVAL_REPORT=outputs/reports/multitask_p800_v1_2_interleave_response_test_eval.json \
+  docker-compose -f docker-compose.p800.yml up --force-recreate
 ```
 
 ## 5. 首轮对照指标
@@ -309,3 +326,98 @@ python -m mjai.cli calibrate-response `
 ```
 
 如果后续新 run 的 valid 选择出其他 bias，例如 `0.12` 或 `0.20`，把它们追加到 test 的 `--pass-biases`。最终比较时不要只看 `non_pass_f1`，还要同时看 `false_call_rate`、`missed_call_rate`、`multi_candidate_top1_accuracy` 和 `per_kind_top1_accuracy` 里的 `chi/pon/daiminkan`。
+
+## 8. 2026-05-13 P800 v1.2 interleave 结果
+
+本轮 run 已归档到 `runs/2026-05-13_p800_multitask_v1_2_interleave/`，继续使用数据集 `runs/_datasets/tenhou_20w_2026-05-06/`。训练产物来自：
+
+```text
+outputs/checkpoints/multitask_p800_v1_2_interleave/
+outputs/logs/multitask_p800_v1_2_interleave/
+outputs/reports/multitask_p800_v1_2_interleave_*_test_eval.json
+```
+
+归档后对应路径为：
+
+```text
+runs/2026-05-13_p800_multitask_v1_2_interleave/multitask/checkpoints/
+runs/2026-05-13_p800_multitask_v1_2_interleave/multitask/logs/
+runs/2026-05-13_p800_multitask_v1_2_interleave/multitask/eval/
+```
+
+本轮使用 `batch_interleave`，显式按有效训练 batch 配置 `turn=10150`、`response=1420`。训练样本计数仍是 `turn_train_samples=83,077,288` 与 filtered `response_train_samples=23,120,538`，因此这轮主要验证调度方式，而不是数据或特征变化。
+
+### 8.1 Turn raw test 对比
+
+| 指标 | v1.0.0 improved | v1.1 multitask | v1.2 interleave | v1.2 vs v1.0.0 | v1.2 vs v1.1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| loss | `0.8000` | `0.7724` | `0.7720` | `-0.0280` | `-0.0004` |
+| top1 | `70.75%` | `71.69%` | `71.80%` | `+1.05pp` | `+0.12pp` |
+| top3 | `94.93%` | `95.38%` | `95.39%` | `+0.46pp` | `+0.01pp` |
+| top5 | `98.68%` | `98.84%` | `98.85%` | `+0.17pp` | `+0.01pp` |
+| macro top1 | `90.57%` | `91.46%` | `90.78%` | `+0.21pp` | `-0.68pp` |
+| discard top1 | `70.24%` | `71.18%` | `71.36%` | `+1.12pp` | `+0.18pp` |
+| riichi_discard top1 | `87.13%` | `88.03%` | `84.13%` | `-2.99pp` | `-3.89pp` |
+| ankan top1 | `89.88%` | `91.86%` | `92.10%` | `+2.22pp` | `+0.24pp` |
+| kakan top1 | `96.27%` | `97.71%` | `97.13%` | `+0.87pp` | `-0.58pp` |
+| non_discard top1 | `91.37%` | `92.07%` | `89.61%` | `-1.76pp` | `-2.47pp` |
+
+补跑 `best_turn.pt` 后，v1.2 的少数类回退大部分恢复：
+
+| 指标 | v1.1 `best.pt` | v1.2 `best.pt` | v1.2 `best_turn.pt` |
+| --- | ---: | ---: | ---: |
+| top1 | `71.69%` | `71.80%` | `71.73%` |
+| macro top1 | `91.46%` | `90.78%` | `91.25%` |
+| discard top1 | `71.18%` | `71.36%` | `71.25%` |
+| riichi_discard top1 | `88.03%` | `84.13%` | `87.01%` |
+| ankan top1 | `91.86%` | `92.10%` | `92.31%` |
+| kakan top1 | `97.71%` | `97.13%` | `96.93%` |
+| non_discard top1 | `92.07%` | `89.61%` | `91.43%` |
+
+结论：v1.2 `best_turn.pt` 是合理的 turn 候选，但仍不是对 v1.1 的明确替代。它保留了略高的 overall top1，并进一步提升 `ankan`，但 v1.1 仍有更好的 macro、`riichi_discard`、`kakan` 和 `non_discard`。如果目标是稳健 turn 行为，v1.1 仍更均衡；如果目标是 overall top1 与 discard/ankan，v1.2 `best_turn.pt` 可以进入下一轮候选。
+
+### 8.2 Response raw test 对比
+
+| 指标 | v1.0.0 improved | v1.1 `best.pt` | v1.1 `best_response.pt` | v1.2 `best.pt` | v1.2 `best_response.pt` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| overall top1 | `98.770%` | `98.681%` | `98.732%` | `98.693%` | `98.693%` |
+| macro top1 | `90.60%` | `86.60%` | `87.42%` | `90.17%` | `90.17%` |
+| multi-candidate top1 | `86.86%` | `85.91%` | `86.46%` | `86.04%` | `86.04%` |
+| multi-candidate macro top1 | `88.43%` | `84.20%` | `85.18%` | `87.80%` | `87.80%` |
+| non-pass precision | `59.04%` | `57.04%` | `58.27%` | `57.28%` | `57.28%` |
+| non-pass recall | `92.72%` | `93.94%` | `92.45%` | `93.93%` | `93.93%` |
+| non-pass F1 | `72.14%` | `70.98%` | `71.49%` | `71.17%` | `71.17%` |
+| false call rate | `1.105%` | `1.216%` | `1.137%` | `1.203%` | `1.203%` |
+| missed call rate | `7.28%` | `6.06%` | `7.55%` | `6.07%` | `6.07%` |
+| false / missed calls | `335,932 / 38,033` | `369,600 / 31,630` | `345,760 / 39,434` | `365,833 / 31,684` | `365,833 / 31,684` |
+| chi / pon top1 | `81.98% / 94.75%` | `85.21% / 95.12%` | `81.76% / 94.25%` | `84.84% / 95.35%` | `84.84% / 95.35%` |
+| daiminkan top1 | `68.17%` | `40.64%` | `49.77%` | `62.32%` | `62.32%` |
+
+结论：`batch_interleave` 明确修复了 v1.1 `best.pt` 的一部分 response 问题，尤其是 `macro top1`、`multi-candidate macro top1` 和 `daiminkan`。但相对 v1.0.0 improved，v1.2 `best_response.pt` 仍然有更低的 multi-candidate top1、更低的 `non_pass_f1`、更高 false call，以及仍偏弱的 `daiminkan`。因此 response 默认模型继续保留 v1.0.0 improved。
+
+需要特别注意：v1.2 的 `best_response.pt` raw test 与 `best.pt` 完全一致。这说明本轮 response selection 没有像 v1.1 那样选出行为明显不同的 response checkpoint；v1.2 的 response 结论可以直接按上述 `best.pt`/`best_response.pt` 结果判断。
+
+### 8.3 Response calibration 对比
+
+v1.2 `best_response.pt` 的 valid/test 曲线一致。test 关键 bias 点如下：
+
+| checkpoint | pass_bias | false call | missed call | non-pass F1 | multi top1 | chi / pon / daiminkan top1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| improved | `0.3` | `0.925%` | `9.29%` | `74.18%` | `88.40%` | `78.4 / 93.1 / 61.6` |
+| v1.2 best_response | `0.3` | `1.026%` | `7.74%` | `73.23%` | `87.61%` | `81.9 / 94.0 / 51.1` |
+| improved | `0.4` | `0.869%` | `10.06%` | `74.80%` | `88.85%` | `77.1 / 92.4 / 58.7` |
+| v1.2 best_response | `0.4` | `0.969%` | `8.39%` | `73.87%` | `88.09%` | `80.7 / 93.5 / 47.2` |
+| improved | `0.6` | `0.763%` | `11.76%` | `75.86%` | `89.67%` | `74.4 / 90.9 / 50.9` |
+| v1.2 best_response | `0.6` | `0.861%` | `9.80%` | `75.07%` | `88.98%` | `78.4 / 92.3 / 40.2` |
+| improved | `0.8` | `0.665%` | `13.62%` | `76.74%` | `90.36%` | `71.3 / 89.2 / 44.1` |
+| v1.2 best_response | `0.8` | `0.759%` | `11.45%` | `76.09%` | `89.76%` | `75.7 / 90.9 / 32.7` |
+
+同 bias 下，v1.2 主要优势是 missed call 更低、`chi/pon` 更高；主要代价是 false call 更高、F1 和 multi top1 更低，并且 `daiminkan` 明显更弱。`pass_bias=0.4` 虽然进入 `false_call <= 1%`，但仍弱于 improved 默认 `0.3` 的 F1/multi top1，且 `daiminkan` 从 `61.6%` 降到 `47.2%`。
+
+自动 target selection 在 v1.2 valid/test 上都会选择 `pass_bias=1.0` 作为 `1.0%` 和 `0.8%` false-call 目标下的最高 F1 点；test 为 `false_call=0.665%`、`missed=13.28%`、`non_pass_f1=76.93%`。这个点过于保守，`daiminkan top1` 只有 `25.6%`，不适合作为默认 operating point。
+
+### 8.4 当前决策
+
+- `turn`：v1.2 `best_turn.pt` 是合理候选，但 v1.1 仍是更均衡的 turn baseline。后续如果要选 v1.2，应明确接受 macro 与 `non_discard` 小幅下降，换取 overall top1、discard 与 ankan。
+- `response`：继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为默认候选。v1.2 的 response 只说明 interleave 比 v1.1 `best.pt` 更健康，不说明它已经超过单任务 improved。
+- 调度：`batch_interleave` 去掉了 epoch-sequential 的顺序覆盖变量，并改善了部分 response macro 指标，但没有解决 response 的核心 false/missed/F1/少数类取舍。因此默认 P800 多任务配置已回到 v1.1 `epoch_sequential`；v1.2 保留为 `configs/experiments/multitask_p800_v1_2_interleave.yaml`，只在需要复现实验或继续验证调度变量时显式使用。

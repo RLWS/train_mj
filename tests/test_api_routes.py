@@ -141,11 +141,48 @@ def test_api_key_middleware_blocks_missing_key(tmp_path: Path, monkeypatch: pyte
     assert accepted.status_code == 200
 
 
+def test_api_debug_logging_can_emit_request_and_response_bodies(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    client = _client(
+        tmp_path,
+        api_overrides={
+            "debug_log_requests": True,
+            "debug_log_responses": True,
+            "debug_log_max_body_chars": 10_000,
+            "debug_log_logger": "mjai.api.requests",
+        },
+    )
+
+    with caplog.at_level("INFO", logger="mjai.api.requests"):
+        response = client.post(
+            "/v1/predict/turn",
+            json={
+                "state": _turn_state(),
+                "legal_actions": [{"kind": "discard", "tile": "1m"}],
+                "top_k": 1,
+            },
+        )
+
+    assert response.status_code == 200
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("path=/v1/predict/turn" in message for message in messages)
+    assert any(
+        '"legal_actions":[{"kind":"discard","tile":"1m"}]' in message for message in messages
+    )
+    assert any("API response body" in message for message in messages)
+    assert any(
+        '"selected_action":{"kind":"discard","tile":"1m"}' in message for message in messages
+    )
+
+
 def _client(
     tmp_path: Path,
     *,
     max_legal_actions: int = 64,
     security: dict | None = None,
+    api_overrides: dict | None = None,
 ) -> TestClient:
     turn_ckpt = _write_checkpoint(tmp_path / "turn.pt", task="turn", hidden_size=16)
     response_ckpt = _write_checkpoint(tmp_path / "response.pt", task="response", hidden_size=16)
@@ -155,6 +192,8 @@ def _client(
         max_legal_actions=max_legal_actions,
         pass_bias=0.3,
     )
+    if api_overrides:
+        config["api"].update(api_overrides)
     config["security"] = security or {"allow_without_api_key": True}
     predictor = build_predictor_from_config(config)
     app = create_app(config=config, predictor=predictor)

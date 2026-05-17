@@ -8,7 +8,6 @@ from typing import Any
 from mjai.serving import MahjongPredictor, build_predictor_from_config
 from mjai.utils.config import load_resolved_yaml
 
-
 API_CONFIG_ENV = "MJAI_API_CONFIG"
 
 
@@ -22,6 +21,8 @@ def create_app(
         from fastapi import FastAPI
         from fastapi.exceptions import RequestValidationError as FastAPIRequestValidationError
         from fastapi.responses import JSONResponse
+
+        from mjai.api.debug import RequestBodyLoggingMiddleware, debug_logging_config
         from mjai.api.deps import ApiKeyMiddleware, security_config
         from mjai.api.routes import build_router
     except ImportError as exc:  # pragma: no cover - exercised when api extra is absent
@@ -55,6 +56,14 @@ def create_app(
         resolved_config,
         base_dir=Path.cwd(),
     )
+    debug_logging = debug_logging_config(resolved_config)
+    if debug_logging["enabled"]:
+        app.add_middleware(
+            RequestBodyLoggingMiddleware,
+            max_body_chars=int(debug_logging["max_body_chars"]),
+            logger_name=str(debug_logging["logger_name"]),
+            log_responses=bool(debug_logging["log_responses"]),
+        )
     security = security_config(resolved_config)
     app.add_middleware(
         ApiKeyMiddleware,

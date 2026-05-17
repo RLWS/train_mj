@@ -363,6 +363,10 @@ api:
   enable_docs: true
   request_timeout_seconds: 5
   max_legal_actions: 64
+  debug_log_requests: false
+  debug_log_responses: true
+  debug_log_max_body_chars: 20000
+  debug_log_logger: uvicorn.error
 
 device: cuda
 
@@ -384,6 +388,12 @@ security:
 部署或对外暴露时，应将 `allow_without_api_key` 改为 `false`，并通过环境变量注入 `MJAI_API_KEY`。
 
 `configs/api_local.yaml` 中的 checkpoint 路径是本地示例路径。启动服务前必须先确认 `models.turn.checkpoint` 与 `models.response.checkpoint` 指向真实存在的 checkpoint。
+
+调试前端对接时可以临时打开 `api.debug_log_requests: true`。开启后，API 会把
+`POST /v1/predict/turn` 与 `POST /v1/predict/response` 的原始 JSON 请求体写入
+`api.debug_log_logger` 指定的 logger；`debug_log_responses` 默认为 `true`，会同时输出
+预测返回体，包含 `selected_action`、`predictions` 等字段。请求体和响应体都默认最多保留
+`debug_log_max_body_chars` 个字符。该开关默认关闭；线上或对外暴露服务不要长期打开，避免泄露牌局数据或产生过量日志。
 
 ## 6. 依赖管理
 

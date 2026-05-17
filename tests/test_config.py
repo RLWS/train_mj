@@ -61,3 +61,12 @@ def test_load_resolved_p800_configs():
     assert response_config["task"]["task"] == "response"
     assert response_config["train"]["device"] == "cuda"
     assert response_config["data"]["candidate_limit"] == 16
+
+
+def test_load_resolved_multitask_experiment_config():
+    config = load_resolved_yaml("configs/experiments/multitask_p800_v1_2_interleave.yaml")
+
+    assert config["task"]["task"] == "multitask"
+    assert config["task"]["schedule"] == "batch_interleave"
+    assert config["task"]["interleave_batches"] == {"turn": 10150, "response": 1420}
+    assert config["output_dir"] == "outputs/checkpoints/multitask_p800_v1_2_interleave"
