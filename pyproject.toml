@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mjai"
-version = "0.1.0"
+version = "1.1.0"
 description = "Riichi Mahjong AI training pipeline for Tenhou data and Mahjong Soul deployment."
 readme = "README.md"
 requires-python = ">=3.10"

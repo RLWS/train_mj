@@ -21,7 +21,7 @@
 
 当前已验证结果：
 
-- `pytest` 结果为 `101 passed`
+- `pytest` 结果为 `114 passed`
 - 使用 `tests/fixtures/tenhou` 实测可完成 `20` 局 XML 预处理、`6281` 条事件写入、`20/20` 个事件分片校验通过，并生成 `2996` 条 `turn` 样本、`8910` 条 `response` 样本
 - `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
 

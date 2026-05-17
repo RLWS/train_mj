@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from mjai import __version__
 from mjai.serving import MahjongPredictor, build_predictor_from_config
 from mjai.utils.config import load_resolved_yaml
 
@@ -33,7 +34,7 @@ def create_app(
     enable_docs = bool(app_config.get("enable_docs", True))
     app = FastAPI(
         title="MJAI Serving API",
-        version="0.1.0",
+        version=__version__,
         docs_url="/docs" if enable_docs else None,
         redoc_url=None,
         openapi_url="/openapi.json" if enable_docs else None,

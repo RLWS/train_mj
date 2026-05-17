@@ -19,7 +19,8 @@
 - 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠，且 `kakan` 响应窗口已收紧为只暴露 `pass / ron / chankan`。
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
-- 当前测试基线为 `pytest` 全量通过，结果是 `101 passed`。
+- 已补上第一版 serving/API：`mjai/serving` 提供推理内核，`mjai/api` 提供 FastAPI 封装，支持 `/health`、`/v1/models`、`/v1/predict/turn` 和 `/v1/predict/response`。
+- 当前测试基线为 `pytest` 全量通过，结果是 `114 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
   - `6281` 条事件写入 `bronze_events`
@@ -29,7 +30,7 @@
   - `turn` 单任务 `1` epoch smoke train
   - `response` 单任务 `1` epoch smoke train
   - `turn` / `response` checkpoint 的 `valid` split 离线评估
-- `serving/` 仍基本是骨架或占位；`features/`、`models/`、`training/`、`eval/` 已有最小 `turn/response` baseline 实现。
+- `serving/` 与 `api/` 已有第一版可调用接口；服务端合法动作生成、在线对局 session 和完整代理仍是后续工作。
 
 ## 当前可用命令
 
@@ -58,6 +59,7 @@ python -m mjai.cli sample-turn-errors --ckpt <turn_checkpoint_path> --split vali
 python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
 python -m mjai.cli inspect-sample --dataset <samples_dir> --sample-id <sample_id>
 python -m mjai.cli dump-case --game-id <game_id> --kyoku-id <kyoku_index> --step-id <step_index>
+python -m mjai.cli serve-api --config configs/api_local.yaml
 pytest
 ```
 
@@ -74,6 +76,7 @@ pytest
 - `sample-turn-errors` 会重新跑 turn manifest 推理，并按 label kind 与 label rank 分桶做 reservoir sampling；默认抽 `discard` 的 `rank=2/3` 样本。
 - `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引或 `sample_id` 抽查样本。
 - `dump-case` 当前支持从 `bronze_events` 中定位目标决策点的原始事件上下文。
+- `serve-api` 当前启动第一版 FastAPI 推理服务，要求配置中的 turn/response checkpoint 路径在本机存在，且调用方在预测请求中传入 `legal_actions`。
 - `replay-eval`、`infer-on-state` 仍未实装。
 
 训练性能说明：
@@ -91,7 +94,9 @@ pytest
 
 ## 文档索引
 
+- [CHANGELOG.md](CHANGELOG.md)：版本摘要。
 - [docs/README.md](docs/README.md)：文档总索引和推荐阅读顺序。
+- [docs/releases/v1.1.0.md](docs/releases/v1.1.0.md)：v1.1.0 发布说明。
 - [docs/status.md](docs/status.md)：当前实现进度、已验证结果、主要缺口和建议的下一步任务。
 - [docs/smoke-training.md](docs/smoke-training.md)：本地 smoke 数据、训练、评估和调试工作流。
 - [docs/rule-coverage.md](docs/rule-coverage.md)：当前规则引擎覆盖范围与未实现边界。

@@ -15,7 +15,7 @@
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `112 passed`；本轮新增 serving/API 代码后，全量回归已通过。
+- `pytest` 全量通过，当前结果为 `114 passed`；本轮新增 serving/API 代码后，全量回归已通过。
 - 新增 serving/API 代码后，`pytest tests/test_serving_predictor.py tests/test_api_routes.py tests/test_cli.py::test_cli_registers_serve_api_command` 通过，且 `python -m compileall -q mjai tests` 通过。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
 - 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
