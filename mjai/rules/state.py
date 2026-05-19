@@ -229,6 +229,7 @@ class GameState:
     discards: list[list[str]] = field(default_factory=lambda: [[] for _ in range(4)])
     melds: list[list[MeldState]] = field(default_factory=lambda: [[] for _ in range(4)])
     riichi_declared: list[bool] = field(default_factory=lambda: [False] * 4)
+    riichi_turns: list[int | None] = field(default_factory=lambda: [None] * 4)
     riichi_pending: list[bool] = field(default_factory=lambda: [False] * 4)
     temporary_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
     riichi_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
@@ -240,6 +241,7 @@ class GameState:
     furiten_discard_bases: list[set[int]] = field(default_factory=lambda: [set() for _ in range(4)])
     last_discard_actor: int | None = None
     last_discard_tile: str | None = None
+    discard_history: list[tuple[int, str]] = field(default_factory=list)
     kyoku_index: int = -1
 
     @classmethod
@@ -312,6 +314,7 @@ class GameState:
         """
         self.hands[actor].remove_tile(tile)
         self.discards[actor].append(tile)
+        self.discard_history.append((actor, tile))
         self.furiten_discard_bases[actor].add(tile_to_base_index(tile))
         self.last_discard_actor = actor
         self.last_discard_tile = tile
@@ -335,6 +338,7 @@ class GameState:
         if step == 2 and self.scores[actor] >= 10:
             self.riichi_declared[actor] = True
             self.riichi_pending[actor] = False
+            self.riichi_turns[actor] = len(self.discards[actor])
             self.scores[actor] -= 10
 
     def apply_meld(

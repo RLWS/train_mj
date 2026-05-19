@@ -344,11 +344,17 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
             for player_melds in state.melds
         ],
         "riichi_declared": state.riichi_declared[actor],
+        "riichi_declared_by_player": list(state.riichi_declared),
+        "riichi_turn_by_player": list(state.riichi_turns),
         "temporary_furiten": state.temporary_furiten[actor],
         "riichi_furiten": state.riichi_furiten[actor],
         "last_discard_actor": state.last_discard_actor,
         "last_discard_tile": state.last_discard_tile,
         "all_discards": [list(discard_row) for discard_row in state.discards],
+        "discard_history": [
+            {"actor": discard_actor, "tile": tile}
+            for discard_actor, tile in state.discard_history
+        ],
     }
 
 

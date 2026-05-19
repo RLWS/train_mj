@@ -12,4 +12,6 @@ services:
       RUN_MANIFEST: "0"
       RUN_TRAIN: "1"
       RUN_EVAL: "1"
+      RUN_EXTRA_EVAL: "1"
+      RUN_CALIBRATION: "1"
       TASKS: multitask

@@ -5,11 +5,16 @@ import pytest
 from mjai.features.state_features import (
     ACTOR_DIM,
     ALL_DISCARD_COUNTS_DIM,
+    DISCARD_HISTORY_TOKEN_DIM,
+    EXACT_TILE_INDEX,
     HAND_COUNTS_DIM,
     LAST_DISCARD_ACTOR_DIM,
     LAST_DISCARD_TILE_DIM,
+    OWN_MELD_COUNTS_DIM,
     RESPONSE_STATE_DIM,
+    RIICHI_BY_PLAYER_DIM,
     RIICHI_FLAG_DIM,
+    RIICHI_TURN_BY_PLAYER_DIM,
     TURN_STATE_DIM,
     encode_response_state,
     encode_turn_state,
@@ -373,6 +378,64 @@ def test_encode_response_state_includes_furiten_flags():
     assert vector[furiten_offset + 1] == 1.0
 
 
+def test_encode_turn_state_includes_four_player_riichi_context():
+    state = {
+        "actor": 2,
+        "hand": {"1m": 1},
+        "all_discards": [[], [], [], []],
+        "riichi_declared": True,
+        "riichi_declared_by_player": [True, False, True, True],
+        "riichi_turn_by_player": [3, None, 7, 18],
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "last_discard_actor": None,
+        "last_discard_tile": None,
+    }
+
+    vector = encode_turn_state(state)
+
+    riichi_offset = _riichi_by_player_offset()
+    turn_offset = riichi_offset + RIICHI_BY_PLAYER_DIM
+    assert vector[riichi_offset:turn_offset] == [1.0, 0.0, 1.0, 1.0]
+    assert vector[turn_offset : turn_offset + RIICHI_TURN_BY_PLAYER_DIM] == pytest.approx(
+        [3 / 18, 0.0, 0.0, 1.0]
+    )
+
+
+def test_encode_turn_state_includes_ordered_discard_history_tokens():
+    state = {
+        "actor": 0,
+        "hand": {"1m": 1},
+        "all_discards": [["1m"], ["2m"], [], ["0p"]],
+        "riichi_declared": False,
+        "riichi_declared_by_player": [False, False, False, False],
+        "riichi_turn_by_player": [None, None, None, None],
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "last_discard_actor": 3,
+        "last_discard_tile": "0p",
+        "discard_history": [
+            {"actor": 1, "tile": "2m"},
+            {"actor": 3, "tile": "0p"},
+        ],
+    }
+
+    vector = encode_turn_state(state)
+    history_offset = _discard_history_offset()
+    first_token = history_offset
+    second_token = history_offset + DISCARD_HISTORY_TOKEN_DIM
+    third_token = history_offset + (2 * DISCARD_HISTORY_TOKEN_DIM)
+
+    assert vector[first_token + 1] == 1.0
+    assert vector[first_token + ACTOR_DIM + EXACT_TILE_INDEX["2m"]] == 1.0
+    assert vector[second_token + 3] == 1.0
+    assert vector[second_token + ACTOR_DIM + EXACT_TILE_INDEX["0p"]] == 1.0
+    assert sum(vector[first_token : second_token + DISCARD_HISTORY_TOKEN_DIM]) == 4.0
+    assert sum(vector[third_token : third_token + DISCARD_HISTORY_TOKEN_DIM]) == 0.0
+
+
 def test_encode_turn_action_adds_discard_candidate_features():
     """验证自摸巡动作编码增加弃牌候选特征。
     
@@ -465,6 +528,7 @@ def test_encode_turn_action_adds_discard_river_timing_features():
     assert features[34] == 1.0
     assert features[35:38] == [1.0, 1.0, 1.0]
     assert features[38:41] == [1.0, 0.0, 1.0]
+    assert features[41:45] == [0.0, 1.0, 1.0, 1.0]
 
 
 def test_encode_turn_state_includes_round_context():
@@ -525,3 +589,11 @@ def _furiten_offset() -> int:
         + ACTOR_DIM
         + RIICHI_FLAG_DIM
     )
+
+
+def _riichi_by_player_offset() -> int:
+    return _furiten_offset() + 2 + OWN_MELD_COUNTS_DIM
+
+
+def _discard_history_offset() -> int:
+    return _riichi_by_player_offset() + RIICHI_BY_PLAYER_DIM + RIICHI_TURN_BY_PLAYER_DIM

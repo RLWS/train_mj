@@ -38,7 +38,9 @@ ACTOR_DIM = 4
 #
 # encode_turn_state layout:
 # hand counts | 4 players' discard counts | last discard tile | last discard actor |
-# current actor | riichi flag | furiten flags | own meld kind counts | round context
+# current actor | riichi flag | furiten flags | own meld kind counts |
+# 4-player riichi flags | opponent riichi turns | discard-history tokens |
+# round context
 HAND_COUNTS_DIM = EXACT_TILE_DIM
 ALL_DISCARD_COUNTS_DIM = 4 * EXACT_TILE_DIM
 LAST_DISCARD_TILE_DIM = OPTIONAL_TILE_DIM
@@ -47,6 +49,11 @@ CURRENT_ACTOR_DIM = ACTOR_DIM
 RIICHI_FLAG_DIM = 1
 FURITEN_FLAGS_DIM = 2
 OWN_MELD_COUNTS_DIM = 5
+RIICHI_BY_PLAYER_DIM = ACTOR_DIM
+RIICHI_TURN_BY_PLAYER_DIM = ACTOR_DIM
+DISCARD_HISTORY_MAX_LEN = 192
+DISCARD_HISTORY_TOKEN_DIM = ACTOR_DIM + EXACT_TILE_DIM
+DISCARD_HISTORY_DIM = DISCARD_HISTORY_MAX_LEN * DISCARD_HISTORY_TOKEN_DIM
 DEALER_DIM = ACTOR_DIM
 SEAT_WIND_DIM = ACTOR_DIM
 DORA_COUNTS_DIM = EXACT_TILE_DIM
@@ -63,6 +70,9 @@ TURN_STATE_DIM = (
     + RIICHI_FLAG_DIM
     + FURITEN_FLAGS_DIM
     + OWN_MELD_COUNTS_DIM
+    + RIICHI_BY_PLAYER_DIM
+    + RIICHI_TURN_BY_PLAYER_DIM
+    + DISCARD_HISTORY_DIM
     + ROUND_CONTEXT_DIM
 )
 
@@ -90,9 +100,13 @@ def encode_turn_state(state: dict) -> list[float]:
     features.extend(_encode_exact_tile_counter(state.get("hand", {})))
 
     all_discards = state.get("all_discards", [])
-    # Four discard-count blocks, one per player. This is count-based history;
-    # discard order is not encoded yet.
-    for player_discards in all_discards[:4]:
+    player_discards_rows = [
+        list(all_discards[player_index]) if player_index < len(all_discards) else []
+        for player_index in range(4)
+    ]
+    # Four discard-count blocks, one per player. Full river order is encoded
+    # separately below in the discard-history token block.
+    for player_discards in player_discards_rows:
         discard_counts: dict[str, int] = {}
         for tile in player_discards:
             discard_counts[tile] = discard_counts.get(tile, 0) + 1
@@ -108,6 +122,9 @@ def encode_turn_state(state: dict) -> list[float]:
     features.append(1.0 if state.get("temporary_furiten", False) else 0.0)
     features.append(1.0 if state.get("riichi_furiten", False) else 0.0)
     features.extend(_encode_own_meld_counts(state.get("own_melds", [])))
+    features.extend(_encode_riichi_by_player(state))
+    features.extend(_encode_opponent_riichi_turns(state))
+    features.extend(_encode_discard_history(state.get("discard_history", [])))
     features.extend(_encode_actor_onehot(int(state.get("dealer", 0))))
     features.extend(_encode_actor_onehot(int(state.get("seat_wind", 0))))
     features.extend(_encode_dora_counts(state))
@@ -233,6 +250,65 @@ def _encode_own_meld_counts(melds: list[dict]) -> list[float]:
         if kind in counts:
             counts[kind] += 1.0
     return [counts[kind] for kind in kinds]
+
+
+def _encode_riichi_by_player(state: dict) -> list[float]:
+    flags = _normalize_fixed_list(state.get("riichi_declared_by_player"), False)
+    if state.get("riichi_declared_by_player") is None:
+        actor = int(state.get("actor", 0))
+        flags[actor] = bool(state.get("riichi_declared", False))
+    return [1.0 if bool(flag) else 0.0 for flag in flags]
+
+
+def _encode_opponent_riichi_turns(state: dict) -> list[float]:
+    actor = int(state.get("actor", 0))
+    turns = _normalize_fixed_list(state.get("riichi_turn_by_player"), None)
+    encoded: list[float] = []
+    for player_index, turn in enumerate(turns):
+        if player_index == actor or turn is None:
+            encoded.append(0.0)
+            continue
+        encoded.append(min(1.0, float(turn) / 18.0))
+    return encoded
+
+
+def _encode_discard_history(history: list[dict]) -> list[float]:
+    vector = [0.0] * DISCARD_HISTORY_DIM
+    for token_index, item in enumerate(history[:DISCARD_HISTORY_MAX_LEN]):
+        parsed = _discard_history_item(item)
+        if parsed is None:
+            continue
+        actor, tile = parsed
+        tile_index = EXACT_TILE_INDEX.get(tile)
+        if actor < 0 or actor >= ACTOR_DIM or tile_index is None:
+            continue
+        offset = token_index * DISCARD_HISTORY_TOKEN_DIM
+        vector[offset + actor] = 1.0
+        vector[offset + ACTOR_DIM + tile_index] = 1.0
+    return vector
+
+
+def _discard_history_item(item: object) -> tuple[int, str] | None:
+    if isinstance(item, dict):
+        actor = item.get("actor")
+        tile = item.get("tile")
+    elif isinstance(item, (list, tuple)) and len(item) >= 2:
+        actor = item[0]
+        tile = item[1]
+    else:
+        return None
+    if actor is None or tile is None:
+        return None
+    return int(actor), str(tile)
+
+
+def _normalize_fixed_list(value: object, default: object) -> list[object]:
+    if not isinstance(value, (list, tuple)):
+        return [default] * 4
+    rows = list(value[:4])
+    while len(rows) < 4:
+        rows.append(default)
+    return rows
 
 
 def _encode_dora_counts(state: dict) -> list[float]:

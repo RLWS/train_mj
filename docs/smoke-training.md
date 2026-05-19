@@ -69,7 +69,7 @@ RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
 
 这里推荐先单独跑 `validate-events`，确认 `files_failed=0` 后，再在 `build-dataset` 使用 `--skip-validation`，避免同一批事件在构建样本时重复回放校验。`build-dataset` 现在会输出 `elapsed_s`、`games_per_s` 和 `samples_per_s`，可以直接用来判断构建吞吐。
 
-当前 `silver_samples` parquet 会写入离线预编码的 `state_features_bin` 和 `candidate_features_bin`。`turn` 的 discard hand-shape 特征，包括向听数、有效牌数量等 CPU 密集计算，已经从训练期 DataLoader 移到 `build-dataset` 阶段。更新到这个 schema 后，旧的 `data/silver_samples` 需要删除或覆盖后重新生成，并重新执行 `make-manifest`。
+当前 `silver_samples` parquet 会写入离线预编码的 `state_features_bin` 和 `candidate_features_bin`。`turn` 的 discard hand-shape 特征，包括向听数、有效牌数量等 CPU 密集计算，已经从训练期 DataLoader 移到 `build-dataset` 阶段。更新到这个 schema 后，旧的 `data/silver_samples` 需要删除或覆盖后重新生成，并重新执行 `make-manifest`。这次还新增了四家立直状态、对手立直巡目和全局牌河顺序 token，所以旧 checkpoint 也不能直接复用。
 
 执行完成后会得到：
 
@@ -387,7 +387,7 @@ python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_local_smok
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。
 
-注意：turn 候选动作特征已经包含 discard 后向听、有效牌和牌河时序；response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `candidate_features_bin` 的维度会和当前模型不匹配。
+注意：turn 候选动作特征已经包含 discard 后向听、有效牌、牌河时序和按玩家拆开的现物信号；state 特征包含四家立直状态、对手立直巡目和全局牌河顺序 token。response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `state_features_bin` / `candidate_features_bin` 的维度会和当前模型不匹配。
 
 如果你再多走一步，把评估也跑上：
 

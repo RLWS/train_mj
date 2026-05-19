@@ -7,6 +7,7 @@
 #   env TASKS=response docker-compose -f docker-compose.p800.yml up --force-recreate
 #   env TASKS=turn EVAL_SPLIT=valid docker-compose -f docker-compose.p800.yml up --force-recreate
 #   env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 docker-compose -f docker-compose.p800.yml up --force-recreate
+#   env TASKS=multitask RUN_EXTRA_EVAL=1 RUN_CALIBRATION=1 EVAL_SPLIT=test docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
 #   docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
 #   env P800_DATASET_DIR=/other/dataset docker-compose -f docker-compose.p800.yml up --force-recreate
 
@@ -26,9 +27,16 @@ services:
       RUN_MANIFEST: ${RUN_MANIFEST:-0}
       RUN_TRAIN: ${RUN_TRAIN:-0}
       RUN_EVAL: ${RUN_EVAL:-1}
+      RUN_EXTRA_EVAL: ${RUN_EXTRA_EVAL:-0}
+      RUN_CALIBRATION: ${RUN_CALIBRATION:-0}
       SKIP_BUILD_VALIDATION: ${SKIP_BUILD_VALIDATION:-1}
 
       EVAL_SPLIT: ${EVAL_SPLIT:-test}
+      EXTRA_EVAL_SPLITS: ${EXTRA_EVAL_SPLITS:-test}
+      CALIBRATION_SPLITS: ${CALIBRATION_SPLITS:-valid test}
+      CALIBRATION_PASS_BIASES: ${CALIBRATION_PASS_BIASES:-0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00}
+      CALIBRATION_FALSE_CALL_TARGETS: ${CALIBRATION_FALSE_CALL_TARGETS:-1%,0.8%,0.5%}
+      CALIBRATION_LOG_EVERY_N_BATCHES: ${CALIBRATION_LOG_EVERY_N_BATCHES:-100}
       TASKS: ${TASKS:-turn response}
 
       MULTITASK_TRAIN_CONFIG: ${MULTITASK_TRAIN_CONFIG:-configs/multitask_p800.yaml}
@@ -36,10 +44,10 @@ services:
       MULTITASK_TURN_EVAL_REPORT: ${MULTITASK_TURN_EVAL_REPORT:-outputs/reports/multitask_p800_v1_1_turn_test_eval.json}
       MULTITASK_RESPONSE_EVAL_REPORT: ${MULTITASK_RESPONSE_EVAL_REPORT:-outputs/reports/multitask_p800_v1_1_response_test_eval.json}
 
-      TURN_EVAL_CKPT: ${TURN_EVAL_CKPT:-runs/2026-05-10_p800_improved/turn/checkpoints/best.pt}
-      RESPONSE_EVAL_CKPT: ${RESPONSE_EVAL_CKPT:-runs/2026-05-10_p800_improved/response/checkpoints/best.pt}
-      TURN_EVAL_REPORT: ${TURN_EVAL_REPORT:-runs/2026-05-10_p800_improved/turn/eval/turn_p800_test_eval.json}
-      RESPONSE_EVAL_REPORT: ${RESPONSE_EVAL_REPORT:-runs/2026-05-10_p800_improved/response/eval/response_p800_test_eval.json}
+      TURN_EVAL_CKPT: ${TURN_EVAL_CKPT:-outputs/checkpoints/turn_p800/best.pt}
+      RESPONSE_EVAL_CKPT: ${RESPONSE_EVAL_CKPT:-outputs/checkpoints/response_p800/best.pt}
+      TURN_EVAL_REPORT: ${TURN_EVAL_REPORT:-outputs/reports/turn_p800_test_eval.json}
+      RESPONSE_EVAL_REPORT: ${RESPONSE_EVAL_REPORT:-outputs/reports/response_p800_test_eval.json}
     volumes:
       - ./:/workspace/code/train_mj-main
       - ${P800_DATASET_DIR:-/data/app/dataset}:/workspace/dataset:ro

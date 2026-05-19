@@ -16,7 +16,7 @@ TURN_ACTION_KINDS = ("discard", "riichi_discard", "tsumo", "ankan", "kakan", "ky
 TURN_RIVER_RECENT_WINDOW = 6
 TURN_RIVER_EARLY_WINDOW = 6
 TURN_RIVER_TURN_SCALE = 18.0
-TURN_DISCARD_FEATURE_DIM = 41
+TURN_DISCARD_FEATURE_DIM = 45
 TURN_ACTION_DIM = len(TURN_ACTION_KINDS) + len(EXACT_TILE_VOCAB) + TURN_DISCARD_FEATURE_DIM
 RESPONSE_ACTION_KINDS = ("pass", "chi", "pon", "daiminkan", "ron", "chankan", "unknown")
 RESPONSE_CALL_FEATURE_DIM = 43
@@ -1009,6 +1009,7 @@ def _discard_timing_context(state: dict) -> dict[str, object]:
     own_summary = _combined_discard_timing_summary([player_discards[actor]])
     relative_players = [((actor + offset) % 4) for offset in (1, 2, 3)]
     return {
+        "actor": actor,
         "own": own_summary,
         "other": other_summary,
         "per_player": per_player,
@@ -1117,6 +1118,13 @@ def _fill_discard_timing_features(
         player_tile = per_player.get(player_index, {}).get(base_index, {})
         features[35 + offset] = 1.0 if int(player_tile.get("count", 0)) > 0 else 0.0
         features[38 + offset] = 1.0 if int(player_tile.get("recent_count", 0)) > 0 else 0.0
+
+    actor = int(timing_context["actor"])
+    for player_index in range(4):
+        if player_index == actor:
+            continue
+        player_tile = per_player.get(player_index, {}).get(base_index, {})
+        features[41 + player_index] = 1.0 if int(player_tile.get("count", 0)) > 0 else 0.0
 
 
 def _scaled_summary_count(summary: dict, key: str, denominator: float) -> float:

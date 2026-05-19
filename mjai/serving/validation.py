@@ -62,6 +62,22 @@ def validate_and_normalize_state(task: str, state: Mapping[str, Any] | None) -> 
     normalized["riichi_declared"] = bool(normalized.get("riichi_declared", False))
     normalized["temporary_furiten"] = bool(normalized.get("temporary_furiten", False))
     normalized["riichi_furiten"] = bool(normalized.get("riichi_furiten", False))
+    if "riichi_declared_by_player" in normalized:
+        normalized["riichi_declared_by_player"] = _normalize_bool_list(
+            normalized.get("riichi_declared_by_player"),
+            "riichi_declared_by_player",
+        )
+    else:
+        normalized["riichi_declared_by_player"] = [False] * 4
+        normalized["riichi_declared_by_player"][int(normalized["actor"])] = normalized["riichi_declared"]
+    normalized["riichi_turn_by_player"] = _normalize_optional_int_list(
+        normalized.get("riichi_turn_by_player"),
+        "riichi_turn_by_player",
+    )
+    normalized["discard_history"] = _normalize_discard_history(
+        normalized.get("discard_history"),
+        "discard_history",
+    )
 
     last_discard_actor = normalized.get("last_discard_actor")
     normalized["last_discard_actor"] = (
@@ -193,6 +209,49 @@ def _normalize_player_melds(value: Any, field_name: str) -> list[list[dict[str, 
     for index, row in enumerate(rows[:4]):
         normalized_rows.append(_normalize_meld_list(row, f"{field_name}[{index}]"))
     return normalized_rows
+
+
+def _normalize_bool_list(value: Any, field_name: str) -> list[bool]:
+    if value is None:
+        return [False] * 4
+    if not isinstance(value, (list, tuple)):
+        raise RequestValidationError(f"{field_name} must be a list")
+    rows = list(value[:4])
+    while len(rows) < 4:
+        rows.append(False)
+    return [bool(item) for item in rows]
+
+
+def _normalize_optional_int_list(value: Any, field_name: str) -> list[int | None]:
+    if value is None:
+        return [None] * 4
+    if not isinstance(value, (list, tuple)):
+        raise RequestValidationError(f"{field_name} must be a list")
+    rows = list(value[:4])
+    while len(rows) < 4:
+        rows.append(None)
+    normalized: list[int | None] = []
+    for item in rows:
+        if item is None:
+            normalized.append(None)
+        else:
+            normalized.append(_normalize_int(item, field_name))
+    return normalized
+
+
+def _normalize_discard_history(value: Any, field_name: str) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise RequestValidationError(f"{field_name} must be a list")
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise RequestValidationError(f"{field_name}[{index}] must be an object")
+        actor = _normalize_seat(item.get("actor"), f"{field_name}[{index}].actor")
+        tile = _normalize_tile(item.get("tile"), f"{field_name}[{index}].tile")
+        normalized.append({"actor": actor, "tile": tile})
+    return normalized
 
 
 def _normalize_action(action: dict[str, Any], *, index: int, task: str | None) -> dict[str, Any]:

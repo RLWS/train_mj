@@ -85,6 +85,19 @@ def test_riichi_pending_becomes_declared_on_step_two():
     state.apply_reach(actor=0, step=2)
     assert state.riichi_pending[0] is False
     assert state.riichi_declared[0] is True
+    assert state.riichi_turns[0] == 0
+
+
+def test_riichi_turn_uses_player_discard_count_at_confirmation():
+    state = GameState(
+        hands=[HandState.from_tiles(["1m", "2m"]), HandState(), HandState(), HandState()]
+    )
+
+    state.apply_discard(actor=0, tile="1m")
+    state.apply_reach(actor=0, step=1)
+    state.apply_reach(actor=0, step=2)
+
+    assert state.riichi_turns[0] == 1
 
 
 def test_can_declare_riichi_is_blocked_while_pending():
@@ -124,6 +137,23 @@ def test_discard_records_furiten_base_tile():
     state.apply_discard(actor=0, tile="5z")
 
     assert state.is_furiten(0, "5z") is True
+
+
+def test_discard_history_records_global_order():
+    state = GameState(
+        hands=[
+            HandState.from_tiles(["1m"]),
+            HandState.from_tiles(["2m"]),
+            HandState.from_tiles(["3m"]),
+            HandState(),
+        ]
+    )
+
+    state.apply_discard(actor=1, tile="2m")
+    state.apply_discard(actor=0, tile="1m")
+    state.apply_discard(actor=2, tile="3m")
+
+    assert state.discard_history == [(1, "2m"), (0, "1m"), (2, "3m")]
 
 
 def test_draw_clears_temporary_furiten_only():

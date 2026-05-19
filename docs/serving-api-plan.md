@@ -195,14 +195,14 @@ conservative: pass_bias = 0.4
       "checkpoint": "outputs/checkpoints/turn_local_smoke/best.pt",
       "checkpoint_task": "turn",
       "device": "cuda",
-      "state_dim": 293,
-      "action_dim": 85
+      "state_dim": 8173,
+      "action_dim": 89
     },
     "response": {
       "checkpoint": "outputs/checkpoints/response_local_smoke/best.pt",
       "checkpoint_task": "response",
       "device": "cuda",
-      "state_dim": 336,
+      "state_dim": 8216,
       "action_dim": 91,
       "default_pass_bias": 0.3
     }

@@ -1,6 +1,6 @@
 # 模型输入特征说明
 
-更新时间：`2026-05-09`
+更新时间：`2026-05-19`
 
 本文记录当前 `turn` / `response` policy 模型实际吃到的输入张量、维度和每个维度的语义。这里描述的是 `build-dataset` 写入 `silver_samples` 后，训练和评估阶段从 parquet 读取的离线预编码特征。
 
@@ -10,8 +10,8 @@
 
 | 任务 | `state_feats` | `candidate_feats` | `candidate_mask` | `labels` |
 |---|---:|---:|---:|---:|
-| `turn` | `[B, 293]` | `[B, C, 85]` | `[B, C]` | `[B]` |
-| `response` | `[B, 336]` | `[B, C, 91]` | `[B, C]` | `[B]` |
+| `turn` | `[B, 8173]` | `[B, C, 89]` | `[B, C]` | `[B]` |
+| `response` | `[B, 8216]` | `[B, C, 91]` | `[B, C]` | `[B]` |
 
 含义：
 
@@ -55,9 +55,9 @@ TurnSample/ResponseSample
 - 4 维 actor one-hot：`actor 0, 1, 2, 3`。
 - 5 维 optional actor one-hot：`actor 0, 1, 2, 3, missing`。
 
-## 3. `turn` state，293 维
+## 3. `turn` state，8173 维
 
-`TURN_STATE_DIM = 293`。
+`TURN_STATE_DIM = 8173`。
 
 | 范围 | 维度 | 语义 |
 |---:|---:|---|
@@ -70,36 +70,39 @@ TurnSample/ResponseSample
 | `233` | 1 | temporary furiten |
 | `234` | 1 | riichi furiten |
 | `235..239` | 5 | 自家副露计数，顺序为 `chi, pon, daiminkan, ankan, kakan` |
-| `240..243` | 4 | 庄家 actor one-hot |
-| `244..247` | 4 | 自风 actor one-hot |
-| `248..284` | 37 | dora base tile counts，按 exact tile order 的普通牌面槽位记录 |
-| `285..288` | 4 | 四家点数，`score / 1000.0` |
-| `289` | 1 | 巡目，`turn_number / 18`，截断到 `1.0` |
-| `290` | 1 | 估计剩余摸牌数，`remaining_draws_estimate / 18`，截断到 `1.0` |
-| `291` | 1 | 本场数，`honba / 8`，截断到 `1.0` |
-| `292` | 1 | 立直棒数，`riichi_sticks / 8`，截断到 `1.0` |
+| `240..243` | 4 | 四家立直状态，按 actor `0,1,2,3` 排列 |
+| `244..247` | 4 | 对手立直巡目，按 actor `0,1,2,3` 排列；当前玩家和未立直为 `0`，其他玩家为 `riichi_turn / 18` |
+| `248..8119` | 7872 | 全局牌河顺序 token，最多 192 个弃牌事件；每个 token 为 `actor one-hot(4) + exact tile one-hot(37)`，不足部分为 0 |
+| `8120..8123` | 4 | 庄家 actor one-hot |
+| `8124..8127` | 4 | 自风 actor one-hot |
+| `8128..8164` | 37 | dora base tile counts，按 exact tile order 的普通牌面槽位记录 |
+| `8165..8168` | 4 | 四家点数，`score / 1000.0` |
+| `8169` | 1 | 巡目，`turn_number / 18`，截断到 `1.0` |
+| `8170` | 1 | 估计剩余摸牌数，`remaining_draws_estimate / 18`，截断到 `1.0` |
+| `8171` | 1 | 本场数，`honba / 8`，截断到 `1.0` |
+| `8172` | 1 | 立直棒数，`riichi_sticks / 8`，截断到 `1.0` |
 
-## 4. `response` state，336 维
+## 4. `response` state，8216 维
 
-`RESPONSE_STATE_DIM = TURN_STATE_DIM + 43 = 336`。
+`RESPONSE_STATE_DIM = TURN_STATE_DIM + 43 = 8216`。
 
-前 `0..292` 与 `turn` state 完全相同，后面追加响应窗口的目标牌信息：
+前 `0..8172` 与 `turn` state 完全相同，后面追加响应窗口的目标牌信息：
 
 | 范围 | 维度 | 语义 |
 |---:|---:|---|
-| `0..292` | 293 | 完整 `turn` state |
-| `293..297` | 5 | `response_target.source`，optional actor |
-| `298..335` | 38 | `response_target.tile`，optional tile |
+| `0..8172` | 8173 | 完整 `turn` state |
+| `8173..8177` | 5 | `response_target.source`，optional actor |
+| `8178..8215` | 38 | `response_target.tile`，optional tile |
 
-## 5. `turn` candidate action，85 维
+## 5. `turn` candidate action，89 维
 
-`TURN_ACTION_DIM = 85`。
+`TURN_ACTION_DIM = 89`。
 
 | 范围 | 维度 | 语义 |
 |---:|---:|---|
 | `0..6` | 7 | 动作类型 one-hot |
 | `7..43` | 37 | `action.tile` exact tile one-hot |
-| `44..84` | 41 | discard-like 候选特征 |
+| `44..88` | 45 | discard-like 候选特征 |
 
 动作类型顺序：
 
@@ -107,9 +110,9 @@ TurnSample/ResponseSample
 discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 ```
 
-对于 `tsumo / ankan / kakan / kyuushu_kyuuhai` 等非弃牌候选，只有动作类型和可选 tile one-hot 有效，后 41 维 discard-like 特征为 0。
+对于 `tsumo / ankan / kakan / kyuushu_kyuuhai` 等非弃牌候选，只有动作类型和可选 tile one-hot 有效，后 45 维 discard-like 特征为 0。
 
-### 5.1 turn discard-like 特征，41 维
+### 5.1 turn discard-like 特征，45 维
 
 以下索引是相对于 discard-like block 的局部索引；全局维度为 `44 + index`。
 
@@ -156,6 +159,10 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 | `38` | 是否为下家最近 6 巡现物 |
 | `39` | 是否为对面最近 6 巡现物 |
 | `40` | 是否为上家最近 6 巡现物 |
+| `41` | 是否为 actor 0 的现物；当前玩家自己固定为 `0` |
+| `42` | 是否为 actor 1 的现物；当前玩家自己固定为 `0` |
+| `43` | 是否为 actor 2 的现物；当前玩家自己固定为 `0` |
+| `44` | 是否为 actor 3 的现物；当前玩家自己固定为 `0` |
 
 ## 6. `response` candidate action，91 维
 
@@ -261,4 +268,4 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 
 2026-05-09 起，`response` 的 `candidate_features` 从 `77` 维增加到 `91` 维。
 
-2026-05-09 起，`turn` 的 `candidate_features` 从 `69` 维增加到 `85` 维，新增 discard 候选的牌河时序特征。已有 `data/silver_samples` 和 manifest 不再适用于当前代码，下一轮 turn/response 训练前必须重建。
+2026-05-19 起，`turn` 的 `candidate_features` 从 `85` 维增加到 `89` 维，新增按绝对座位拆开的现物特征。`turn` / `response` 的 `state_features` 也同步加入四家立直状态、对手立直巡目和最多 192 个全局牌河顺序 token。已有 `data/silver_samples`、manifest 和旧 checkpoint 不再适用于当前代码，下一轮训练前必须重建数据并重训。

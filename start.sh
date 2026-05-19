@@ -10,6 +10,7 @@ set -Eeuo pipefail
 #   TASKS=multitask ./start.sh
 #   RUN_VALIDATE=0 ./start.sh
 #   RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+#   TASKS=multitask RUN_EXTRA_EVAL=1 RUN_CALIBRATION=1 EVAL_SPLIT=test ./start.sh
 #   RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,6 +45,26 @@ require_dir() {
   fi
 }
 
+require_file() {
+  local path="$1"
+  local label="$2"
+  if [ ! -f "$path" ]; then
+    echo "missing $label file: $path" >&2
+    exit 1
+  fi
+}
+
+contains_task() {
+  local wanted="$1"
+  local task
+  for task in $TASKS; do
+    if [ "$task" = "$wanted" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 # RAW_XML_DIR is usually the mounted dataset path on the training machine.
@@ -71,16 +92,32 @@ RUN_BUILD_DATASET="${RUN_BUILD_DATASET:-1}"
 RUN_MANIFEST="${RUN_MANIFEST:-1}"
 RUN_TRAIN="${RUN_TRAIN:-1}"
 RUN_EVAL="${RUN_EVAL:-1}"
+RUN_EXTRA_EVAL="${RUN_EXTRA_EVAL:-0}"
+RUN_CALIBRATION="${RUN_CALIBRATION:-0}"
 SKIP_BUILD_VALIDATION="${SKIP_BUILD_VALIDATION:-0}"
 
 EVAL_SPLIT="${EVAL_SPLIT:-valid}"
 TURN_EVAL_CKPT="${TURN_EVAL_CKPT:-outputs/checkpoints/turn_p800/best.pt}"
 RESPONSE_EVAL_CKPT="${RESPONSE_EVAL_CKPT:-outputs/checkpoints/response_p800/best.pt}"
 MULTITASK_EVAL_CKPT="${MULTITASK_EVAL_CKPT:-outputs/checkpoints/multitask_p800_v1_1/best.pt}"
+RESPONSE_CHECKPOINT_DIR="${RESPONSE_CHECKPOINT_DIR:-$(dirname "$RESPONSE_EVAL_CKPT")}"
+MULTITASK_CHECKPOINT_DIR="${MULTITASK_CHECKPOINT_DIR:-$(dirname "$MULTITASK_EVAL_CKPT")}"
+RESPONSE_REPORT_PREFIX="${RESPONSE_REPORT_PREFIX:-$(basename "$RESPONSE_CHECKPOINT_DIR")}"
+MULTITASK_REPORT_PREFIX="${MULTITASK_REPORT_PREFIX:-$(basename "$MULTITASK_CHECKPOINT_DIR")}"
+RESPONSE_BEST_CKPT="${RESPONSE_BEST_CKPT:-$RESPONSE_CHECKPOINT_DIR/best.pt}"
+RESPONSE_BEST_RESPONSE_CKPT="${RESPONSE_BEST_RESPONSE_CKPT:-$RESPONSE_CHECKPOINT_DIR/best_response.pt}"
+MULTITASK_BEST_CKPT="${MULTITASK_BEST_CKPT:-$MULTITASK_CHECKPOINT_DIR/best.pt}"
+MULTITASK_BEST_TURN_CKPT="${MULTITASK_BEST_TURN_CKPT:-$MULTITASK_CHECKPOINT_DIR/best_turn.pt}"
+MULTITASK_BEST_RESPONSE_CKPT="${MULTITASK_BEST_RESPONSE_CKPT:-$MULTITASK_CHECKPOINT_DIR/best_response.pt}"
 TURN_EVAL_REPORT="${TURN_EVAL_REPORT:-$REPORT_DIR/turn_p800_${EVAL_SPLIT}_eval.json}"
 RESPONSE_EVAL_REPORT="${RESPONSE_EVAL_REPORT:-$REPORT_DIR/response_p800_${EVAL_SPLIT}_eval.json}"
-MULTITASK_TURN_EVAL_REPORT="${MULTITASK_TURN_EVAL_REPORT:-$REPORT_DIR/multitask_p800_v1_1_turn_${EVAL_SPLIT}_eval.json}"
-MULTITASK_RESPONSE_EVAL_REPORT="${MULTITASK_RESPONSE_EVAL_REPORT:-$REPORT_DIR/multitask_p800_v1_1_response_${EVAL_SPLIT}_eval.json}"
+MULTITASK_TURN_EVAL_REPORT="${MULTITASK_TURN_EVAL_REPORT:-$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_turn_${EVAL_SPLIT}_eval.json}"
+MULTITASK_RESPONSE_EVAL_REPORT="${MULTITASK_RESPONSE_EVAL_REPORT:-$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_response_${EVAL_SPLIT}_eval.json}"
+EXTRA_EVAL_SPLITS="${EXTRA_EVAL_SPLITS:-$EVAL_SPLIT}"
+CALIBRATION_SPLITS="${CALIBRATION_SPLITS:-valid test}"
+CALIBRATION_PASS_BIASES="${CALIBRATION_PASS_BIASES:-0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00}"
+CALIBRATION_FALSE_CALL_TARGETS="${CALIBRATION_FALSE_CALL_TARGETS:-1%,0.8%,0.5%}"
+CALIBRATION_LOG_EVERY_N_BATCHES="${CALIBRATION_LOG_EVERY_N_BATCHES:-100}"
 
 train_config_for_task() {
   case "$1" in
@@ -136,6 +173,45 @@ eval_report_for_task() {
   esac
 }
 
+run_eval_report() {
+  local ckpt="$1"
+  local split="$2"
+  local report="$3"
+  local task_arg="${4:-}"
+  require_file "$ckpt" "eval checkpoint"
+  mkdir -p "$(dirname "$report")"
+  if [ -n "$task_arg" ]; then
+    run "$PYTHON_BIN" -m mjai.cli eval \
+      --ckpt "$ckpt" \
+      --task "$task_arg" \
+      --split "$split" \
+      --report "$report"
+  else
+    run "$PYTHON_BIN" -m mjai.cli eval \
+      --ckpt "$ckpt" \
+      --split "$split" \
+      --report "$report"
+  fi
+}
+
+run_response_calibration() {
+  local ckpt="$1"
+  local split="$2"
+  local report="$3"
+  local manifest="$MANIFEST_DIR/$split.jsonl"
+  require_file "$ckpt" "calibration checkpoint"
+  require_file "$manifest" "$split manifest"
+  mkdir -p "$(dirname "$report")"
+  run "$PYTHON_BIN" -m mjai.cli calibrate-response \
+    --ckpt "$ckpt" \
+    --split "$split" \
+    --manifest "$manifest" \
+    --report "$report" \
+    --pass-biases "$CALIBRATION_PASS_BIASES" \
+    --false-call-targets "$CALIBRATION_FALSE_CALL_TARGETS" \
+    --log-every-n-batches "$CALIBRATION_LOG_EVERY_N_BATCHES"
+}
+
 mkdir -p "$BRONZE_EVENTS_DIR" "$SAMPLES_DIR" "$MANIFEST_DIR" "$REPORT_DIR" outputs/checkpoints outputs/logs
 
 log "pipeline settings"
@@ -148,6 +224,11 @@ printf '  TASKS=%s\n' "$TASKS"
 printf '  RUN_VALIDATE=%s\n' "$RUN_VALIDATE"
 printf '  RUN_TRAIN=%s\n' "$RUN_TRAIN"
 printf '  RUN_EVAL=%s\n' "$RUN_EVAL"
+printf '  RUN_EXTRA_EVAL=%s\n' "$RUN_EXTRA_EVAL"
+printf '  RUN_CALIBRATION=%s\n' "$RUN_CALIBRATION"
+printf '  EVAL_SPLIT=%s\n' "$EVAL_SPLIT"
+printf '  EXTRA_EVAL_SPLITS=%s\n' "$EXTRA_EVAL_SPLITS"
+printf '  CALIBRATION_SPLITS=%s\n' "$CALIBRATION_SPLITS"
 
 if [ "$RUN_PREPROCESS" = "1" ]; then
   require_dir "$RAW_XML_DIR" "raw XML"
@@ -210,33 +291,72 @@ fi
 if [ "$RUN_EVAL" = "1" ]; then
   for task in $TASKS; do
     ckpt="$(eval_ckpt_for_task "$task")"
-    if [ ! -f "$ckpt" ]; then
-      echo "missing $task eval checkpoint: $ckpt" >&2
-      exit 1
-    fi
     if [ "$task" = "multitask" ]; then
-      mkdir -p "$(dirname "$MULTITASK_TURN_EVAL_REPORT")" "$(dirname "$MULTITASK_RESPONSE_EVAL_REPORT")"
-      run "$PYTHON_BIN" -m mjai.cli eval \
-        --ckpt "$ckpt" \
-        --task turn \
-        --split "$EVAL_SPLIT" \
-        --report "$MULTITASK_TURN_EVAL_REPORT"
-      run "$PYTHON_BIN" -m mjai.cli eval \
-        --ckpt "$ckpt" \
-        --task response \
-        --split "$EVAL_SPLIT" \
-        --report "$MULTITASK_RESPONSE_EVAL_REPORT"
+      run_eval_report "$ckpt" "$EVAL_SPLIT" "$MULTITASK_TURN_EVAL_REPORT" turn
+      run_eval_report "$ckpt" "$EVAL_SPLIT" "$MULTITASK_RESPONSE_EVAL_REPORT" response
     else
       report="$(eval_report_for_task "$task")"
-      mkdir -p "$(dirname "$report")"
-      run "$PYTHON_BIN" -m mjai.cli eval \
-        --ckpt "$ckpt" \
-        --split "$EVAL_SPLIT" \
-        --report "$report"
+      run_eval_report "$ckpt" "$EVAL_SPLIT" "$report"
     fi
   done
 else
   log "skip eval"
+fi
+
+if [ "$RUN_EXTRA_EVAL" = "1" ]; then
+  if contains_task response; then
+    for split in $EXTRA_EVAL_SPLITS; do
+      run_eval_report \
+        "$RESPONSE_BEST_RESPONSE_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_response_${split}_eval.json"
+    done
+  fi
+  if contains_task multitask; then
+    for split in $EXTRA_EVAL_SPLITS; do
+      run_eval_report \
+        "$MULTITASK_BEST_TURN_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_turn_${split}_eval.json" \
+        turn
+      run_eval_report \
+        "$MULTITASK_BEST_RESPONSE_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_response_${split}_eval.json" \
+        response
+    done
+  fi
+else
+  log "skip extra eval"
+fi
+
+if [ "$RUN_CALIBRATION" = "1" ]; then
+  if contains_task response; then
+    for split in $CALIBRATION_SPLITS; do
+      run_response_calibration \
+        "$RESPONSE_BEST_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_calibration_${split}.json"
+      run_response_calibration \
+        "$RESPONSE_BEST_RESPONSE_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_response_calibration_${split}.json"
+    done
+  fi
+  if contains_task multitask; then
+    for split in $CALIBRATION_SPLITS; do
+      run_response_calibration \
+        "$MULTITASK_BEST_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_calibration_${split}.json"
+      run_response_calibration \
+        "$MULTITASK_BEST_RESPONSE_CKPT" \
+        "$split" \
+        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_response_calibration_${split}.json"
+    done
+  fi
+else
+  log "skip calibration"
 fi
 
 log "pipeline finished"
