@@ -66,6 +66,7 @@ contains_task() {
 }
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
+DDP_NPROC_PER_NODE="${DDP_NPROC_PER_NODE:-}"
 
 # RAW_XML_DIR is usually the mounted dataset path on the training machine.
 # Generated data, reports, checkpoints, and logs stay under the repository by default.
@@ -212,6 +213,40 @@ run_response_calibration() {
     --log-every-n-batches "$CALIBRATION_LOG_EVERY_N_BATCHES"
 }
 
+config_requests_ddp() {
+  local config="$1"
+  local value
+  value="$("$PYTHON_BIN" -c 'from mjai.utils.config import load_resolved_yaml; import sys; print(str(bool(load_resolved_yaml(sys.argv[1]).get("train", {}).get("distributed", False))).lower())' "$config")"
+  [ "$value" = "true" ]
+}
+
+default_ddp_nproc() {
+  if [ -n "$DDP_NPROC_PER_NODE" ]; then
+    printf '%s\n' "$DDP_NPROC_PER_NODE"
+    return
+  fi
+  "$PYTHON_BIN" -c 'import torch; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)'
+}
+
+run_train_config() {
+  local config="$1"
+  if config_requests_ddp "$config"; then
+    local nproc
+    nproc="$(default_ddp_nproc)"
+    if [ "$nproc" -le 1 ]; then
+      echo "config requests DDP but DDP_NPROC_PER_NODE/default CUDA device count is not > 1: $config" >&2
+      exit 1
+    fi
+    run "$PYTHON_BIN" -m torch.distributed.run \
+      --standalone \
+      "--nproc_per_node=$nproc" \
+      -m mjai.cli train \
+      --config "$config"
+  else
+    run "$PYTHON_BIN" -m mjai.cli train --config "$config"
+  fi
+}
+
 mkdir -p "$BRONZE_EVENTS_DIR" "$SAMPLES_DIR" "$MANIFEST_DIR" "$REPORT_DIR" outputs/checkpoints outputs/logs
 
 log "pipeline settings"
@@ -221,6 +256,7 @@ printf '  SAMPLES_DIR=%s\n' "$SAMPLES_DIR"
 printf '  MANIFEST_DIR=%s\n' "$MANIFEST_DIR"
 printf '  WORKERS=%s\n' "$WORKERS"
 printf '  TASKS=%s\n' "$TASKS"
+printf '  DDP_NPROC_PER_NODE=%s\n' "${DDP_NPROC_PER_NODE:-auto}"
 printf '  RUN_VALIDATE=%s\n' "$RUN_VALIDATE"
 printf '  RUN_TRAIN=%s\n' "$RUN_TRAIN"
 printf '  RUN_EVAL=%s\n' "$RUN_EVAL"
@@ -282,7 +318,7 @@ if [ "$RUN_TRAIN" = "1" ]; then
       echo "missing $task train config: $config" >&2
       exit 1
     fi
-    run "$PYTHON_BIN" -m mjai.cli train --config "$config"
+    run_train_config "$config"
   done
 else
   log "skip train"

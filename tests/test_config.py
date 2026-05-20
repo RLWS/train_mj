@@ -69,4 +69,6 @@ def test_load_resolved_multitask_experiment_config():
     assert config["task"]["task"] == "multitask"
     assert config["task"]["schedule"] == "batch_interleave"
     assert config["task"]["interleave_batches"] == {"turn": 10150, "response": 1420}
+    assert config["train"]["distributed"] is True
+    assert config["train"]["find_unused_parameters"] is True
     assert config["output_dir"] == "outputs/checkpoints/multitask_p800_v1_2_interleave"

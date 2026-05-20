@@ -304,16 +304,32 @@ save_every_n_steps: 200
 `configs/train/p800_ddp.yaml`
 
 ```yaml
-device: xpu
+device: cuda
 precision: bf16
 batch_size: 256
 num_workers: 16
 epochs: 3
-grad_accum_steps: 2
+grad_accum_steps: 1
 distributed: true
-backend: nccl_or_vendor_backend
+backend: vendor
 find_unused_parameters: false
 ```
+
+`train.distributed: true` 现在已经接入 PyTorch DDP。启动时必须使用
+`torchrun` / `python -m torch.distributed.run`，否则训练入口会直接报错，避免多
+进程未切分数据却重复训练。`backend: vendor` 会按设备选择后端：CUDA 用
+`nccl`，XPU 用 `ccl`，CPU 用 `gloo`。
+
+```bash
+python -m torch.distributed.run --standalone --nproc_per_node=4 -m mjai.cli train --config configs/experiments/multitask_p800_v1_2_interleave.yaml
+```
+
+多任务 DDP 需要 `find_unused_parameters: true`，因为 `turn` / `response`
+每个 batch 只走其中一条任务分支。训练集 streaming dataset 会按
+`rank * dataloader_workers + worker_id` 切分 parquet shard；验证、checkpoint
+和指标文件只由 rank 0 执行与写盘。`start.sh` 会在配置里检测到
+`distributed: true` 时自动切换到 `torch.distributed.run`，可用
+`DDP_NPROC_PER_NODE` 显式指定本机进程数。
 
 ## 4.2 配置原则
 

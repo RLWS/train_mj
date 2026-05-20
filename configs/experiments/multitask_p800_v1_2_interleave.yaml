@@ -51,7 +51,9 @@ train:
   valid_num_workers: 4
   epochs: 10
   grad_accum_steps: 1
-  distributed: false
+  distributed: true
+  backend: vendor
+  find_unused_parameters: true
   log_every_n_steps: 500
   val_every_n_steps: 500
   save_every_n_steps: 1000

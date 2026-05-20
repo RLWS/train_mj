@@ -204,6 +204,8 @@ def _run_train(args: argparse.Namespace) -> int:
     """
     config = load_resolved_yaml(args.config)
     summary = train_turn_model(config)
+    if _distributed_rank_from_env() != 0:
+        return 0
     print(
         f"trained task={summary.task} epochs={summary.epochs} "
         f"train_loss={summary.train_loss:.4f} train_accuracy={summary.train_accuracy:.4f} "
@@ -230,6 +232,13 @@ def _run_train(args: argparse.Namespace) -> int:
     print(f"best_macro_checkpoint={summary.best_macro_checkpoint}")
     print(f"final_checkpoint={summary.final_checkpoint}")
     return 0
+
+
+def _distributed_rank_from_env() -> int:
+    try:
+        return int(os.environ.get("RANK", "0"))
+    except ValueError:
+        return 0
 
 
 def _run_eval(args: argparse.Namespace) -> int:

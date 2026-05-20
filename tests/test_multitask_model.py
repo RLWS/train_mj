@@ -34,8 +34,12 @@ def test_multitask_policy_net_forward_shapes():
 
     turn_logits = model.forward_turn(turn_batch)
     response_logits = model.forward_response(response_batch)
+    dispatched_turn_logits = model(turn_batch, task_name="turn")
+    dispatched_response_logits = model(response_batch, task_name="response")
 
     assert turn_logits.shape == (2, 4)
     assert response_logits.shape == (3, 5)
+    assert dispatched_turn_logits.shape == (2, 4)
+    assert dispatched_response_logits.shape == (3, 5)
     assert turn_logits[0, 3].item() == -1e9
     assert response_logits[2, 1].item() == -1e9

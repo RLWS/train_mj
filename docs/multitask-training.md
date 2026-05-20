@@ -80,6 +80,27 @@ v1.2 interleave 只作为显式实验配置保留，不再放在主配置入口�
 configs/experiments/multitask_p800_v1_2_interleave.yaml
 ```
 
+该 v1.2 复现实验配置现在默认启用 DDP：
+
+```yaml
+train:
+  distributed: true
+  backend: vendor
+  find_unused_parameters: true
+```
+
+`find_unused_parameters` 必须打开，因为 batch-interleave 每个 batch 只会经过
+`turn` 或 `response` 的一条分支。手动启动时使用：
+
+```bash
+python -m torch.distributed.run --standalone --nproc_per_node=4 -m mjai.cli train --config configs/experiments/multitask_p800_v1_2_interleave.yaml
+```
+
+如果通过 `start.sh` 或 docker compose 复现，配置文件中检测到
+`distributed: true` 后会自动走 `torch.distributed.run`；多卡数量可用
+`DDP_NPROC_PER_NODE` 覆盖。训练数据 streaming loader 会按 rank 切分 shard，
+valid/eval 和 checkpoint 仍只在 rank 0 上执行。
+
 在 P800/Linux 训练机上，从仓库根目录直接运行：
 
 ```bash

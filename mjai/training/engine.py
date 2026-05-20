@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-from contextlib import nullcontext
 
 import torch
+import torch.distributed as dist
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.parallel import DistributedDataParallel
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, IterableDataset
 
@@ -121,6 +124,20 @@ class TrainSummary:
     used_device: str
 
 
+@dataclass(slots=True, frozen=True)
+class DistributedContext:
+    enabled: bool
+    rank: int
+    local_rank: int
+    world_size: int
+    backend: str | None
+    device: torch.device
+
+    @property
+    def is_main(self) -> bool:
+        return self.rank == 0
+
+
 def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     """训练自摸巡或响应候选排序策略模型。
     
@@ -140,40 +157,43 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         raise ValueError(
             f"minimal training path currently supports only task=turn/response/multitask, got: {task_name}"
         )
+    train_config = config.get("train", {})
+    distributed_context = _initialize_distributed_context(train_config)
     seed_everything(int(config.get("seed", 20260423)))
 
     output_dir = ensure_dir(config.get("output_dir", "outputs/checkpoints/turn_smoke"))
     log_dir = ensure_dir(config.get("log_dir", "outputs/logs/turn_smoke"))
-    dump_yaml(output_dir / "config.resolved.yaml", config)
-    print(
-        "[train] preparing datasets "
-        f"task={task_name} "
-        f"train_manifest={config['data']['train_manifest']} "
-        f"valid_manifest={config.get('data', {}).get('valid_manifest')}",
-        flush=True,
-    )
+    if distributed_context.is_main:
+        dump_yaml(output_dir / "config.resolved.yaml", config)
+        print(
+            "[train] preparing datasets "
+            f"task={task_name} "
+            f"train_manifest={config['data']['train_manifest']} "
+            f"valid_manifest={config.get('data', {}).get('valid_manifest')}",
+            flush=True,
+        )
 
     train_dataset = _build_dataset(
         task_name,
         config["data"]["train_manifest"],
-        train_config=config.get("train", {}),
+        train_config=train_config,
         split="train",
+        distributed_context=distributed_context,
     )
     valid_manifest = config.get("data", {}).get("valid_manifest")
     valid_dataset = (
         _build_dataset(
             task_name,
             valid_manifest,
-            train_config=config.get("train", {}),
+            train_config=train_config,
             split="valid",
         )
-        if valid_manifest and Path(valid_manifest).exists()
+        if distributed_context.is_main and valid_manifest and Path(valid_manifest).exists()
         else None
     )
     candidate_limit = int(config.get("data", {}).get("candidate_limit", 64))
     collate_fn = _build_collate_fn(task_name, candidate_limit)
-    train_config = config.get("train", {})
-    device = _resolve_training_device(train_config.get("device"))
+    device = distributed_context.device
     precision_config = _resolve_precision_config(train_config, device)
     _configure_matmul_precision(train_config, device)
     train_num_workers = int(train_config.get("num_workers", 0))
@@ -207,6 +227,7 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
         hidden_size=int(config.get("model", {}).get("hidden_size", 128)),
         dropout=float(config.get("model", {}).get("dropout", 0.1)),
     ).to(device)
+    model = _wrap_distributed_model(model, distributed_context, train_config, task_name=task_name)
     optimizer = AdamW(
         model.parameters(),
         lr=float(config.get("train", {}).get("lr", 1e-3)),
@@ -216,25 +237,27 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
     log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
 
     epochs = int(config.get("train", {}).get("epochs", 1))
-    _print_training_start(
-        task_name=task_name,
-        device=device,
-        output_dir=output_dir,
-        log_dir=log_dir,
-        train_dataset=train_dataset,
-        valid_dataset=valid_dataset,
-        train_loader=train_loader,
-        valid_loader=valid_loader,
-        train_config=train_config,
-        model_config=config.get("model", {}),
-        candidate_limit=candidate_limit,
-        pin_memory=pin_memory,
-        train_num_workers=train_num_workers,
-        valid_num_workers=valid_num_workers,
-        log_every_n_steps=log_every_n_steps,
-        epochs=epochs,
-        precision_config=precision_config,
-    )
+    if distributed_context.is_main:
+        _print_training_start(
+            task_name=task_name,
+            device=device,
+            output_dir=output_dir,
+            log_dir=log_dir,
+            train_dataset=train_dataset,
+            valid_dataset=valid_dataset,
+            train_loader=train_loader,
+            valid_loader=valid_loader,
+            train_config=train_config,
+            model_config=config.get("model", {}),
+            candidate_limit=candidate_limit,
+            pin_memory=pin_memory,
+            train_num_workers=train_num_workers,
+            valid_num_workers=valid_num_workers,
+            log_every_n_steps=log_every_n_steps,
+            epochs=epochs,
+            precision_config=precision_config,
+            distributed_context=distributed_context,
+        )
     epoch_summaries: list[dict[str, Any]] = []
     best_valid_accuracy = float("-inf")
     best_valid_loss = float("inf")
@@ -268,114 +291,127 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
                 train_config,
                 split="train",
             ),
+            distributed_context=distributed_context,
         )
-        epoch_summaries.append(asdict(last_train_summary))
 
-        if valid_loader is not None:
-            last_valid_summary = _run_epoch(
-                model=model,
-                data_loader=valid_loader,
-                optimizer=None,
-                device=device,
-                epoch=epoch,
-                split="valid",
-                task_name=task_name,
-                train=False,
-                weight_map=weight_map,
-                log_every_n_steps=0,
-                precision_config=precision_config,
-                collect_response_diagnostics=_collect_response_diagnostics(
-                    task_name,
-                    train_config,
+        if distributed_context.is_main:
+            epoch_summaries.append(asdict(last_train_summary))
+
+            if valid_loader is not None:
+                last_valid_summary = _run_epoch(
+                    model=_unwrap_model(model),
+                    data_loader=valid_loader,
+                    optimizer=None,
+                    device=device,
+                    epoch=epoch,
                     split="valid",
-                ),
-            )
-            epoch_summaries.append(asdict(last_valid_summary))
-
-            if last_valid_summary.accuracy >= best_valid_accuracy:
-                best_valid_accuracy = last_valid_summary.accuracy
-                _save_checkpoint(
-                    best_accuracy_checkpoint_path,
-                    model,
-                    optimizer,
-                    config,
-                    last_valid_summary,
+                    task_name=task_name,
+                    train=False,
+                    weight_map=weight_map,
+                    log_every_n_steps=0,
+                    precision_config=precision_config,
+                    collect_response_diagnostics=_collect_response_diagnostics(
+                        task_name,
+                        train_config,
+                        split="valid",
+                    ),
                 )
-                if task_name != "response":
+                epoch_summaries.append(asdict(last_valid_summary))
+
+                if last_valid_summary.accuracy >= best_valid_accuracy:
+                    best_valid_accuracy = last_valid_summary.accuracy
                     _save_checkpoint(
-                        best_checkpoint_path,
+                        best_accuracy_checkpoint_path,
                         model,
                         optimizer,
                         config,
                         last_valid_summary,
                     )
-            if last_valid_summary.loss <= best_valid_loss:
-                best_valid_loss = last_valid_summary.loss
-                _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
-            if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
-                best_valid_macro_accuracy = last_valid_summary.macro_accuracy
-                _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
-            if task_name == "response":
-                current_response_score = response_selection_score(last_valid_summary.response)
-                if (
-                    current_response_score is not None
-                    and current_response_score >= best_response_selection_score
-                ):
-                    best_response_selection_score = current_response_score
+                    if task_name != "response":
+                        _save_checkpoint(
+                            best_checkpoint_path,
+                            model,
+                            optimizer,
+                            config,
+                            last_valid_summary,
+                        )
+                if last_valid_summary.loss <= best_valid_loss:
+                    best_valid_loss = last_valid_summary.loss
+                    _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
+                if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
+                    best_valid_macro_accuracy = last_valid_summary.macro_accuracy
+                    _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
+                if task_name == "response":
+                    current_response_score = response_selection_score(last_valid_summary.response)
+                    if (
+                        current_response_score is not None
+                        and current_response_score >= best_response_selection_score
+                    ):
+                        best_response_selection_score = current_response_score
+                        _save_checkpoint(
+                            best_response_checkpoint_path,
+                            model,
+                            optimizer,
+                            config,
+                            last_valid_summary,
+                        )
+                        _save_checkpoint(
+                            best_checkpoint_path,
+                            model,
+                            optimizer,
+                            config,
+                            last_valid_summary,
+                        )
+            else:
+                _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
+                _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
+                _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
+                _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
+                if task_name == "response":
                     _save_checkpoint(
                         best_response_checkpoint_path,
                         model,
                         optimizer,
                         config,
-                        last_valid_summary,
+                        last_train_summary,
                     )
-                    _save_checkpoint(
-                        best_checkpoint_path,
-                        model,
-                        optimizer,
-                        config,
-                        last_valid_summary,
-                    )
-        else:
-            _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
-            _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
-            _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
-            _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
-            if task_name == "response":
-                _save_checkpoint(best_response_checkpoint_path, model, optimizer, config, last_train_summary)
+        _distributed_barrier(distributed_context)
 
     assert last_train_summary is not None
-    _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
+    if distributed_context.is_main:
+        _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
     observed_train_samples = int(last_train_summary.samples)
     observed_valid_samples = 0 if last_valid_summary is None else int(last_valid_summary.samples)
     original_train_samples = _dataset_original_rows(train_dataset)
     filtered_train_samples = _observed_filtered_rows(train_dataset, observed_train_samples)
 
-    metrics_path = output_dir / "train_metrics.json"
-    metrics_path.write_text(
-        json.dumps(
-            {
-                "epoch_summaries": epoch_summaries,
-                "train_samples": observed_train_samples,
-                "valid_samples": observed_valid_samples,
-                "original_train_samples": original_train_samples,
-                "filtered_train_samples": filtered_train_samples,
-                "best_response_selection_score": (
-                    None
-                    if task_name != "response"
-                    or best_response_selection_score == float("-inf")
-                    else best_response_selection_score
-                ),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (log_dir / "epoch_metrics.jsonl").write_text(
-        "".join(json.dumps(summary, ensure_ascii=False) + "\n" for summary in epoch_summaries),
-        encoding="utf-8",
-    )
+    if distributed_context.is_main:
+        metrics_path = output_dir / "train_metrics.json"
+        metrics_path.write_text(
+            json.dumps(
+                {
+                    "epoch_summaries": epoch_summaries,
+                    "train_samples": observed_train_samples,
+                    "valid_samples": observed_valid_samples,
+                    "original_train_samples": original_train_samples,
+                    "filtered_train_samples": filtered_train_samples,
+                    "best_response_selection_score": (
+                        None
+                        if task_name != "response"
+                        or best_response_selection_score == float("-inf")
+                        else best_response_selection_score
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (log_dir / "epoch_metrics.jsonl").write_text(
+            "".join(json.dumps(summary, ensure_ascii=False) + "\n" for summary in epoch_summaries),
+            encoding="utf-8",
+        )
+    _shutdown_distributed_context(distributed_context)
 
     return TrainSummary(
         task=task_name,
@@ -402,31 +438,41 @@ def train_turn_model(config: dict[str, Any]) -> TrainSummary:
 
 
 def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
+    train_config = config.get("train", {})
+    distributed_context = _initialize_distributed_context(train_config)
     seed_everything(int(config.get("seed", 20260423)))
 
     output_dir = ensure_dir(config.get("output_dir", "outputs/checkpoints/multitask_p800_v1_1"))
     log_dir = ensure_dir(config.get("log_dir", "outputs/logs/multitask_p800_v1_1"))
-    dump_yaml(output_dir / "config.resolved.yaml", config)
+    if distributed_context.is_main:
+        dump_yaml(output_dir / "config.resolved.yaml", config)
     data_config = config.get("data", {})
-    train_config = config.get("train", {})
     train_manifest = data_config["train_manifest"]
     valid_manifest = data_config.get("valid_manifest")
-    print(
-        "[train] preparing datasets "
-        f"task=multitask train_manifest={train_manifest} valid_manifest={valid_manifest}",
-        flush=True,
-    )
+    if distributed_context.is_main:
+        print(
+            "[train] preparing datasets "
+            f"task=multitask train_manifest={train_manifest} valid_manifest={valid_manifest}",
+            flush=True,
+        )
 
-    turn_train_dataset = _build_dataset("turn", train_manifest, train_config=train_config, split="train")
+    turn_train_dataset = _build_dataset(
+        "turn",
+        train_manifest,
+        train_config=train_config,
+        split="train",
+        distributed_context=distributed_context,
+    )
     response_train_dataset = _build_dataset(
         "response",
         train_manifest,
         train_config=train_config,
         split="train",
+        distributed_context=distributed_context,
     )
     turn_valid_dataset = None
     response_valid_dataset = None
-    if valid_manifest and Path(valid_manifest).exists():
+    if distributed_context.is_main and valid_manifest and Path(valid_manifest).exists():
         turn_valid_dataset = _build_dataset(
             "turn",
             valid_manifest,
@@ -440,7 +486,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
             split="valid",
         )
 
-    device = _resolve_training_device(train_config.get("device"))
+    device = distributed_context.device
     precision_config = _resolve_precision_config(train_config, device)
     _configure_matmul_precision(train_config, device)
     train_num_workers = int(train_config.get("num_workers", 0))
@@ -496,6 +542,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
         hidden_size=int(config.get("model", {}).get("hidden_size", 512)),
         dropout=float(config.get("model", {}).get("dropout", 0.1)),
     ).to(device)
+    model = _wrap_distributed_model(model, distributed_context, train_config, task_name="multitask")
     optimizer = AdamW(
         model.parameters(),
         lr=float(train_config.get("lr", 1e-3)),
@@ -516,35 +563,37 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
     log_every_n_steps = int(train_config.get("log_every_n_steps", 0))
     epochs = int(train_config.get("epochs", 1))
 
-    _print_multitask_training_start(
-        device=device,
-        output_dir=output_dir,
-        log_dir=log_dir,
-        turn_train_dataset=turn_train_dataset,
-        response_train_dataset=response_train_dataset,
-        turn_valid_dataset=turn_valid_dataset,
-        response_valid_dataset=response_valid_dataset,
-        turn_train_loader=turn_train_loader,
-        response_train_loader=response_train_loader,
-        turn_valid_loader=turn_valid_loader,
-        response_valid_loader=response_valid_loader,
-        train_config=train_config,
-        model_config=config.get("model", {}),
-        turn_candidate_limit=turn_candidate_limit,
-        response_candidate_limit=response_candidate_limit,
-        turn_batch_size=turn_batch_size,
-        response_batch_size=response_batch_size,
-        pin_memory=pin_memory,
-        train_num_workers=train_num_workers,
-        valid_num_workers=valid_num_workers,
-        log_every_n_steps=log_every_n_steps,
-        epochs=epochs,
-        precision_config=precision_config,
-        turn_loss_scale=turn_loss_scale,
-        response_loss_scale=response_loss_scale,
-        schedule=multitask_schedule,
-        interleave_batch_totals=interleave_batch_totals,
-    )
+    if distributed_context.is_main:
+        _print_multitask_training_start(
+            device=device,
+            output_dir=output_dir,
+            log_dir=log_dir,
+            turn_train_dataset=turn_train_dataset,
+            response_train_dataset=response_train_dataset,
+            turn_valid_dataset=turn_valid_dataset,
+            response_valid_dataset=response_valid_dataset,
+            turn_train_loader=turn_train_loader,
+            response_train_loader=response_train_loader,
+            turn_valid_loader=turn_valid_loader,
+            response_valid_loader=response_valid_loader,
+            train_config=train_config,
+            model_config=config.get("model", {}),
+            turn_candidate_limit=turn_candidate_limit,
+            response_candidate_limit=response_candidate_limit,
+            turn_batch_size=turn_batch_size,
+            response_batch_size=response_batch_size,
+            pin_memory=pin_memory,
+            train_num_workers=train_num_workers,
+            valid_num_workers=valid_num_workers,
+            log_every_n_steps=log_every_n_steps,
+            epochs=epochs,
+            precision_config=precision_config,
+            turn_loss_scale=turn_loss_scale,
+            response_loss_scale=response_loss_scale,
+            schedule=multitask_schedule,
+            interleave_batch_totals=interleave_batch_totals,
+            distributed_context=distributed_context,
+        )
 
     epoch_summaries: list[dict[str, Any]] = []
     multitask_epoch_summaries: list[dict[str, Any]] = []
@@ -589,6 +638,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
                 turn_loss_scale=turn_loss_scale,
                 response_loss_scale=response_loss_scale,
                 interleave_batch_totals=interleave_batch_totals,
+                distributed_context=distributed_context,
             )
         else:
             last_turn_train_summary = _run_epoch(
@@ -605,6 +655,7 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
                 precision_config=precision_config,
                 collect_response_diagnostics=False,
                 loss_scale=turn_loss_scale,
+                distributed_context=distributed_context,
             )
 
             last_response_train_summary = _run_epoch(
@@ -625,140 +676,146 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
                     split="train",
                 ),
                 loss_scale=response_loss_scale,
+                distributed_context=distributed_context,
             )
-        epoch_summaries.append({"task": "turn", **asdict(last_turn_train_summary)})
-        epoch_summaries.append({"task": "response", **asdict(last_response_train_summary)})
         last_train_summary = _combine_epoch_summaries(
             epoch=epoch,
             split="train_multitask",
             summaries=[last_turn_train_summary, last_response_train_summary],
             response_summary=last_response_train_summary,
         )
-        multitask_epoch_summaries.append(asdict(last_train_summary))
 
-        turn_valid_summary = None
-        response_valid_summary = None
-        if turn_valid_loader is not None:
-            turn_valid_summary = _run_epoch(
-                model=model,
-                data_loader=turn_valid_loader,
-                optimizer=None,
-                device=device,
-                epoch=epoch,
-                split="valid_turn",
-                task_name="turn",
-                train=False,
-                weight_map=turn_weight_map,
-                log_every_n_steps=0,
-                precision_config=precision_config,
-                collect_response_diagnostics=False,
-            )
-            epoch_summaries.append({"task": "turn", **asdict(turn_valid_summary)})
-            if turn_valid_summary.accuracy >= best_turn_accuracy:
-                best_turn_accuracy = turn_valid_summary.accuracy
-                _save_checkpoint(best_turn_checkpoint_path, model, optimizer, config, turn_valid_summary)
+        if distributed_context.is_main:
+            epoch_summaries.append({"task": "turn", **asdict(last_turn_train_summary)})
+            epoch_summaries.append({"task": "response", **asdict(last_response_train_summary)})
+            multitask_epoch_summaries.append(asdict(last_train_summary))
 
-        if response_valid_loader is not None:
-            response_valid_summary = _run_epoch(
-                model=model,
-                data_loader=response_valid_loader,
-                optimizer=None,
-                device=device,
-                epoch=epoch,
-                split="valid_response",
-                task_name="response",
-                train=False,
-                weight_map=response_weight_map,
-                log_every_n_steps=0,
-                precision_config=precision_config,
-                collect_response_diagnostics=_collect_response_diagnostics(
-                    "response",
-                    train_config,
-                    split="valid",
-                ),
-            )
-            epoch_summaries.append({"task": "response", **asdict(response_valid_summary)})
-            current_response_score = response_selection_score(response_valid_summary.response)
-            if (
-                current_response_score is not None
-                and current_response_score >= best_response_selection_score
-            ):
-                best_response_selection_score = current_response_score
-                _save_checkpoint(
-                    best_response_checkpoint_path,
-                    model,
-                    optimizer,
-                    config,
-                    response_valid_summary,
+            turn_valid_summary = None
+            response_valid_summary = None
+            validation_model = _unwrap_model(model)
+            if turn_valid_loader is not None:
+                turn_valid_summary = _run_epoch(
+                    model=validation_model,
+                    data_loader=turn_valid_loader,
+                    optimizer=None,
+                    device=device,
+                    epoch=epoch,
+                    split="valid_turn",
+                    task_name="turn",
+                    train=False,
+                    weight_map=turn_weight_map,
+                    log_every_n_steps=0,
+                    precision_config=precision_config,
+                    collect_response_diagnostics=False,
                 )
+                epoch_summaries.append({"task": "turn", **asdict(turn_valid_summary)})
+                if turn_valid_summary.accuracy >= best_turn_accuracy:
+                    best_turn_accuracy = turn_valid_summary.accuracy
+                    _save_checkpoint(best_turn_checkpoint_path, model, optimizer, config, turn_valid_summary)
 
-        if turn_valid_summary is not None or response_valid_summary is not None:
-            valid_summaries = [
-                summary
-                for summary in (turn_valid_summary, response_valid_summary)
-                if summary is not None
-            ]
-            last_valid_summary = _combine_epoch_summaries(
-                epoch=epoch,
-                split="valid_multitask",
-                summaries=valid_summaries,
-                response_summary=response_valid_summary,
-            )
-            multitask_epoch_summaries.append(asdict(last_valid_summary))
-            multitask_score = _multitask_selection_score(
-                turn_valid_summary=turn_valid_summary,
-                response_valid_summary=response_valid_summary,
-            )
-            if multitask_score >= best_multitask_score:
-                best_multitask_score = multitask_score
+            if response_valid_loader is not None:
+                response_valid_summary = _run_epoch(
+                    model=validation_model,
+                    data_loader=response_valid_loader,
+                    optimizer=None,
+                    device=device,
+                    epoch=epoch,
+                    split="valid_response",
+                    task_name="response",
+                    train=False,
+                    weight_map=response_weight_map,
+                    log_every_n_steps=0,
+                    precision_config=precision_config,
+                    collect_response_diagnostics=_collect_response_diagnostics(
+                        "response",
+                        train_config,
+                        split="valid",
+                    ),
+                )
+                epoch_summaries.append({"task": "response", **asdict(response_valid_summary)})
+                current_response_score = response_selection_score(response_valid_summary.response)
+                if (
+                    current_response_score is not None
+                    and current_response_score >= best_response_selection_score
+                ):
+                    best_response_selection_score = current_response_score
+                    _save_checkpoint(
+                        best_response_checkpoint_path,
+                        model,
+                        optimizer,
+                        config,
+                        response_valid_summary,
+                    )
+
+            if turn_valid_summary is not None or response_valid_summary is not None:
+                valid_summaries = [
+                    summary
+                    for summary in (turn_valid_summary, response_valid_summary)
+                    if summary is not None
+                ]
+                last_valid_summary = _combine_epoch_summaries(
+                    epoch=epoch,
+                    split="valid_multitask",
+                    summaries=valid_summaries,
+                    response_summary=response_valid_summary,
+                )
+                multitask_epoch_summaries.append(asdict(last_valid_summary))
+                multitask_score = _multitask_selection_score(
+                    turn_valid_summary=turn_valid_summary,
+                    response_valid_summary=response_valid_summary,
+                )
+                if multitask_score >= best_multitask_score:
+                    best_multitask_score = multitask_score
+                    _save_checkpoint(
+                        best_multitask_checkpoint_path,
+                        model,
+                        optimizer,
+                        config,
+                        last_valid_summary,
+                    )
+                    _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_valid_summary)
+                if last_valid_summary.accuracy >= best_valid_accuracy:
+                    best_valid_accuracy = last_valid_summary.accuracy
+                    _save_checkpoint(
+                        best_accuracy_checkpoint_path,
+                        model,
+                        optimizer,
+                        config,
+                        last_valid_summary,
+                    )
+                if last_valid_summary.loss <= best_valid_loss:
+                    best_valid_loss = last_valid_summary.loss
+                    _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
+                if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
+                    best_valid_macro_accuracy = last_valid_summary.macro_accuracy
+                    _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
+            else:
+                _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
                 _save_checkpoint(
                     best_multitask_checkpoint_path,
                     model,
                     optimizer,
                     config,
-                    last_valid_summary,
+                    last_train_summary,
                 )
-                _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_valid_summary)
-            if last_valid_summary.accuracy >= best_valid_accuracy:
-                best_valid_accuracy = last_valid_summary.accuracy
+                _save_checkpoint(best_turn_checkpoint_path, model, optimizer, config, last_turn_train_summary)
                 _save_checkpoint(
-                    best_accuracy_checkpoint_path,
+                    best_response_checkpoint_path,
                     model,
                     optimizer,
                     config,
-                    last_valid_summary,
+                    last_response_train_summary,
                 )
-            if last_valid_summary.loss <= best_valid_loss:
-                best_valid_loss = last_valid_summary.loss
-                _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_valid_summary)
-            if last_valid_summary.macro_accuracy >= best_valid_macro_accuracy:
-                best_valid_macro_accuracy = last_valid_summary.macro_accuracy
-                _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_valid_summary)
-        else:
-            _save_checkpoint(best_checkpoint_path, model, optimizer, config, last_train_summary)
-            _save_checkpoint(
-                best_multitask_checkpoint_path,
-                model,
-                optimizer,
-                config,
-                last_train_summary,
-            )
-            _save_checkpoint(best_turn_checkpoint_path, model, optimizer, config, last_turn_train_summary)
-            _save_checkpoint(
-                best_response_checkpoint_path,
-                model,
-                optimizer,
-                config,
-                last_response_train_summary,
-            )
-            _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
-            _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
-            _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
+                _save_checkpoint(best_accuracy_checkpoint_path, model, optimizer, config, last_train_summary)
+                _save_checkpoint(best_loss_checkpoint_path, model, optimizer, config, last_train_summary)
+                _save_checkpoint(best_macro_checkpoint_path, model, optimizer, config, last_train_summary)
+        _distributed_barrier(distributed_context)
 
     assert last_turn_train_summary is not None
     assert last_response_train_summary is not None
     assert last_train_summary is not None
-    _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
+    if distributed_context.is_main:
+        _save_checkpoint(final_checkpoint_path, model, optimizer, config, last_train_summary)
 
     turn_train_samples = int(last_turn_train_summary.samples)
     response_train_samples = int(last_response_train_summary.samples)
@@ -808,17 +865,19 @@ def _train_multitask_model(config: dict[str, Any]) -> TrainSummary:
         "best_response_checkpoint": str(best_response_checkpoint_path),
         "best_multitask_checkpoint": str(best_multitask_checkpoint_path),
     }
-    (output_dir / "train_metrics.json").write_text(
-        json.dumps(metrics_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (log_dir / "epoch_metrics.jsonl").write_text(
-        "".join(
-            json.dumps(summary, ensure_ascii=False) + "\n"
-            for summary in [*epoch_summaries, *multitask_epoch_summaries]
-        ),
-        encoding="utf-8",
-    )
+    if distributed_context.is_main:
+        (output_dir / "train_metrics.json").write_text(
+            json.dumps(metrics_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (log_dir / "epoch_metrics.jsonl").write_text(
+            "".join(
+                json.dumps(summary, ensure_ascii=False) + "\n"
+                for summary in [*epoch_summaries, *multitask_epoch_summaries]
+            ),
+            encoding="utf-8",
+        )
+    _shutdown_distributed_context(distributed_context)
 
     return TrainSummary(
         task="multitask",
@@ -865,10 +924,7 @@ def _run_policy_batch(
     loss_scale: float,
 ) -> BatchStepResult:
     with _autocast_context(device, precision_config):
-        if task_name == "turn":
-            logits = model.forward_turn(prepared_batch)
-        else:
-            logits = model.forward_response(prepared_batch)
+        logits = model(prepared_batch, task_name=task_name)
         sample_weights = build_sample_weights(prepared_batch["label_kinds"], weight_map, device)
         loss = policy_loss(logits, prepared_batch["labels"], sample_weights=sample_weights)
         per_sample_losses = F.cross_entropy(logits, prepared_batch["labels"], reduction="none")
@@ -1032,6 +1088,7 @@ def _run_interleaved_multitask_epoch(
     turn_loss_scale: float,
     response_loss_scale: float,
     interleave_batch_totals: tuple[float, float],
+    distributed_context: DistributedContext | None = None,
 ) -> tuple[EpochSummary, EpochSummary]:
     model.train(True)
     turn_accumulator = EpochAccumulator(
@@ -1055,107 +1112,115 @@ def _run_interleaved_multitask_epoch(
     turn_exhausted = False
     response_exhausted = False
 
-    while not (turn_exhausted and response_exhausted):
-        task_name = _next_interleaved_task(
-            turn_done=turn_done,
-            response_done=response_done,
-            turn_total=turn_schedule_batches,
-            response_total=response_schedule_batches,
-            turn_exhausted=turn_exhausted,
-            response_exhausted=response_exhausted,
-        )
-        if task_name == "turn":
-            try:
-                batch = next(turn_iter)
-            except StopIteration:
-                turn_exhausted = True
-                continue
-            turn_done += 1
-            accumulator = turn_accumulator
-            weight_map = turn_weight_map
-            loss_scale = turn_loss_scale
-        else:
-            try:
-                batch = next(response_iter)
-            except StopIteration:
-                response_exhausted = True
-                continue
-            response_done += 1
-            accumulator = response_accumulator
-            weight_map = response_weight_map
-            loss_scale = response_loss_scale
-
-        batch_ready = time.perf_counter()
-        data_wait_elapsed = batch_ready - next_batch_start
-        batch_start = batch_ready
-        prepared_batch = _prepare_batch(batch, device)
-        result = _run_policy_batch(
-            model=model,
-            prepared_batch=prepared_batch,
-            optimizer=optimizer,
-            device=device,
-            task_name=task_name,
-            train=True,
-            weight_map=weight_map,
-            precision_config=precision_config,
-            collect_response_diagnostics=task_name == "response" and collect_response_diagnostics,
-            loss_scale=loss_scale,
-        )
-        compute_elapsed = time.perf_counter() - batch_start
-        batch_elapsed = data_wait_elapsed + compute_elapsed
-        _update_epoch_accumulator(
-            accumulator,
-            prepared_batch,
-            result,
-            data_wait_elapsed=data_wait_elapsed,
-            compute_elapsed=compute_elapsed,
-        )
-        executed_batches += 1
-
-        if (
-            log_every_n_steps > 0
-            and (
-                executed_batches == 1
-                or executed_batches % log_every_n_steps == 0
-                or executed_batches == total_batches
+    with _ddp_join_context(model, train=True):
+        while not (turn_exhausted and response_exhausted):
+            task_name = _next_interleaved_task(
+                turn_done=turn_done,
+                response_done=response_done,
+                turn_total=turn_schedule_batches,
+                response_total=response_schedule_batches,
+                turn_exhausted=turn_exhausted,
+                response_exhausted=response_exhausted,
             )
-        ):
-            _print_batch_progress(
-                epoch=epoch,
-                split=f"train_interleave_{task_name}",
-                batch_index=executed_batches,
-                total_batches=total_batches,
-                total_samples=turn_accumulator.total_samples + response_accumulator.total_samples,
-                batch_samples=result.batch_size,
-                batch_elapsed=batch_elapsed,
+            if task_name == "turn":
+                try:
+                    batch = next(turn_iter)
+                except StopIteration:
+                    turn_exhausted = True
+                    continue
+                turn_done += 1
+                accumulator = turn_accumulator
+                weight_map = turn_weight_map
+                loss_scale = turn_loss_scale
+            else:
+                try:
+                    batch = next(response_iter)
+                except StopIteration:
+                    response_exhausted = True
+                    continue
+                response_done += 1
+                accumulator = response_accumulator
+                weight_map = response_weight_map
+                loss_scale = response_loss_scale
+
+            batch_ready = time.perf_counter()
+            data_wait_elapsed = batch_ready - next_batch_start
+            batch_start = batch_ready
+            prepared_batch = _prepare_batch(batch, device)
+            result = _run_policy_batch(
+                model=model,
+                prepared_batch=prepared_batch,
+                optimizer=optimizer,
+                device=device,
+                task_name=task_name,
+                train=True,
+                weight_map=weight_map,
+                precision_config=precision_config,
+                collect_response_diagnostics=task_name == "response" and collect_response_diagnostics,
+                loss_scale=loss_scale,
+            )
+            compute_elapsed = time.perf_counter() - batch_start
+            batch_elapsed = data_wait_elapsed + compute_elapsed
+            _update_epoch_accumulator(
+                accumulator,
+                prepared_batch,
+                result,
                 data_wait_elapsed=data_wait_elapsed,
                 compute_elapsed=compute_elapsed,
-                running_time=turn_accumulator.running_time + response_accumulator.running_time,
-                running_data_wait_time=(
-                    turn_accumulator.running_data_wait_time
-                    + response_accumulator.running_data_wait_time
-                ),
-                running_compute_time=(
-                    turn_accumulator.running_compute_time
-                    + response_accumulator.running_compute_time
-                ),
-                running_loss=turn_accumulator.running_loss + response_accumulator.running_loss,
-                running_correct=(
-                    turn_accumulator.running_correct + response_accumulator.running_correct
-                ),
-                running_samples=(
-                    turn_accumulator.running_samples + response_accumulator.running_samples
-                ),
-                epoch_start=epoch_start,
             )
-            _reset_running_accumulator(turn_accumulator)
-            _reset_running_accumulator(response_accumulator)
+            executed_batches += 1
 
-        next_batch_start = time.perf_counter()
+            if (
+                _is_main_process(distributed_context)
+                and log_every_n_steps > 0
+                and (
+                    executed_batches == 1
+                    or executed_batches % log_every_n_steps == 0
+                    or executed_batches == total_batches
+                )
+            ):
+                _print_batch_progress(
+                    epoch=epoch,
+                    split=f"train_interleave_{task_name}",
+                    batch_index=executed_batches,
+                    total_batches=total_batches,
+                    total_samples=turn_accumulator.total_samples + response_accumulator.total_samples,
+                    batch_samples=result.batch_size,
+                    batch_elapsed=batch_elapsed,
+                    data_wait_elapsed=data_wait_elapsed,
+                    compute_elapsed=compute_elapsed,
+                    running_time=turn_accumulator.running_time + response_accumulator.running_time,
+                    running_data_wait_time=(
+                        turn_accumulator.running_data_wait_time
+                        + response_accumulator.running_data_wait_time
+                    ),
+                    running_compute_time=(
+                        turn_accumulator.running_compute_time
+                        + response_accumulator.running_compute_time
+                    ),
+                    running_loss=turn_accumulator.running_loss + response_accumulator.running_loss,
+                    running_correct=(
+                        turn_accumulator.running_correct + response_accumulator.running_correct
+                    ),
+                    running_samples=(
+                        turn_accumulator.running_samples + response_accumulator.running_samples
+                    ),
+                    epoch_start=epoch_start,
+                )
+                _reset_running_accumulator(turn_accumulator)
+                _reset_running_accumulator(response_accumulator)
 
+            next_batch_start = time.perf_counter()
+
+    turn_summary = _summary_from_accumulator(turn_accumulator, epoch=epoch, split="train_turn")
+    response_summary = _summary_from_accumulator(
+        response_accumulator,
+        epoch=epoch,
+        split="train_response",
+    )
     return (
-        _summary_from_accumulator(turn_accumulator, epoch=epoch, split="train_turn"),
-        _summary_from_accumulator(response_accumulator, epoch=epoch, split="train_response"),
+        _sync_epoch_summary(turn_summary, distributed_context),
+        _sync_epoch_summary(response_summary, distributed_context),
     )
 
 
@@ -1191,6 +1256,7 @@ def _run_epoch(
     precision_config: dict[str, Any],
     collect_response_diagnostics: bool,
     loss_scale: float = 1.0,
+    distributed_context: DistributedContext | None = None,
 ) -> EpochSummary:
     """运行与函数名对应的处理流程。
     
@@ -1223,71 +1289,291 @@ def _run_epoch(
     total_batches = len(data_loader)
     epoch_start = time.perf_counter()
     next_batch_start = epoch_start
-    for batch in data_loader:
-        batch_ready = time.perf_counter()
-        data_wait_elapsed = batch_ready - next_batch_start
-        batch_start = batch_ready
-        prepared_batch = _prepare_batch(batch, device)
-        result = _run_policy_batch(
-            model=model,
-            prepared_batch=prepared_batch,
-            optimizer=optimizer,
-            device=device,
-            task_name=task_name,
-            train=train,
-            weight_map=weight_map,
-            precision_config=precision_config,
-            collect_response_diagnostics=collect_response_diagnostics,
-            loss_scale=loss_scale,
-        )
-        compute_elapsed = time.perf_counter() - batch_start
-        batch_elapsed = data_wait_elapsed + compute_elapsed
-        _update_epoch_accumulator(
-            accumulator,
-            prepared_batch,
-            result,
-            data_wait_elapsed=data_wait_elapsed,
-            compute_elapsed=compute_elapsed,
-        )
-
-        if (
-            train
-            and log_every_n_steps > 0
-            and (
-                accumulator.batches == 1
-                or accumulator.batches % log_every_n_steps == 0
-                or accumulator.batches == total_batches
+    with _ddp_join_context(model, train=train):
+        for batch in data_loader:
+            batch_ready = time.perf_counter()
+            data_wait_elapsed = batch_ready - next_batch_start
+            batch_start = batch_ready
+            prepared_batch = _prepare_batch(batch, device)
+            result = _run_policy_batch(
+                model=model,
+                prepared_batch=prepared_batch,
+                optimizer=optimizer,
+                device=device,
+                task_name=task_name,
+                train=train,
+                weight_map=weight_map,
+                precision_config=precision_config,
+                collect_response_diagnostics=collect_response_diagnostics,
+                loss_scale=loss_scale,
             )
-        ):
-            _print_batch_progress(
-                epoch=epoch,
-                split=split,
-                batch_index=accumulator.batches,
-                total_batches=total_batches,
-                total_samples=accumulator.total_samples,
-                batch_samples=result.batch_size,
-                batch_elapsed=batch_elapsed,
+            compute_elapsed = time.perf_counter() - batch_start
+            batch_elapsed = data_wait_elapsed + compute_elapsed
+            _update_epoch_accumulator(
+                accumulator,
+                prepared_batch,
+                result,
                 data_wait_elapsed=data_wait_elapsed,
                 compute_elapsed=compute_elapsed,
-                running_time=accumulator.running_time,
-                running_data_wait_time=accumulator.running_data_wait_time,
-                running_compute_time=accumulator.running_compute_time,
-                running_loss=accumulator.running_loss,
-                running_correct=accumulator.running_correct,
-                running_samples=accumulator.running_samples,
-                epoch_start=epoch_start,
             )
-            _reset_running_accumulator(accumulator)
-        next_batch_start = time.perf_counter()
 
-    return _summary_from_accumulator(
+            if (
+                train
+                and _is_main_process(distributed_context)
+                and log_every_n_steps > 0
+                and (
+                    accumulator.batches == 1
+                    or accumulator.batches % log_every_n_steps == 0
+                    or accumulator.batches == total_batches
+                )
+            ):
+                _print_batch_progress(
+                    epoch=epoch,
+                    split=split,
+                    batch_index=accumulator.batches,
+                    total_batches=total_batches,
+                    total_samples=accumulator.total_samples,
+                    batch_samples=result.batch_size,
+                    batch_elapsed=batch_elapsed,
+                    data_wait_elapsed=data_wait_elapsed,
+                    compute_elapsed=compute_elapsed,
+                    running_time=accumulator.running_time,
+                    running_data_wait_time=accumulator.running_data_wait_time,
+                    running_compute_time=accumulator.running_compute_time,
+                    running_loss=accumulator.running_loss,
+                    running_correct=accumulator.running_correct,
+                    running_samples=accumulator.running_samples,
+                    epoch_start=epoch_start,
+                )
+                _reset_running_accumulator(accumulator)
+            next_batch_start = time.perf_counter()
+
+    summary = _summary_from_accumulator(
         accumulator,
         epoch=epoch,
         split=split,
     )
+    return _sync_epoch_summary(summary, distributed_context) if train else summary
 
 
-def _resolve_training_device(config_device: str | None) -> torch.device:
+def _initialize_distributed_context(train_config: dict[str, Any]) -> DistributedContext:
+    requested = bool(train_config.get("distributed", False))
+    env_world_size = _env_int("WORLD_SIZE", 1)
+    env_rank = _env_int("RANK", 0)
+    env_local_rank = _env_int("LOCAL_RANK", 0)
+    if not requested:
+        if env_world_size > 1:
+            raise RuntimeError(
+                "torchrun launched multiple processes, but train.distributed is false"
+            )
+        return DistributedContext(
+            enabled=False,
+            rank=0,
+            local_rank=0,
+            world_size=1,
+            backend=None,
+            device=_resolve_training_device(train_config.get("device")),
+        )
+    if env_world_size <= 1:
+        raise RuntimeError(
+            "train.distributed=true requires torchrun with WORLD_SIZE > 1, "
+            "for example: torchrun --standalone --nproc_per_node=2 -m mjai.cli train --config <config>"
+        )
+    if not dist.is_available():
+        raise RuntimeError("torch.distributed is not available in this PyTorch build")
+
+    device = _resolve_training_device(train_config.get("device"), local_rank=env_local_rank)
+    backend = _resolve_distributed_backend(train_config, device)
+    if not dist.is_initialized():
+        dist.init_process_group(backend=backend)
+    return DistributedContext(
+        enabled=True,
+        rank=dist.get_rank() if dist.is_initialized() else env_rank,
+        local_rank=env_local_rank,
+        world_size=dist.get_world_size() if dist.is_initialized() else env_world_size,
+        backend=backend,
+        device=device,
+    )
+
+
+def _resolve_distributed_backend(train_config: dict[str, Any], device: torch.device) -> str:
+    backend = str(train_config.get("backend", "auto")).lower()
+    if backend in {"auto", "vendor"}:
+        if device.type == "cuda":
+            return "nccl"
+        if device.type == "xpu":
+            return "ccl"
+        return "gloo"
+    return backend
+
+
+def _wrap_distributed_model(
+    model: nn.Module,
+    distributed_context: DistributedContext,
+    train_config: dict[str, Any],
+    *,
+    task_name: str,
+) -> nn.Module:
+    if not distributed_context.enabled:
+        return model
+    find_unused = train_config.get("find_unused_parameters")
+    if find_unused is None:
+        find_unused = task_name == "multitask"
+    if task_name == "multitask" and not bool(find_unused):
+        raise ValueError("multitask DDP requires train.find_unused_parameters=true")
+    ddp_kwargs: dict[str, Any] = {
+        "find_unused_parameters": bool(find_unused),
+    }
+    if distributed_context.device.type == "cuda":
+        ddp_kwargs["device_ids"] = [distributed_context.local_rank]
+        ddp_kwargs["output_device"] = distributed_context.local_rank
+    return DistributedDataParallel(model, **ddp_kwargs)
+
+
+def _unwrap_model(model: nn.Module) -> nn.Module:
+    if isinstance(model, DistributedDataParallel):
+        return model.module
+    return model
+
+
+def _ddp_join_context(model: nn.Module, *, train: bool):
+    if train and isinstance(model, DistributedDataParallel):
+        return model.join()
+    return nullcontext()
+
+
+def _is_main_process(distributed_context: DistributedContext | None) -> bool:
+    return distributed_context is None or distributed_context.is_main
+
+
+def _distributed_enabled(distributed_context: DistributedContext | None) -> bool:
+    return bool(distributed_context is not None and distributed_context.enabled)
+
+
+def _distributed_rank(distributed_context: DistributedContext | None) -> int:
+    return 0 if distributed_context is None else distributed_context.rank
+
+
+def _distributed_world_size(distributed_context: DistributedContext | None) -> int:
+    return 1 if distributed_context is None else distributed_context.world_size
+
+
+def _distributed_backend(distributed_context: DistributedContext | None) -> str | None:
+    return None if distributed_context is None else distributed_context.backend
+
+
+def _distributed_barrier(distributed_context: DistributedContext | None) -> None:
+    if (
+        distributed_context is not None
+        and distributed_context.enabled
+        and dist.is_available()
+        and dist.is_initialized()
+    ):
+        dist.barrier()
+
+
+def _shutdown_distributed_context(distributed_context: DistributedContext | None) -> None:
+    if (
+        distributed_context is not None
+        and distributed_context.enabled
+        and dist.is_available()
+        and dist.is_initialized()
+    ):
+        dist.destroy_process_group()
+
+
+def _sync_epoch_summary(
+    summary: EpochSummary,
+    distributed_context: DistributedContext | None,
+) -> EpochSummary:
+    if (
+        distributed_context is None
+        or not distributed_context.enabled
+        or not dist.is_available()
+        or not dist.is_initialized()
+    ):
+        return summary
+    gathered: list[EpochSummary | None] = [None for _ in range(distributed_context.world_size)]
+    dist.all_gather_object(gathered, summary)
+    return _combine_distributed_epoch_summaries(
+        [item for item in gathered if item is not None],
+        response_summary=summary if distributed_context.is_main else None,
+    )
+
+
+def _combine_distributed_epoch_summaries(
+    summaries: list[EpochSummary],
+    *,
+    response_summary: EpochSummary | None,
+) -> EpochSummary:
+    if not summaries:
+        raise ValueError("cannot combine empty distributed epoch summaries")
+    first = summaries[0]
+    total_samples = sum(summary.samples for summary in summaries)
+    total_batches = sum(summary.batches for summary in summaries)
+    if total_samples <= 0:
+        return EpochSummary(
+            epoch=first.epoch,
+            split=first.split,
+            loss=0.0,
+            accuracy=0.0,
+            macro_accuracy=0.0,
+            batches=total_batches,
+            samples=0,
+            per_kind={},
+            class_groups={},
+            response=None,
+        )
+    per_kind = _combine_label_metric_maps([summary.per_kind for summary in summaries])
+    class_groups = _combine_label_metric_maps([summary.class_groups for summary in summaries])
+    response = None if response_summary is None else response_summary.response
+    return EpochSummary(
+        epoch=first.epoch,
+        split=first.split,
+        loss=sum(summary.loss * summary.samples for summary in summaries) / total_samples,
+        accuracy=sum(summary.accuracy * summary.samples for summary in summaries) / total_samples,
+        macro_accuracy=_macro_accuracy(per_kind),
+        batches=total_batches,
+        samples=total_samples,
+        per_kind=per_kind,
+        class_groups=class_groups,
+        response=response,
+    )
+
+
+def _combine_label_metric_maps(
+    metric_maps: list[dict[str, LabelMetricSummary]],
+) -> dict[str, LabelMetricSummary]:
+    combined: dict[str, LabelMetricSummary] = {}
+    keys = sorted({key for metric_map in metric_maps for key in metric_map})
+    for key in keys:
+        metrics = [metric_map[key] for metric_map in metric_maps if key in metric_map]
+        samples = sum(metric.samples for metric in metrics)
+        if samples <= 0:
+            combined[key] = LabelMetricSummary(samples=0, loss=0.0, accuracy=0.0)
+            continue
+        combined[key] = LabelMetricSummary(
+            samples=samples,
+            loss=sum(metric.loss * metric.samples for metric in metrics) / samples,
+            accuracy=sum(metric.accuracy * metric.samples for metric in metrics) / samples,
+        )
+    return combined
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _resolve_training_device(
+    config_device: str | None,
+    local_rank: int | None = None,
+) -> torch.device:
     """解析输入配置或路径并返回规范化结果。
     
     参数:
@@ -1301,8 +1587,17 @@ def _resolve_training_device(config_device: str | None) -> torch.device:
     """
     normalized = normalize_device_name(config_device)
     if normalized in {"auto", "cuda"} and torch.cuda.is_available():
+        if local_rank is not None:
+            torch.cuda.set_device(local_rank)
+            return torch.device("cuda", local_rank)
         return torch.device("cuda")
     if normalized in {"auto", "xpu"} and _xpu_is_available():
+        if local_rank is not None:
+            xpu = getattr(torch, "xpu")
+            set_device = getattr(xpu, "set_device", None)
+            if callable(set_device):
+                set_device(local_rank)
+            return torch.device("xpu", local_rank)
         return torch.device("xpu")
     if normalized == "xpu":
         raise RuntimeError("train.device is xpu, but torch.xpu is not available")
@@ -1530,7 +1825,7 @@ def _save_checkpoint(
     """
     torch.save(
         {
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": _unwrap_model(model).state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "config": config,
             "summary": asdict(summary),
@@ -1544,6 +1839,7 @@ def _build_dataset(
     manifest_path: str | Path,
     train_config: dict[str, Any] | None = None,
     split: str | None = None,
+    distributed_context: DistributedContext | None = None,
 ):
     """构建与函数名对应的数据结构或处理结果。
     
@@ -1560,6 +1856,14 @@ def _build_dataset(
         无。
     """
     train_config = train_config or {}
+    distributed_kwargs = (
+        {
+            "distributed_rank": distributed_context.rank,
+            "distributed_world_size": distributed_context.world_size,
+        }
+        if split == "train" and distributed_context is not None and distributed_context.enabled
+        else {}
+    )
     if task_name == "turn":
         if bool(train_config.get("streaming_dataset", True)):
             shuffle = split == "train"
@@ -1569,6 +1873,7 @@ def _build_dataset(
                 shuffle_rows=shuffle and bool(train_config.get("shuffle_rows", True)),
                 shuffle_buffer_size=int(train_config.get("shuffle_buffer_size", 8192)),
                 seed=int(train_config.get("dataset_seed", 20260423)),
+                **distributed_kwargs,
             )
         return ManifestTurnDataset(manifest_path)
     response_min_candidate_count = _response_min_candidate_count(train_config, split)
@@ -1586,6 +1891,7 @@ def _build_dataset(
                 split=split,
             ),
             seed=int(train_config.get("dataset_seed", 20260423)),
+            **distributed_kwargs,
         )
     return ManifestResponseDataset(
         manifest_path,
@@ -1745,6 +2051,7 @@ def _print_training_start(
     log_every_n_steps: int,
     epochs: int,
     precision_config: dict[str, Any],
+    distributed_context: DistributedContext | None = None,
 ) -> None:
     """打印与函数名对应的进度或诊断信息。
     
@@ -1781,6 +2088,10 @@ def _print_training_start(
         "[train] starting "
         f"task={task_name} "
         f"device={device} "
+        f"distributed={_distributed_enabled(distributed_context)} "
+        f"rank={_distributed_rank(distributed_context)} "
+        f"world_size={_distributed_world_size(distributed_context)} "
+        f"backend={_distributed_backend(distributed_context)} "
         f"cuda_available={torch.cuda.is_available()} "
         f"xpu_available={_xpu_is_available()} "
         f"epochs={epochs} "
@@ -1844,6 +2155,7 @@ def _print_multitask_training_start(
     response_loss_scale: float,
     schedule: str,
     interleave_batch_totals: tuple[float, float],
+    distributed_context: DistributedContext | None = None,
 ) -> None:
     turn_valid_samples = 0 if turn_valid_dataset is None else len(turn_valid_dataset)
     response_valid_samples = 0 if response_valid_dataset is None else len(response_valid_dataset)
@@ -1853,6 +2165,10 @@ def _print_multitask_training_start(
         "[train] starting "
         "task=multitask "
         f"device={device} "
+        f"distributed={_distributed_enabled(distributed_context)} "
+        f"rank={_distributed_rank(distributed_context)} "
+        f"world_size={_distributed_world_size(distributed_context)} "
+        f"backend={_distributed_backend(distributed_context)} "
         f"cuda_available={torch.cuda.is_available()} "
         f"xpu_available={_xpu_is_available()} "
         f"epochs={epochs} "

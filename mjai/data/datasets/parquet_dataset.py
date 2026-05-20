@@ -266,6 +266,8 @@ class StreamingManifestTurnDataset(IterableDataset):
         include_legal_actions: bool = False,
         include_label_action: bool = False,
         seed: int = 20260423,
+        distributed_rank: int = 0,
+        distributed_world_size: int = 1,
     ) -> None:
         """执行与函数名对应的业务逻辑。
         
@@ -297,6 +299,8 @@ class StreamingManifestTurnDataset(IterableDataset):
         self.include_legal_actions = bool(include_legal_actions)
         self.include_label_action = bool(include_label_action)
         self.seed = int(seed)
+        self.distributed_rank = int(distributed_rank)
+        self.distributed_world_size = max(1, int(distributed_world_size))
         self._iteration = 0
 
     def __len__(self) -> int:
@@ -337,9 +341,11 @@ class StreamingManifestTurnDataset(IterableDataset):
 
         iteration = self._iteration
         self._iteration += 1
-        rng = random.Random(seed_base + iteration * 1009 + worker_id)
+        global_worker_id = self.distributed_rank * worker_count + worker_id
+        global_worker_count = self.distributed_world_size * worker_count
+        rng = random.Random(seed_base + iteration * 1009 + global_worker_id)
 
-        shard_indices = list(range(worker_id, len(self.shards), worker_count))
+        shard_indices = list(range(global_worker_id, len(self.shards), global_worker_count))
         if self.shuffle_shards:
             rng.shuffle(shard_indices)
 
@@ -383,6 +389,8 @@ class StreamingManifestResponseDataset(IterableDataset):
         include_legal_actions: bool = True,
         include_label_action: bool = False,
         seed: int = 20260423,
+        distributed_rank: int = 0,
+        distributed_world_size: int = 1,
     ) -> None:
         """执行与函数名对应的业务逻辑。
         
@@ -422,6 +430,8 @@ class StreamingManifestResponseDataset(IterableDataset):
         # label_action 只在离线 eval 错例报告中需要，训练和校准默认不解析。
         self.include_label_action = bool(include_label_action)
         self.seed = int(seed)
+        self.distributed_rank = int(distributed_rank)
+        self.distributed_world_size = max(1, int(distributed_world_size))
         self._iteration = 0
 
     def __len__(self) -> int:
@@ -462,9 +472,11 @@ class StreamingManifestResponseDataset(IterableDataset):
 
         iteration = self._iteration
         self._iteration += 1
-        rng = random.Random(seed_base + iteration * 1009 + worker_id)
+        global_worker_id = self.distributed_rank * worker_count + worker_id
+        global_worker_count = self.distributed_world_size * worker_count
+        rng = random.Random(seed_base + iteration * 1009 + global_worker_id)
 
-        shard_indices = list(range(worker_id, len(self.shards), worker_count))
+        shard_indices = list(range(global_worker_id, len(self.shards), global_worker_count))
         if self.shuffle_shards:
             rng.shuffle(shard_indices)
 

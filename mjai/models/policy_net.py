@@ -94,3 +94,10 @@ class MahjongPolicyNet(nn.Module):
             candidate_hidden=candidate_hidden,
             candidate_mask=batch["candidate_mask"],
         )
+
+    def forward(self, batch: dict[str, torch.Tensor], task_name: str) -> torch.Tensor:
+        if task_name == "turn":
+            return self.forward_turn(batch)
+        if task_name == "response":
+            return self.forward_response(batch)
+        raise ValueError(f"unsupported policy forward task: {task_name}")

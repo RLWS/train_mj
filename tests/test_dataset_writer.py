@@ -129,6 +129,54 @@ def test_build_dataset_writes_turn_and_response_parquet(tmp_path: Path):
     assert batch["state_feats"].shape[1] == TURN_STATE_DIM
     assert batch["candidate_feats"].shape[2] == TURN_ACTION_DIM
 
+    distributed_manifest = tmp_path / "turn_all.jsonl"
+    distributed_manifest.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "game_id": path.stem,
+                    "turn_path": path.as_posix(),
+                    "turn_rows": pq.read_metadata(path).num_rows,
+                }
+            )
+            + "\n"
+            for path in turn_files
+        ),
+        encoding="utf-8",
+    )
+    full_stream_ids = {
+        row["sample_id"]
+        for row in StreamingManifestTurnDataset(
+            distributed_manifest,
+            shuffle_shards=False,
+            shuffle_rows=False,
+        )
+    }
+    rank0_stream_ids = {
+        row["sample_id"]
+        for row in StreamingManifestTurnDataset(
+            distributed_manifest,
+            shuffle_shards=False,
+            shuffle_rows=False,
+            distributed_rank=0,
+            distributed_world_size=2,
+        )
+    }
+    rank1_stream_ids = {
+        row["sample_id"]
+        for row in StreamingManifestTurnDataset(
+            distributed_manifest,
+            shuffle_shards=False,
+            shuffle_rows=False,
+            distributed_rank=1,
+            distributed_world_size=2,
+        )
+    }
+    assert rank0_stream_ids
+    assert rank1_stream_ids
+    assert rank0_stream_ids.isdisjoint(rank1_stream_ids)
+    assert rank0_stream_ids | rank1_stream_ids == full_stream_ids
+
     streaming_dataset = StreamingManifestTurnDataset(manifest_path, shuffle_rows=False)
     streaming_rows = [row for _, row in zip(range(4), streaming_dataset)]
     streaming_batch = TurnBatchCollator(candidate_limit=64)(streaming_rows)

@@ -50,6 +50,13 @@ class MultitaskMahjongPolicyNet(nn.Module):
             candidate_mask=batch["candidate_mask"],
         )
 
+    def forward(self, batch: dict[str, torch.Tensor], task_name: str) -> torch.Tensor:
+        if task_name == "turn":
+            return self.forward_turn(batch)
+        if task_name == "response":
+            return self.forward_response(batch)
+        raise ValueError(f"unsupported multitask forward task: {task_name}")
+
 
 def _projection(input_dim: int, hidden_size: int, dropout: float) -> nn.Sequential:
     return nn.Sequential(
