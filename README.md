@@ -20,6 +20,7 @@
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
 - 已补上第一版 serving/API：`mjai/serving` 提供推理内核，`mjai/api` 提供 FastAPI 封装，支持 `/health`、`/v1/models`、`/v1/predict/turn` 和 `/v1/predict/response`。
+- P800 20w 数据上已完成单任务 improved、多任务 v1.1、v1.2 interleave 和 commit `7a7ad21` v1.1 复训的 run 归档；当前结论仍是 `turn` 可继续比较多任务候选，`response` 默认保留 2026-05-10 improved 单任务 checkpoint。
 - 当前测试基线为 `pytest` 全量通过，结果是 `114 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
@@ -90,7 +91,7 @@ pytest
 
 - 规则引擎还不是完整日麻规则实现；虽然已补上自家舍牌振听、同巡振听、立直后振听、`kyuushu_kyuuhai` 和第一版 `chankan`，但仍缺少更完整的和牌机会放弃语义、其他途中流局边界与完整计分结算等能力。
 - 诊断输出已经有第一版，并已打通 `eval -> inspect-sample -> dump-case` 的轻量跳转链路，但还缺少更细的错例聚合、固定 case 集合和更丰富的数据质量报告。
-- 当前训练与评估已覆盖 `turn/response` 单任务 baseline，并已有 P800 大数据结果；类别权重仍是手工配置，自动权重估计、采样均衡、多任务、系统化错误分析工具和推理服务都还没开始。
+- 当前训练与评估已覆盖 `turn/response` 单任务 baseline 与多任务对照 run；类别权重仍是手工配置，自动权重估计、采样均衡、系统化错误分析工具和服务端合法动作生成仍待推进。
 
 ## 文档索引
 
@@ -105,6 +106,6 @@ pytest
 
 ## 建议的下一步
 
-1. 规范 run 归档：本轮 `runs/2026-05-06_p800_baseline/` 已补齐 preprocess、validation、build、manifest 摘要并能对齐 checkpoint 样本数；后续把非法标签复核、配置、日志和 eval report 也统一放到同一轮记录里。
-2. 用 `calibrate-response` 跑 response pass/call 校准报告，再做错例抽样；目标是控制 false call 绝对量，同时观察 `chi/pon` recall 和 `non_pass_f1`。
-3. 用 `sample-turn-errors` 抽 turn discard 的 `rank=2/3` top-k 错例，再按证据补牌河时序、摸切/手出、对手威胁、候选弃牌安全性、点况等特征。
+1. 用 `sample-turn-errors` 针对 `7a7ad21 best_turn.pt` 抽 `riichi_discard` 和 `non_discard` 回退错例，判断它是否能替代 old v1.1。
+2. 继续 response hard negative 和 rare-action 分析；在 `response_ce` loss scale、少数类处理或扩大到 40w 数据中一次只推进一个变量。
+3. 把 DDP 作为单独的工程加速验证项推进，避免和模型质量变量混在同一轮实验里。

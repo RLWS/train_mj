@@ -1,6 +1,6 @@
 # 多任务训练方案
 
-更新时间：`2026-05-17`
+更新时间：`2026-05-21`
 
 ## 1. 目标
 
@@ -442,3 +442,66 @@ v1.2 `best_response.pt` 的 valid/test 曲线一致。test 关键 bias 点如下
 - `turn`：v1.2 `best_turn.pt` 是合理候选，但 v1.1 仍是更均衡的 turn baseline。后续如果要选 v1.2，应明确接受 macro 与 `non_discard` 小幅下降，换取 overall top1、discard 与 ankan。
 - `response`：继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为默认候选。v1.2 的 response 只说明 interleave 比 v1.1 `best.pt` 更健康，不说明它已经超过单任务 improved。
 - 调度：`batch_interleave` 去掉了 epoch-sequential 的顺序覆盖变量，并改善了部分 response macro 指标，但没有解决 response 的核心 false/missed/F1/少数类取舍。因此默认 P800 多任务配置已回到 v1.1 `epoch_sequential`；v1.2 保留为 `configs/experiments/multitask_p800_v1_2_interleave.yaml`，只在需要复现实验或继续验证调度变量时显式使用。
+
+## 9. 2026-05-20 commit 7a7ad21 v1.1 复训结果
+
+本轮 run 已归档到 `runs/2026-05-20_p800_multitask_v1_1_7a7ad21/`，继续使用数据集 `runs/_datasets/tenhou_20w_2026-05-06/`。训练配置仍是 `multitask_p800_v1_1` 的 `epoch_sequential`，但代码基准是 `7a7ad21`，因此单独用 commit 号区分归档目录。完整分析见该 run 目录下的 `analysis.md`。
+
+已归档内容包括：
+
+```text
+runs/2026-05-20_p800_multitask_v1_1_7a7ad21/multitask/checkpoints/
+runs/2026-05-20_p800_multitask_v1_1_7a7ad21/multitask/logs/
+runs/2026-05-20_p800_multitask_v1_1_7a7ad21/multitask/eval/
+runs/2026-05-20_p800_multitask_v1_1_7a7ad21/multitask/calibration/
+```
+
+### 9.1 Turn 结论
+
+本轮 `best_turn.pt` 是当前 20w run 里 overall 指标最高的 turn 候选：test `top1=71.88%`、`top3=95.59%`、`top5=98.92%`、`discard top1=71.42%`。相比 old v1.2 `best_turn.pt`，overall top1 提升约 `+0.15pp`，相比 old v1.1 提升约 `+0.20pp`。
+
+代价是少数类稳定性不足：`riichi_discard=85.94%`，低于 old v1.1 的 `88.03%` 和 old v1.2 `best_turn.pt` 的 `87.01%`；`non_discard=90.73%`，也低于 old v1.1 的 `92.07%` 和 old v1.2 的 `91.43%`。
+
+当前判断：`7a7ad21 best_turn.pt` 是 overall/discard 取向的候选，但 old v1.1 仍是更均衡的 turn baseline。
+
+### 9.2 Response 结论
+
+本轮 response raw test 仍不能替代 2026-05-10 improved 单任务 checkpoint：
+
+| 指标 | improved | 7a7ad21 `best_response.pt` |
+| --- | ---: | ---: |
+| multi-candidate top1 | `86.86%` | `86.41%` |
+| multi-candidate macro top1 | `88.43%` | `87.60%` |
+| non-pass F1 | `72.14%` | `71.41%` |
+| false call rate | `1.105%` | `1.142%` |
+| missed call rate | `7.28%` | `7.53%` |
+| chi / pon top1 | `81.98% / 94.75%` | `81.03% / 94.85%` |
+| daiminkan top1 | `68.17%` | `64.59%` |
+
+相对 old v1.1 `best_response.pt`，本轮 `daiminkan` 从 `49.77%` 恢复到 `64.59%`，说明新代码/特征状态对 rare action 有帮助；但核心 default-serving 口径仍落后于 improved。
+
+`best.pt` 的 response macro 和 `daiminkan` 更高，raw test `macro=91.04%`、`daiminkan=71.92%`，但它的 F1、false call 和 missed call 都弱于 `best_response.pt`，因此只适合作为诊断 checkpoint。
+
+### 9.3 Calibration 结论
+
+本轮 valid/test calibration 都已归档：
+
+- `multitask_p800_v1_1_best_calibration_valid.json`
+- `multitask_p800_v1_1_best_response_calibration_valid.json`
+- `multitask_p800_v1_1_best_calibration_test.json`
+- `multitask_p800_v1_1_best_response_calibration_test.json`
+
+test 对比没有反转 response 结论。以 `best_response.pt` 为例：
+
+| checkpoint | pass_bias | false call | missed call | non-pass F1 | multi top1 | daiminkan top1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| improved | `0.3` | `0.925%` | `9.29%` | `74.18%` | `88.40%` | `61.6%` |
+| 7a7ad21 best_response | `0.3` | `0.956%` | `9.55%` | `73.51%` | `88.02%` | `56.7%` |
+| improved | `0.4` | `0.869%` | `10.06%` | `74.80%` | `88.85%` | `58.7%` |
+| 7a7ad21 best_response | `0.4` | `0.897%` | `10.32%` | `74.15%` | `88.50%` | `53.0%` |
+| improved | `0.6` | `0.763%` | `11.76%` | `75.86%` | `89.67%` | `50.9%` |
+| 7a7ad21 best_response | `0.6` | `0.786%` | `12.01%` | `75.29%` | `89.38%` | `43.7%` |
+
+同 bias 下，`7a7ad21 best_response.pt` 在 false call、missed call、F1、multi top1 和 `daiminkan` 上都弱于 improved。`best.pt` 保留了更多 `daiminkan`，test `pass_bias=0.3` 时为 `66.4%`，但同时只有 `F1=73.17%`、`multi top1=87.78%`，仍不适合作为默认 response checkpoint。
+
+当前结论不变：response 默认继续使用 2026-05-10 improved；`7a7ad21` 这轮主要作为 turn overall 候选和 response rare-action 诊断证据。

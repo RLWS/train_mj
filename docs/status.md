@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-05-20`
+更新时间：`2026-05-21`
 
 ## 1. 总体判断
 
@@ -9,7 +9,7 @@
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
 - `Phase 1` 已推进到大数据单任务 baseline、第一轮特征复训和多任务调度实验之后：`turn/response` 都已经有 P800 baseline 与 improved 两轮 valid/test eval，v1.1 epoch-sequential multitask 和 v1.2 batch-interleave multitask 也已经有可对照 test 指标。
 
-换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准、分析模型取舍，并提供第一版 HTTP 推理接口”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 多任务结果显示 `turn` 明确受益，但 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务。v1.2 `batch_interleave` 修复了部分 response macro/`daiminkan` 问题；`best_turn.pt` 也恢复了大部分 turn 少数类回退，但整体仍不是对 v1.1 turn 的明确替代，response 经 raw eval 与 valid/test calibration 后仍未超过 improved。当前默认 P800 多任务配置已回到 v1.1；v1.2 仅作为显式实验配置保留。后续重点转为 response loss scale、少数类处理或扩大数据。DDP 已接入训练引擎但尚未完成 P800 多卡实测；服务端合法动作生成和在线对局代理仍未完成。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准、分析模型取舍，并提供第一版 HTTP 推理接口”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 多任务结果显示 `turn` 明确受益，但 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务。v1.2 `batch_interleave` 修复了部分 response macro/`daiminkan` 问题；`best_turn.pt` 也恢复了大部分 turn 少数类回退，但整体仍不是对 v1.1 turn 的明确替代，response 经 raw eval 与 valid/test calibration 后仍未超过 improved。2026-05-20 基于 commit `7a7ad21` 的 v1.1 复训仍使用 20w 数据，`best_turn.pt` 刷新了 overall `turn top1/top3/top5` 与 `discard top1`，但 `riichi_discard` 和 `non_discard` 低于旧 v1.1/v1.2 候选；`response` raw eval 与 valid/test calibration 仍未超过 improved。当前默认 P800 多任务配置仍回到 v1.1；v1.2 仅作为显式实验配置保留。后续重点转为 response loss scale、少数类处理、扩大数据或对 `7a7ad21` 的 turn 少数类回退做错例排查。DDP 已接入训练引擎但尚未完成 P800 多卡实测；服务端合法动作生成和在线对局代理仍未完成。
 
 ## 2. 已验证结果
 
@@ -76,6 +76,10 @@
   - `turn best.pt` 达到当前最高 overall top1：test `top1=0.7180`、`top3=0.9539`、`top5=0.9885`。补跑 `best_turn.pt` 后，少数类明显恢复：`top1=0.7173`、`macro=0.9125`、`riichi_discard=0.8701`、`non_discard=0.9143`、`ankan=0.9231`。但 v1.1 仍有更高 macro、`riichi_discard`、`kakan` 和 `non_discard`，因此 v1.2 `best_turn.pt` 是候选，不是明确替代。
   - `response best_response.pt` 与 `best.pt` raw test 完全一致：`macro_top1=0.9017`、`multi_candidate top1=0.8604`、`multi_candidate macro=0.8780`、`non_pass_f1=0.7117`、`false_call_rate=1.203%`、`missed_call_rate=6.07%`、`daiminkan=0.6232`。相对 v1.1 `best.pt` 更健康，但仍弱于 v1.0.0 improved 的核心 response 口径。valid/test calibration 未反转结论：test `pass_bias=0.4` 时 v1.2 为 `false_call=0.969%`、`missed=8.39%`、`F1=73.87%`、`daiminkan=47.2%`，仍弱于 improved 默认 `pass_bias=0.3` 的 `0.925% / 9.29% / 74.18% / 61.6%`。response 默认候选不变。
   - 默认配置决策：`configs/multitask_p800.yaml`、`start.sh` 和 `docker-compose.p800.yml` 已回到 v1.1 路径。v1.2 复现配置已收拢到 `configs/experiments/multitask_p800_v1_2_interleave.yaml`，不再放在主配置入口目录。
+- 2026-05-20 基于 commit `7a7ad21` 的 P800 multitask v1.1 复训已完成，训练产物已归档到 `runs/2026-05-20_p800_multitask_v1_1_7a7ad21/`，分析记录见 [multitask-training.md](multitask-training.md) 第 9 节和 run 目录下的 `analysis.md`。
+  - `turn best_turn.pt` 是当前 20w run 的 overall 高点：test `top1=0.7188`、`top3=0.9559`、`top5=0.9892`、`discard=0.7142`。但 `macro=0.9106`、`riichi_discard=0.8594`、`non_discard=0.9073` 均弱于 old v1.1，说明该 checkpoint 更偏 overall/discard，不是对 old v1.1 的均衡替代。
+  - `response best_response.pt` raw test 为 `multi_candidate top1=0.8641`、`multi_candidate macro=0.8760`、`non_pass_f1=0.7141`、`false_call_rate=1.142%`、`missed_call_rate=7.53%`、`daiminkan=0.6459`。相对 old v1.1 `best_response.pt` 明显恢复 `daiminkan`，但仍弱于 improved 单任务的 `multi_candidate top1=0.8686`、`non_pass_f1=0.7214`、`false_call_rate=1.105%` 和 `daiminkan=0.6817`。
+  - valid/test calibration 已归档。test `pass_bias=0.3` 下，`7a7ad21 best_response.pt` 为 `false_call=0.956%`、`missed=9.55%`、`F1=73.51%`、`multi top1=88.02%`、`daiminkan=56.7%`，弱于 improved 默认 `0.925% / 9.29% / 74.18% / 88.40% / 61.6%`；test `pass_bias=0.4` 下也仍弱于 improved 的同 bias 结果。因此 response 默认候选不变。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
@@ -235,7 +239,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - v1.1 已新增 `MultitaskMahjongPolicyNet`：`turn/response` 各自保留 state projection、action encoder 和 head，共享一段状态 encoder 主干，解决两个任务输入维度不同但仍需共享表征的问题。
 - 训练入口已支持 `task: multitask`。v1.1 使用 epoch 级顺序调度；当前代码已新增 `batch_interleave`，会按有效训练 batch 进度比例交错更新 `turn` / `response`，valid 阶段仍分别评估两路指标。由于 response train 会过滤 pass-only 样本，P800 v1.2 显式配置 `task.interleave_batches`，避免用 response 原始行数高估调度权重。
 - 多任务 checkpoint 可通过 `python -m mjai.cli eval --ckpt <ckpt> --task turn|response` 分别评估，也已兼容 `calibrate-response`、`sample-response-errors` 和 `sample-turn-errors`。
-- P800 多任务训练已经完成两轮：v1.1 epoch-sequential 证明 `turn` 受益但 `response` 弱于 improved；v1.2 batch-interleave 证明调度能改善 response macro/`daiminkan`，`best_turn.pt` 能恢复大部分 turn 少数类回退，但 response 在 `best_response.pt` raw eval 与 valid/test calibration 下仍未超过 improved。默认多任务训练入口回到 v1.1，`batch_interleave` 作为显式实验能力保留，复现配置位于 `configs/experiments/`。DDP 已作为训练加速工程能力接入；自动 loss scale 与 value head 仍暂不混入当前变量。
+- P800 多任务训练已经完成三轮可对照结果：v1.1 epoch-sequential 证明 `turn` 受益但 `response` 弱于 improved；v1.2 batch-interleave 证明调度能改善 response macro/`daiminkan`，`best_turn.pt` 能恢复大部分 turn 少数类回退；commit `7a7ad21` 的 v1.1 复训进一步刷新 turn overall top1/top3/top5，但牺牲了 `riichi_discard` 与 `non_discard`。到目前为止，所有 multitask response 在 raw eval 与已完成 calibration 下仍未超过 improved。默认多任务训练入口回到 v1.1，`batch_interleave` 作为显式实验能力保留，复现配置位于 `configs/experiments/`。DDP 已作为训练加速工程能力接入；自动 loss scale 与 value head 仍暂不混入当前变量。
 
 下一阶段优先补：
 
@@ -249,7 +253,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 数据重建与 P800 大数据训练提醒：
 
 - turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 improved run 的样本数和训练日志对齐。后续只要 feature schema、parser/rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`。
-- 20 万局量级的 baseline、improved 单任务训练、v1.1 多任务和 v1.2 `batch_interleave` 都已跑完，valid/test 指标稳定。v1.2 的 `best_response.pt` raw test eval、valid/test calibration 和 `best_turn.pt` test eval 已补齐。下一轮可把 DDP 作为单独的工程加速验证项推进；模型质量主线仍应在 `response_ce` loss scale、少数类处理或扩大到 40w 中选一个变量推进，不要同时混入 value head 和复杂模型。
+- 20 万局量级的 baseline、improved 单任务训练、old v1.1 多任务、v1.2 `batch_interleave` 和 commit `7a7ad21` v1.1 复训都已跑完。`7a7ad21` 的 raw test eval 与 valid/test calibration 已归档。下一轮可把 DDP 作为单独的工程加速验证项推进；模型质量主线仍应在 `response_ce` loss scale、少数类处理、扩大到 40w，或对 `7a7ad21` 的 turn 少数类回退做错例排查中选一个变量推进，不要同时混入 value head 和复杂模型。
 - 当前缺口不是“能否训练”：后续应继续按 `runs/<date>_<exp>/` 固化每轮模型证据，并通过 `dataset_id` 引用 `runs/_datasets/<dataset_id>/` 中的数据证据。
 - v1.0.0 response 默认 operating point 已定为 `pass_bias=0.3`；`0.16` 作为偏召回候选，`0.4` 作为保守候选。后续推理/服务配置应显式记录该值。
 
