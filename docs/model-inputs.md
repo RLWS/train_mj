@@ -1,6 +1,6 @@
 # 模型输入特征说明
 
-更新时间：`2026-05-09`
+更新时间：`2026-06-01`
 
 本文记录当前 `turn` / `response` policy 模型实际吃到的输入张量、维度和每个维度的语义。这里描述的是 `build-dataset` 写入 `silver_samples` 后，训练和评估阶段从 parquet 读取的离线预编码特征。
 
@@ -30,6 +30,8 @@ TurnSample/ResponseSample
 -> *BatchCollator
 -> MahjongPolicyNet
 ```
+
+注意：当前没有把完整牌河序列作为 state/history token 输入模型。`turn` 的弃牌候选侧已经包含第一版牌河顺序派生特征，包括某张候选牌在自家/他家牌河中的出现次数、对手最早/最近打出巡目、早巡/最近 6 巡现物、多家现物和相对座位现物。也就是说，模型已经看到“与当前候选弃牌相关的牌河时序摘要”，但还没有看到完整逐巡事件序列。
 
 ## 2. 公共编码顺序
 
@@ -62,7 +64,7 @@ TurnSample/ResponseSample
 | 范围 | 维度 | 语义 |
 |---:|---:|---|
 | `0..36` | 37 | 当前玩家手牌 exact tile counts |
-| `37..184` | 148 | 四家弃牌河 exact tile counts，按玩家 `0,1,2,3` 各 37 维 |
+| `37..184` | 148 | 四家弃牌河 exact tile counts，按玩家 `0,1,2,3` 各 37 维；这里是计数，不保留完整顺序 |
 | `185..222` | 38 | 最近一张弃牌，optional tile |
 | `223..227` | 5 | 最近弃牌玩家，optional actor |
 | `228..231` | 4 | 当前决策玩家 actor one-hot |
@@ -110,6 +112,8 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 对于 `tsumo / ankan / kakan / kyuushu_kyuuhai` 等非弃牌候选，只有动作类型和可选 tile one-hot 有效，后 41 维 discard-like 特征为 0。
 
 ### 5.1 turn discard-like 特征，41 维
+
+这组特征里包含当前第一版牌河顺序信息。它不是完整牌河序列编码，而是围绕“当前候选弃牌”计算的时序摘要，用于让模型判断这张牌是否已经成为现物、是否近期被某家打过、是否多家安全等。
 
 以下索引是相对于 discard-like block 的局部索引；全局维度为 `44 + index`。
 
