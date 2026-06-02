@@ -235,6 +235,7 @@ class GameState:
     riichi_furiten: list[bool] = field(default_factory=lambda: [False] * 4)
     scores: list[int] = field(default_factory=lambda: [250] * 4)
     dealer: int = 0
+    round_wind: int = 0
     honba: int = 0
     riichi_sticks: int = 0
     dora_indicators: list[str] = field(default_factory=list)
@@ -269,6 +270,7 @@ class GameState:
         seed_parts = [int(part) for part in str(payload.get("seed", "")).split(",") if part]
         honba = seed_parts[1] if len(seed_parts) > 1 else 0
         riichi_sticks = seed_parts[2] if len(seed_parts) > 2 else 0
+        round_wind = int(payload["round_wind"])
         dora_indicator = payload.get("dora_indicator")
         dora_indicators = [str(dora_indicator)] if dora_indicator is not None else []
         return cls(
@@ -276,6 +278,7 @@ class GameState:
             kyoku_index=kyoku_index,
             scores=scores,
             dealer=int(payload.get("oya", 0)),
+            round_wind=round_wind,
             honba=honba,
             riichi_sticks=riichi_sticks,
             dora_indicators=dora_indicators,

@@ -315,6 +315,10 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
     """
     config_override = _load_optional_config(getattr(args, "config", None))
     pass_biases = _parse_float_list(args.pass_biases, option_name="--pass-biases")
+    no_yaku_call_penalties = _parse_float_list(
+        args.no_yaku_call_penalties,
+        option_name="--no-yaku-call-penalties",
+    )
     false_call_targets = _parse_rate_list(
         args.false_call_targets,
         option_name="--false-call-targets",
@@ -323,6 +327,7 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
         ckpt_path=args.ckpt,
         split=args.split,
         pass_biases=pass_biases,
+        no_yaku_call_penalties=no_yaku_call_penalties,
         false_call_rate_targets=false_call_targets,
         config_override=config_override,
         report_path=getattr(args, "report", None),
@@ -333,6 +338,8 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
     print(
         f"calibrated task={summary.task} split={summary.split} "
         f"points={len(summary.points)} samples={summary.points[0].samples if summary.points else 0} "
+        f"pass_biases={len(summary.pass_biases)} "
+        f"no_yaku_call_penalties={len(summary.no_yaku_call_penalties)} "
         f"device={summary.used_device}"
     )
     print(f"manifest={summary.manifest_path}")
@@ -342,14 +349,16 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
             print(
                 "calibration_selection="
                 f"target_false_call_rate={selection.false_call_rate_target:.4f} "
-                "selected_pass_bias=None"
+                "selected_pass_bias=None selected_no_yaku_call_penalty=None"
             )
             continue
         print(
             "calibration_selection="
             f"target_false_call_rate={selection.false_call_rate_target:.4f} "
             f"selected_pass_bias={selection.selected_pass_bias:.4f} "
+            f"selected_no_yaku_call_penalty={selection.selected_no_yaku_call_penalty:.4f} "
             f"false_call_rate={selection.selected_false_call_rate:.4f} "
+            f"no_yaku_false_call_rate={selection.selected_no_yaku_false_call_rate:.4f} "
             f"missed_call_rate={selection.selected_missed_call_rate:.4f} "
             f"non_pass_precision={selection.selected_non_pass_precision:.4f} "
             f"non_pass_recall={selection.selected_non_pass_recall:.4f} "
@@ -368,6 +377,7 @@ def _run_sample_response_errors(args: argparse.Namespace) -> int:
         targets=targets,
         per_target=int(args.per_target),
         pass_bias=float(args.pass_bias),
+        no_yaku_call_penalty=float(args.no_yaku_call_penalty),
         seed=getattr(args, "seed", None),
         config_override=config_override,
         manifest_path=getattr(args, "manifest", None),
@@ -377,6 +387,7 @@ def _run_sample_response_errors(args: argparse.Namespace) -> int:
     print(
         f"sampled response errors task={summary.task} split={summary.split} "
         f"samples={summary.samples_seen} pass_bias={summary.pass_bias:.4f} "
+        f"no_yaku_call_penalty={summary.no_yaku_call_penalty:.4f} "
         f"seed={summary.seed} device={summary.used_device}"
     )
     print(f"manifest={summary.manifest_path}")
@@ -720,6 +731,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated false-call-rate targets; percent values like 1%% are accepted.",
     )
     calibrate_response.add_argument(
+        "--no-yaku-call-penalties",
+        "--no-yaku-call-penalty",
+        dest="no_yaku_call_penalties",
+        default="0",
+        help=(
+            "Comma-separated penalties subtracted from no-obvious-yaku chi/pon/daiminkan "
+            "candidates before pass-bias selection."
+        ),
+    )
+    calibrate_response.add_argument(
         "--log-every-n-batches",
         type=int,
         default=100,
@@ -767,6 +788,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help="Pass bias / call margin in logit units; use 0 for raw eval argmax.",
+    )
+    sample_response_errors_parser.add_argument(
+        "--no-yaku-call-penalty",
+        type=float,
+        default=0.0,
+        help=(
+            "Penalty subtracted from no-obvious-yaku chi/pon/daiminkan candidates "
+            "before pass-bias selection."
+        ),
     )
     sample_response_errors_parser.add_argument(
         "--seed",

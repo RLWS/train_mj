@@ -29,6 +29,7 @@ class ModelMetadata:
     hidden_size: int
     dropout: float
     default_pass_bias: float | None = None
+    no_yaku_call_penalty: float = 0.0
 
 
 @dataclass(slots=True)
@@ -43,6 +44,7 @@ class LoadedPolicy:
     dropout: float
     candidate_limit: int
     default_pass_bias: float | None
+    no_yaku_call_penalty: float
     model: nn.Module
     config: dict[str, Any]
 
@@ -58,6 +60,7 @@ class LoadedPolicy:
             hidden_size=self.hidden_size,
             dropout=self.dropout,
             default_pass_bias=self.default_pass_bias,
+            no_yaku_call_penalty=self.no_yaku_call_penalty,
         )
 
 
@@ -70,3 +73,4 @@ class PredictionResult:
     model: ModelMetadata
     raw_selected_action: dict[str, Any] | None = None
     pass_bias: float | None = None
+    no_yaku_call_penalty: float | None = None

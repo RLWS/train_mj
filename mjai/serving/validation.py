@@ -51,6 +51,9 @@ def validate_and_normalize_state(task: str, state: Mapping[str, Any] | None) -> 
     normalized["dora_indicators"] = _normalize_tile_list(normalized.get("dora_indicators"), "dora_indicators")
     normalized["actor"] = _normalize_seat(normalized.get("actor", 0), "actor")
     normalized["dealer"] = _normalize_seat(normalized.get("dealer", 0), "dealer")
+    if task == "response" and "round_wind" not in normalized:
+        raise RequestValidationError("response requests require state.round_wind")
+    normalized["round_wind"] = _normalize_wind(normalized.get("round_wind", 0), "round_wind")
     normalized["seat_wind"] = _normalize_seat(normalized.get("seat_wind", 0), "seat_wind")
     normalized["turn_number"] = _normalize_int(normalized.get("turn_number", 0), "turn_number")
     normalized["remaining_draws_estimate"] = _normalize_int(
@@ -145,6 +148,16 @@ def _normalize_hand(value: Any) -> dict[str, int]:
     for tile, count in value.items():
         normalized[_normalize_tile(tile, "hand tile")] = _normalize_int(count, "hand count")
     return normalized
+
+
+def _normalize_wind(value: Any, field_name: str) -> int:
+    try:
+        wind = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RequestValidationError(f"{field_name} must be an integer wind index") from exc
+    if wind < 0 or wind > 3:
+        raise RequestValidationError(f"{field_name} must be in 0..3")
+    return wind
 
 
 def _normalize_tile_list(value: Any, field_name: str) -> list[str]:

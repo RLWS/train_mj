@@ -1,6 +1,6 @@
 # Serving API 方案
 
-更新时间：`2026-05-16`
+更新时间：`2026-06-01`
 
 本文记录为项目新增 API 模块的方案与当前实现状态。目标是让外部应用可以通过稳定接口调用当前 `turn` / `response` 模型，同时保持规则、特征、模型和 HTTP 服务之间的边界清晰。
 
@@ -15,6 +15,7 @@
 - 复用现有 `mjai/features/`、`mjai/models/`、`mjai/eval/` 的模型输入和 checkpoint 加载逻辑。
 - 模型只在 `legal_actions` 候选集合内打分，最终输出必须来自合法候选集合。
 - `response` 推理显式接入当前已验证的 `pass_bias` operating point，默认使用 v1.0.0 improved response 的 `pass_bias=0.3`。
+- `response` 推理支持 `no_yaku_call_penalty`，用于对“首次开门后无明显役路”的 `chi/pon/daiminkan` 候选额外扣分，降低无役鸣牌 false call。
 - HTTP 层保持薄封装，业务推理能力沉到 `mjai/serving/`，便于 CLI、测试和未来在线对局代理复用。
 
 第一版不做：
@@ -84,6 +85,8 @@ def load_policy_checkpoint(
 - `checkpoint_task`
 - `device`
 - `candidate_limit`
+- response 默认 `pass_bias`
+- response `no_yaku_call_penalty`
 
 ### `mjai/serving/predictor.py`
 
@@ -130,6 +133,7 @@ class MahjongPredictor:
 - 对 `response` 支持两种口径：
   - `raw`：直接按 logits 排序。
   - `calibrated`：使用 `pass_bias` 选择 `pass` 或最佳非 `pass`。
+  - `safe calibrated`：在 calibrated 前先对无明显开副露役路的 call 候选应用 `no_yaku_call_penalty`。
 
 `response` calibrated 选择规则必须和现有 calibration 逻辑一致：
 
@@ -139,12 +143,17 @@ choose_non_pass = non_pass_exists and (
 )
 ```
 
+当 `no_yaku_call_penalty > 0` 且候选特征中的 response call/context `features[38] == 1` 时，先从该 `chi/pon/daiminkan` 候选 logit 中扣除该惩罚，再执行上面的 `pass_bias` 比较。raw prediction 与 top-k 排序仍保留模型原始 logits，用于诊断模型本身的偏好。
+
+离线诊断命令也使用同一选择口径：`calibrate-response` 支持 `--no-yaku-call-penalties` / `--no-yaku-call-penalty` 扫描或固定无役候选扣分，并在报告中写入 `no_yaku_false_call_rate`、`no_yaku_false_call_share`；`sample-response-errors` 支持 `--no-yaku-call-penalty`，用于按同一安全口径抽取 `pass->chi` / `pass->pon` 等错例。
+
 当前默认值：
 
 ```text
 default:      pass_bias = 0.3
 recall:       pass_bias = 0.16
 conservative: pass_bias = 0.4
+no_yaku_call_penalty = 0.4  # configs/api_local.yaml
 ```
 
 ### `mjai/serving/validation.py`
@@ -162,6 +171,7 @@ conservative: pass_bias = 0.4
 - `legal_actions` 必须为非空列表，且不超过 `min(api.max_legal_actions, checkpoint_candidate_limit)`。
 - `top_k` 必须为正数，`response.pass_bias` 必须为非负数。
 - `state.hand`、`all_discards`、`own_melds`、`all_melds`、`dora_indicators`、`scores` 等字段会按推理特征需要归一化。
+- `response` 请求必须提供 `state.round_wind`，并按 `0..3` 归一化。它不进入 state 向量维度，但会影响 response 役牌路线与无役风险候选特征。
 - `response` 请求必须包含 `state.response_target.source` 与 `state.response_target.tile`。
 - tile 字符串、actor/source 座位、action kind 会做基础合法性检查。
 - `response` 请求缺失 `all_melds` 时归一为 `[[], [], [], []]`。

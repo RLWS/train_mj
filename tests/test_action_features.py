@@ -138,6 +138,7 @@ def test_encode_response_action_adds_call_shape_features():
         "last_discard_actor": 3,
         "last_discard_tile": "3m",
         "response_target": {"source": 3, "tile": "3m"},
+        "round_wind": 0,
         "dora_base_indices": [4],
         "turn_number": 8,
         "remaining_draws_estimate": 10,
@@ -182,6 +183,7 @@ def test_encode_response_action_marks_yakuhai_pon_and_red_cost():
         "last_discard_tile": "5z",
         "response_target": {"source": 0, "tile": "5z"},
         "dealer": 0,
+        "round_wind": 0,
         "seat_wind": 1,
         "dora_base_indices": [13],
         "turn_number": 3,
@@ -231,6 +233,7 @@ def test_encode_response_action_marks_open_yaku_routes_and_no_yaku_risk():
         "last_discard_tile": "3m",
         "response_target": {"source": 3, "tile": "3m"},
         "dealer": 0,
+        "round_wind": 0,
         "seat_wind": 0,
         "dora_base_indices": [],
         "turn_number": 5,
@@ -271,6 +274,51 @@ def test_encode_response_action_marks_open_yaku_routes_and_no_yaku_risk():
     assert tanyao_features[38] == 0.0
 
 
+def test_encode_response_action_uses_round_wind_for_yakuhai_route():
+    """验证场风参与役牌路线判断。"""
+    state = {
+        "actor": 0,
+        "hand": {
+            "1m": 1,
+            "2m": 1,
+            "3m": 1,
+            "4m": 1,
+            "5m": 1,
+            "6m": 1,
+            "7m": 1,
+            "8m": 1,
+            "9m": 1,
+            "2z": 2,
+            "5z": 1,
+        },
+        "all_discards": [[], [], [], ["2z"]],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "all_melds": [[], [], [], []],
+        "last_discard_actor": 3,
+        "last_discard_tile": "2z",
+        "response_target": {"source": 3, "tile": "2z"},
+        "dealer": 0,
+        "round_wind": 1,
+        "seat_wind": 0,
+        "dora_base_indices": [],
+        "turn_number": 5,
+        "remaining_draws_estimate": 13,
+    }
+
+    vector = encode_response_action(
+        {"kind": "pon", "tile": "2z", "source": 3, "consumed_tiles": ["2z", "2z"]},
+        state,
+    )
+
+    features = vector[-RESPONSE_CALL_FEATURE_DIM:]
+    assert features[16] == 1.0
+    assert features[34] == 1.0
+    assert features[38] == 0.0
+
+
 def test_encode_response_action_marks_chiitoitsu_route_break_and_visible_wait_copies():
     """验证响应动作编码标记七对子路线破坏与可见牌修正有效牌枚数。"""
     state = {
@@ -294,6 +342,7 @@ def test_encode_response_action_marks_chiitoitsu_route_break_and_visible_wait_co
         "last_discard_tile": "1m",
         "response_target": {"source": 3, "tile": "1m"},
         "dealer": 0,
+        "round_wind": 0,
         "seat_wind": 0,
         "dora_base_indices": [],
         "turn_number": 7,
@@ -310,6 +359,33 @@ def test_encode_response_action_marks_chiitoitsu_route_break_and_visible_wait_co
     assert call_features[30] <= call_features[9]
     assert call_features[39] == 0.0
     assert call_features[40] == 1.0
+
+
+def test_encode_response_action_requires_round_wind_for_yakuhai_features():
+    state = {
+        "actor": 0,
+        "hand": {"1z": 2, "2m": 1, "3m": 1, "4m": 1},
+        "all_discards": [[], [], [], ["1z"]],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "own_melds": [],
+        "all_melds": [[], [], [], []],
+        "last_discard_actor": 3,
+        "last_discard_tile": "1z",
+        "response_target": {"source": 3, "tile": "1z"},
+        "dealer": 0,
+        "seat_wind": 2,
+        "dora_base_indices": [],
+        "turn_number": 5,
+        "remaining_draws_estimate": 13,
+    }
+
+    with pytest.raises(KeyError, match="round_wind"):
+        encode_response_action(
+            {"kind": "pon", "tile": "1z", "source": 3, "consumed_tiles": ["1z", "1z"]},
+            state,
+        )
 
 
 def test_encode_turn_state_includes_furiten_flags():

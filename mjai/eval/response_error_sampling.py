@@ -27,6 +27,7 @@ from mjai.eval.offline import (
     _worker_loader_kwargs,
 )
 from mjai.eval.response_calibration import _candidate_kind_ids
+from mjai.eval.response_calibration import _no_yaku_call_candidate_mask
 from mjai.features.action_features import RESPONSE_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM
 from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
@@ -70,6 +71,7 @@ class ResponseErrorSamplingSummary:
     used_device: str
     seed: int
     pass_bias: float
+    no_yaku_call_penalty: float
     per_target: int
     targets: list[str]
     samples_seen: int
@@ -85,6 +87,7 @@ def sample_response_errors(
     targets: list[str] | None = None,
     per_target: int = 100,
     pass_bias: float = 0.0,
+    no_yaku_call_penalty: float = 0.0,
     seed: int | None = None,
     config_override: dict[str, Any] | None = None,
     manifest_path: str | Path | None = None,
@@ -109,6 +112,7 @@ def sample_response_errors(
     resolved_targets = _normalize_targets(targets)
     resolved_per_target = _normalize_per_target(per_target)
     resolved_pass_bias = _normalize_pass_bias(pass_bias)
+    resolved_no_yaku_call_penalty = _normalize_no_yaku_call_penalty(no_yaku_call_penalty)
     resolved_seed = int(config.get("seed", 20260423) if seed is None else seed)
     resolved_manifest_path = _resolve_sampling_manifest_path(config, split, manifest_path)
     resolved_output_path = Path(output_path)
@@ -182,6 +186,7 @@ def sample_response_errors(
                 logits=logits,
                 batch=prepared_batch,
                 pass_bias=resolved_pass_bias,
+                no_yaku_call_penalty=resolved_no_yaku_call_penalty,
             )
             samples_seen += int(prepared_batch["labels"].shape[0])
             sampler.update_batch(
@@ -214,6 +219,7 @@ def sample_response_errors(
         used_device=str(device),
         seed=resolved_seed,
         pass_bias=resolved_pass_bias,
+        no_yaku_call_penalty=resolved_no_yaku_call_penalty,
         per_target=resolved_per_target,
         targets=list(resolved_targets),
         samples_seen=samples_seen,
@@ -288,13 +294,20 @@ def _select_response_predictions(
     logits: torch.Tensor,
     batch: dict[str, Any],
     pass_bias: float,
+    no_yaku_call_penalty: float = 0.0,
 ) -> torch.Tensor:
-    if pass_bias == 0.0:
+    if pass_bias == 0.0 and no_yaku_call_penalty <= 0.0:
         return logits.argmax(dim=1)
 
     device = logits.device
     candidate_mask = batch["candidate_mask"]
+    candidate_feats = batch["candidate_feats"]
     candidate_kind_ids = _candidate_kind_ids(batch["legal_actions"], logits.shape[1], device=device)
+    no_yaku_call_mask = _no_yaku_call_candidate_mask(
+        candidate_kind_ids=candidate_kind_ids,
+        candidate_feats=candidate_feats,
+        candidate_mask=candidate_mask,
+    )
     pass_kind_id = RESPONSE_KIND_RANK["pass"]
     pass_mask = candidate_mask & (candidate_kind_ids == pass_kind_id)
     non_pass_mask = candidate_mask & ~pass_mask
@@ -303,7 +316,8 @@ def _select_response_predictions(
 
     negative_inf = torch.finfo(logits.dtype).min
     pass_scores, pass_indices = logits.masked_fill(~pass_mask, negative_inf).max(dim=1)
-    non_pass_scores, non_pass_indices = logits.masked_fill(~non_pass_mask, negative_inf).max(dim=1)
+    adjusted_logits = logits - (no_yaku_call_mask.to(logits.dtype) * float(no_yaku_call_penalty))
+    non_pass_scores, non_pass_indices = adjusted_logits.masked_fill(~non_pass_mask, negative_inf).max(dim=1)
     choose_non_pass = non_pass_exists & (
         ~pass_exists | ((non_pass_scores - pass_scores) > pass_bias)
     )
@@ -390,6 +404,13 @@ def _normalize_pass_bias(pass_bias: float) -> float:
     value = float(pass_bias)
     if not math.isfinite(value):
         raise ValueError(f"pass_bias must be finite, got: {value}")
+    return value
+
+
+def _normalize_no_yaku_call_penalty(no_yaku_call_penalty: float) -> float:
+    value = float(no_yaku_call_penalty)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"no_yaku_call_penalty must be finite and non-negative, got: {value}")
     return value
 
 

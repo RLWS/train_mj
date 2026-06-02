@@ -69,6 +69,7 @@ def test_parse_real_fixture_payload_shapes():
     first_discard = next(event for event in events if event.event_type == "discard")
 
     assert init_event.payload["oya"] in {0, 1, 2, 3}
+    assert init_event.payload["round_wind"] in {0, 1, 2, 3}
     assert isinstance(init_event.payload["dora_indicator"], str)
     assert len(init_event.payload["hai0"]) == 13
     assert len(init_event.payload["hai1"]) == 13

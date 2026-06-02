@@ -28,7 +28,9 @@ from mjai.utils.paths import ensure_dir
 @dataclass(slots=True, frozen=True)
 class ResponseCalibrationPoint:
     pass_bias: float
+    no_yaku_call_penalty: float
     equivalent_call_margin: float
+    no_yaku_equivalent_call_margin: float
     samples: int
     top1_accuracy: float
     multi_candidate_samples: int
@@ -44,8 +46,12 @@ class ResponseCalibrationPoint:
     non_pass_recall: float
     non_pass_f1: float
     false_call_count: int
+    no_yaku_false_call_count: int
+    no_yaku_false_call_candidate_count: int
     missed_call_count: int
     false_call_rate: float
+    no_yaku_false_call_rate: float
+    no_yaku_false_call_share: float
     missed_call_rate: float
     per_kind_samples: dict[str, int]
     per_kind_top1_accuracy: dict[str, float]
@@ -55,11 +61,14 @@ class ResponseCalibrationPoint:
 class ResponseCalibrationSelection:
     false_call_rate_target: float
     selected_pass_bias: float | None
+    selected_no_yaku_call_penalty: float | None
     selected_equivalent_call_margin: float | None
+    selected_no_yaku_equivalent_call_margin: float | None
     selected_non_pass_f1: float | None
     selected_non_pass_precision: float | None
     selected_non_pass_recall: float | None
     selected_false_call_rate: float | None
+    selected_no_yaku_false_call_rate: float | None
     selected_missed_call_rate: float | None
 
 
@@ -72,6 +81,7 @@ class ResponseCalibrationSummary:
     report_path: str
     used_device: str
     pass_biases: list[float]
+    no_yaku_call_penalties: list[float]
     false_call_rate_targets: list[float]
     points: list[ResponseCalibrationPoint]
     selections: list[ResponseCalibrationSelection]
@@ -82,6 +92,7 @@ def calibrate_response_checkpoint(
     split: str,
     pass_biases: list[float],
     false_call_rate_targets: list[float],
+    no_yaku_call_penalties: list[float] | None = None,
     config_override: dict[str, Any] | None = None,
     report_path: str | Path | None = None,
     manifest_path: str | Path | None = None,
@@ -109,6 +120,7 @@ def calibrate_response_checkpoint(
         ValueError: 当输入数据不满足函数约束时抛出。
     """
     pass_biases = _normalize_pass_biases(pass_biases)
+    no_yaku_call_penalties = _normalize_no_yaku_call_penalties(no_yaku_call_penalties or [0.0])
     false_call_rate_targets = _normalize_false_call_rate_targets(false_call_rate_targets)
 
     checkpoint_path = Path(ckpt_path)
@@ -161,7 +173,10 @@ def calibrate_response_checkpoint(
     model.eval()
 
     resolved_report_path = _resolve_calibration_report_path(checkpoint_path, split, report_path)
-    scanner = _ResponseCalibrationScanner(pass_biases=pass_biases)
+    scanner = _ResponseCalibrationScanner(
+        pass_biases=pass_biases,
+        no_yaku_call_penalties=no_yaku_call_penalties,
+    )
 
     total_batches = len(data_loader)
     samples_processed = 0
@@ -191,6 +206,7 @@ def calibrate_response_checkpoint(
         report_path=str(resolved_report_path),
         used_device=str(device),
         pass_biases=[float(bias) for bias in pass_biases],
+        no_yaku_call_penalties=[float(penalty) for penalty in no_yaku_call_penalties],
         false_call_rate_targets=[float(target) for target in false_call_rate_targets],
         points=points,
         selections=selections,
@@ -204,7 +220,7 @@ def calibrate_response_checkpoint(
 
 
 class _ResponseCalibrationScanner:
-    def __init__(self, *, pass_biases: list[float]) -> None:
+    def __init__(self, *, pass_biases: list[float], no_yaku_call_penalties: list[float]) -> None:
         """执行与函数名对应的业务逻辑。
         
         参数:
@@ -218,19 +234,27 @@ class _ResponseCalibrationScanner:
             无。
         """
         self.pass_biases = [float(bias) for bias in pass_biases]
-        self._bias_count = len(pass_biases)
+        self.no_yaku_call_penalties = [float(penalty) for penalty in no_yaku_call_penalties]
+        self._points = [
+            (pass_bias, penalty)
+            for penalty in self.no_yaku_call_penalties
+            for pass_bias in self.pass_biases
+        ]
+        self._point_count = len(self._points)
         self._samples = 0
         self._multi_candidate_samples = 0
         self._actual_pass = 0
         self._actual_non_pass = 0
-        self._top1_hits = [0] * self._bias_count
-        self._multi_top1_hits = [0] * self._bias_count
-        self._predicted_pass = [0] * self._bias_count
-        self._predicted_non_pass = [0] * self._bias_count
-        self._pass_tp = [0] * self._bias_count
-        self._non_pass_tp = [0] * self._bias_count
-        self._false_call = [0] * self._bias_count
-        self._missed_call = [0] * self._bias_count
+        self._top1_hits = [0] * self._point_count
+        self._multi_top1_hits = [0] * self._point_count
+        self._predicted_pass = [0] * self._point_count
+        self._predicted_non_pass = [0] * self._point_count
+        self._pass_tp = [0] * self._point_count
+        self._non_pass_tp = [0] * self._point_count
+        self._false_call = [0] * self._point_count
+        self._no_yaku_false_call = [0] * self._point_count
+        self._no_yaku_false_call_candidate = [0] * self._point_count
+        self._missed_call = [0] * self._point_count
         self._per_kind_samples: dict[str, int] = {}
         self._per_kind_top1_hits: dict[str, list[int]] = {}
 
@@ -251,9 +275,15 @@ class _ResponseCalibrationScanner:
         device = logits.device
         labels = batch["labels"]
         candidate_mask = batch["candidate_mask"]
+        candidate_feats = batch["candidate_feats"]
         candidate_counts = torch.as_tensor(batch["candidate_counts"], device=device)
         label_kind_ids = batch["label_kind_ids"]
         candidate_kind_ids = _candidate_kind_ids(batch["legal_actions"], logits.shape[1], device=device)
+        no_yaku_call_mask = _no_yaku_call_candidate_mask(
+            candidate_kind_ids=candidate_kind_ids,
+            candidate_feats=candidate_feats,
+            candidate_mask=candidate_mask,
+        )
 
         pass_kind_id = RESPONSE_KIND_RANK["pass"]
         pass_mask = candidate_mask & (candidate_kind_ids == pass_kind_id)
@@ -263,26 +293,48 @@ class _ResponseCalibrationScanner:
 
         negative_inf = torch.finfo(logits.dtype).min
         pass_scores, pass_indices = logits.masked_fill(~pass_mask, negative_inf).max(dim=1)
-        non_pass_scores, non_pass_indices = logits.masked_fill(~non_pass_mask, negative_inf).max(dim=1)
-        score_delta = non_pass_scores - pass_scores
+        point_pass_biases = torch.tensor(
+            [point[0] for point in self._points],
+            dtype=logits.dtype,
+            device=device,
+        ).unsqueeze(1)
+        point_penalties = torch.tensor(
+            [point[1] for point in self._points],
+            dtype=logits.dtype,
+            device=device,
+        ).view(-1, 1, 1)
+        adjusted_logits = logits.unsqueeze(0) - (no_yaku_call_mask.unsqueeze(0).to(logits.dtype) * point_penalties)
+        adjusted_non_pass_scores, non_pass_indices = adjusted_logits.masked_fill(
+            ~non_pass_mask.unsqueeze(0),
+            negative_inf,
+        ).max(dim=2)
+        score_delta = adjusted_non_pass_scores - pass_scores.unsqueeze(0)
 
-        bias_tensor = torch.tensor(self.pass_biases, dtype=logits.dtype, device=device).unsqueeze(1)
         choose_non_pass = non_pass_exists.unsqueeze(0) & (
-            (~pass_exists).unsqueeze(0) | (score_delta.unsqueeze(0) > bias_tensor)
+            (~pass_exists).unsqueeze(0) | (score_delta > point_pass_biases)
         )
         predicted_indices = torch.where(
             choose_non_pass,
-            non_pass_indices.unsqueeze(0),
+            non_pass_indices,
             pass_indices.unsqueeze(0),
         )
 
         pass_pred_kind_ids = candidate_kind_ids.gather(1, pass_indices.unsqueeze(1)).squeeze(1)
-        non_pass_pred_kind_ids = candidate_kind_ids.gather(1, non_pass_indices.unsqueeze(1)).squeeze(1)
+        expanded_candidate_kind_ids = candidate_kind_ids.unsqueeze(0).expand(self._point_count, -1, -1)
+        non_pass_pred_kind_ids = expanded_candidate_kind_ids.gather(
+            2,
+            non_pass_indices.unsqueeze(2),
+        ).squeeze(2)
         predicted_kind_ids = torch.where(
             choose_non_pass,
-            non_pass_pred_kind_ids.unsqueeze(0),
+            non_pass_pred_kind_ids,
             pass_pred_kind_ids.unsqueeze(0),
         )
+        predicted_no_yaku_call = no_yaku_call_mask.unsqueeze(0).expand(
+            self._point_count,
+            -1,
+            -1,
+        ).gather(2, predicted_indices.unsqueeze(2)).squeeze(2)
 
         label_is_pass = label_kind_ids == pass_kind_id
         label_is_non_pass = ~label_is_pass
@@ -311,6 +363,14 @@ class _ResponseCalibrationScanner:
             (label_is_pass.unsqueeze(0) & predicted_is_non_pass).sum(dim=1),
         )
         self._add_vector(
+            self._no_yaku_false_call,
+            (label_is_pass.unsqueeze(0) & predicted_is_non_pass & predicted_no_yaku_call).sum(dim=1),
+        )
+        self._add_vector(
+            self._no_yaku_false_call_candidate,
+            (label_is_pass.unsqueeze(0) & predicted_no_yaku_call).sum(dim=1),
+        )
+        self._add_vector(
             self._missed_call,
             (label_is_non_pass.unsqueeze(0) & predicted_is_pass).sum(dim=1),
         )
@@ -323,7 +383,7 @@ class _ResponseCalibrationScanner:
             if kind_samples == 0:
                 continue
             self._per_kind_samples[kind] = self._per_kind_samples.get(kind, 0) + kind_samples
-            self._per_kind_top1_hits.setdefault(kind, [0] * self._bias_count)
+            self._per_kind_top1_hits.setdefault(kind, [0] * self._point_count)
             self._add_vector(
                 self._per_kind_top1_hits[kind],
                 (exact & kind_mask.unsqueeze(0)).sum(dim=1),
@@ -342,7 +402,7 @@ class _ResponseCalibrationScanner:
             无。
         """
         points: list[ResponseCalibrationPoint] = []
-        for index, pass_bias in enumerate(self.pass_biases):
+        for index, (pass_bias, no_yaku_call_penalty) in enumerate(self._points):
             pass_precision = _safe_divide(self._pass_tp[index], self._predicted_pass[index])
             pass_recall = _safe_divide(self._pass_tp[index], self._actual_pass)
             non_pass_precision = _safe_divide(
@@ -353,7 +413,9 @@ class _ResponseCalibrationScanner:
             points.append(
                 ResponseCalibrationPoint(
                     pass_bias=pass_bias,
+                    no_yaku_call_penalty=no_yaku_call_penalty,
                     equivalent_call_margin=pass_bias,
+                    no_yaku_equivalent_call_margin=pass_bias + no_yaku_call_penalty,
                     samples=self._samples,
                     top1_accuracy=_safe_divide(self._top1_hits[index], self._samples),
                     multi_candidate_samples=self._multi_candidate_samples,
@@ -372,8 +434,18 @@ class _ResponseCalibrationScanner:
                     non_pass_recall=non_pass_recall,
                     non_pass_f1=_f1(non_pass_precision, non_pass_recall),
                     false_call_count=self._false_call[index],
+                    no_yaku_false_call_count=self._no_yaku_false_call[index],
+                    no_yaku_false_call_candidate_count=self._no_yaku_false_call_candidate[index],
                     missed_call_count=self._missed_call[index],
                     false_call_rate=_safe_divide(self._false_call[index], self._actual_pass),
+                    no_yaku_false_call_rate=_safe_divide(
+                        self._no_yaku_false_call[index],
+                        self._actual_pass,
+                    ),
+                    no_yaku_false_call_share=_safe_divide(
+                        self._no_yaku_false_call[index],
+                        self._false_call[index],
+                    ),
                     missed_call_rate=_safe_divide(self._missed_call[index], self._actual_non_pass),
                     per_kind_samples=dict(sorted(self._per_kind_samples.items())),
                     per_kind_top1_accuracy={
@@ -433,6 +505,27 @@ def _candidate_kind_ids(
     return torch.tensor(rows, dtype=torch.long, device=device)
 
 
+def _no_yaku_call_candidate_mask(
+    *,
+    candidate_kind_ids: torch.Tensor,
+    candidate_feats: torch.Tensor,
+    candidate_mask: torch.Tensor,
+) -> torch.Tensor:
+    call_kind_ids = torch.tensor(
+        [
+            RESPONSE_KIND_RANK["chi"],
+            RESPONSE_KIND_RANK["pon"],
+            RESPONSE_KIND_RANK["daiminkan"],
+        ],
+        dtype=candidate_kind_ids.dtype,
+        device=candidate_kind_ids.device,
+    )
+    call_mask = torch.isin(candidate_kind_ids, call_kind_ids)
+    if candidate_feats.shape[2] <= 86:
+        return torch.zeros_like(candidate_mask, dtype=torch.bool)
+    return candidate_mask & call_mask & (candidate_feats[:, :, 48 + 38] > 0.5)
+
+
 def _select_operating_points(
     points: list[ResponseCalibrationPoint],
     false_call_rate_targets: list[float],
@@ -457,11 +550,14 @@ def _select_operating_points(
                 ResponseCalibrationSelection(
                     false_call_rate_target=float(target),
                     selected_pass_bias=None,
+                    selected_no_yaku_call_penalty=None,
                     selected_equivalent_call_margin=None,
+                    selected_no_yaku_equivalent_call_margin=None,
                     selected_non_pass_f1=None,
                     selected_non_pass_precision=None,
                     selected_non_pass_recall=None,
                     selected_false_call_rate=None,
+                    selected_no_yaku_false_call_rate=None,
                     selected_missed_call_rate=None,
                 )
             )
@@ -478,11 +574,14 @@ def _select_operating_points(
             ResponseCalibrationSelection(
                 false_call_rate_target=float(target),
                 selected_pass_bias=selected.pass_bias,
+                selected_no_yaku_call_penalty=selected.no_yaku_call_penalty,
                 selected_equivalent_call_margin=selected.equivalent_call_margin,
+                selected_no_yaku_equivalent_call_margin=selected.no_yaku_equivalent_call_margin,
                 selected_non_pass_f1=selected.non_pass_f1,
                 selected_non_pass_precision=selected.non_pass_precision,
                 selected_non_pass_recall=selected.non_pass_recall,
                 selected_false_call_rate=selected.false_call_rate,
+                selected_no_yaku_false_call_rate=selected.no_yaku_false_call_rate,
                 selected_missed_call_rate=selected.missed_call_rate,
             )
         )
@@ -529,6 +628,16 @@ def _normalize_pass_biases(pass_biases: list[float]) -> list[float]:
     for bias in normalized:
         if not math.isfinite(bias):
             raise ValueError(f"pass bias must be finite, got: {bias}")
+    return normalized
+
+
+def _normalize_no_yaku_call_penalties(penalties: list[float]) -> list[float]:
+    if not penalties:
+        raise ValueError("calibration requires at least one no-yaku call penalty")
+    normalized = [float(penalty) for penalty in penalties]
+    for penalty in normalized:
+        if not math.isfinite(penalty) or penalty < 0.0:
+            raise ValueError(f"no-yaku call penalty must be finite and non-negative, got: {penalty}")
     return normalized
 
 

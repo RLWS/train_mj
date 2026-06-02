@@ -10,6 +10,7 @@ set -Eeuo pipefail
 #   TASKS=multitask ./start.sh
 #   RUN_VALIDATE=0 ./start.sh
 #   RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+#   CLEAN_DATA=1 RUN_CALIBRATION=1 ./start.sh
 #   TASKS=multitask RUN_EXTRA_EVAL=1 RUN_CALIBRATION=1 EVAL_SPLIT=test ./start.sh
 #   RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
 
@@ -51,6 +52,38 @@ require_file() {
   if [ ! -f "$path" ]; then
     echo "missing $label file: $path" >&2
     exit 1
+  fi
+}
+
+resolve_path() {
+  "$PYTHON_BIN" -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "$1"
+}
+
+clean_generated_dir() {
+  local path="$1"
+  local label="$2"
+  local resolved
+  local repo_root
+  resolved="$(resolve_path "$path")"
+  repo_root="$(resolve_path "$SCRIPT_DIR")"
+
+  if [ "$resolved" = "/" ] || [ "$resolved" = "$repo_root" ]; then
+    echo "refuse to clean unsafe $label path: $resolved" >&2
+    exit 1
+  fi
+  case "$resolved" in
+    "$repo_root"/*)
+      ;;
+    *)
+      echo "refuse to clean $label outside repository: $resolved" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ -e "$resolved" ]; then
+    run rm -rf -- "$resolved"
+  else
+    log "skip clean $label; path does not exist: $resolved"
   fi
 }
 
@@ -96,6 +129,7 @@ RUN_EVAL="${RUN_EVAL:-1}"
 RUN_EXTRA_EVAL="${RUN_EXTRA_EVAL:-0}"
 RUN_CALIBRATION="${RUN_CALIBRATION:-0}"
 SKIP_BUILD_VALIDATION="${SKIP_BUILD_VALIDATION:-0}"
+CLEAN_DATA="${CLEAN_DATA:-0}"
 
 EVAL_SPLIT="${EVAL_SPLIT:-valid}"
 TURN_EVAL_CKPT="${TURN_EVAL_CKPT:-outputs/checkpoints/turn_p800/best.pt}"
@@ -117,6 +151,7 @@ MULTITASK_RESPONSE_EVAL_REPORT="${MULTITASK_RESPONSE_EVAL_REPORT:-$REPORT_DIR/${
 EXTRA_EVAL_SPLITS="${EXTRA_EVAL_SPLITS:-$EVAL_SPLIT}"
 CALIBRATION_SPLITS="${CALIBRATION_SPLITS:-valid test}"
 CALIBRATION_PASS_BIASES="${CALIBRATION_PASS_BIASES:-0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00}"
+CALIBRATION_NO_YAKU_CALL_PENALTIES="${CALIBRATION_NO_YAKU_CALL_PENALTIES:-0,0.2,0.4}"
 CALIBRATION_FALSE_CALL_TARGETS="${CALIBRATION_FALSE_CALL_TARGETS:-1%,0.8%,0.5%}"
 CALIBRATION_LOG_EVERY_N_BATCHES="${CALIBRATION_LOG_EVERY_N_BATCHES:-100}"
 
@@ -209,6 +244,7 @@ run_response_calibration() {
     --manifest "$manifest" \
     --report "$report" \
     --pass-biases "$CALIBRATION_PASS_BIASES" \
+    --no-yaku-call-penalties "$CALIBRATION_NO_YAKU_CALL_PENALTIES" \
     --false-call-targets "$CALIBRATION_FALSE_CALL_TARGETS" \
     --log-every-n-batches "$CALIBRATION_LOG_EVERY_N_BATCHES"
 }
@@ -247,8 +283,6 @@ run_train_config() {
   fi
 }
 
-mkdir -p "$BRONZE_EVENTS_DIR" "$SAMPLES_DIR" "$MANIFEST_DIR" "$REPORT_DIR" outputs/checkpoints outputs/logs
-
 log "pipeline settings"
 printf '  RAW_XML_DIR=%s\n' "$RAW_XML_DIR"
 printf '  BRONZE_EVENTS_DIR=%s\n' "$BRONZE_EVENTS_DIR"
@@ -257,14 +291,34 @@ printf '  MANIFEST_DIR=%s\n' "$MANIFEST_DIR"
 printf '  WORKERS=%s\n' "$WORKERS"
 printf '  TASKS=%s\n' "$TASKS"
 printf '  DDP_NPROC_PER_NODE=%s\n' "${DDP_NPROC_PER_NODE:-auto}"
+printf '  RUN_PREPROCESS=%s\n' "$RUN_PREPROCESS"
 printf '  RUN_VALIDATE=%s\n' "$RUN_VALIDATE"
+printf '  RUN_BUILD_DATASET=%s\n' "$RUN_BUILD_DATASET"
+printf '  RUN_MANIFEST=%s\n' "$RUN_MANIFEST"
 printf '  RUN_TRAIN=%s\n' "$RUN_TRAIN"
 printf '  RUN_EVAL=%s\n' "$RUN_EVAL"
 printf '  RUN_EXTRA_EVAL=%s\n' "$RUN_EXTRA_EVAL"
 printf '  RUN_CALIBRATION=%s\n' "$RUN_CALIBRATION"
+printf '  SKIP_BUILD_VALIDATION=%s\n' "$SKIP_BUILD_VALIDATION"
+printf '  CLEAN_DATA=%s\n' "$CLEAN_DATA"
 printf '  EVAL_SPLIT=%s\n' "$EVAL_SPLIT"
 printf '  EXTRA_EVAL_SPLITS=%s\n' "$EXTRA_EVAL_SPLITS"
 printf '  CALIBRATION_SPLITS=%s\n' "$CALIBRATION_SPLITS"
+printf '  CALIBRATION_PASS_BIASES=%s\n' "$CALIBRATION_PASS_BIASES"
+printf '  CALIBRATION_NO_YAKU_CALL_PENALTIES=%s\n' "$CALIBRATION_NO_YAKU_CALL_PENALTIES"
+printf '  CALIBRATION_FALSE_CALL_TARGETS=%s\n' "$CALIBRATION_FALSE_CALL_TARGETS"
+
+if [ "$CLEAN_DATA" = "1" ]; then
+  if [ "$RUN_PREPROCESS" != "1" ] || [ "$RUN_BUILD_DATASET" != "1" ] || [ "$RUN_MANIFEST" != "1" ]; then
+    echo "CLEAN_DATA=1 requires RUN_PREPROCESS=1 RUN_BUILD_DATASET=1 RUN_MANIFEST=1" >&2
+    exit 1
+  fi
+  clean_generated_dir "$BRONZE_EVENTS_DIR" "bronze events"
+  clean_generated_dir "$SAMPLES_DIR" "silver samples"
+  clean_generated_dir "$MANIFEST_DIR" "manifests"
+fi
+
+mkdir -p "$BRONZE_EVENTS_DIR" "$SAMPLES_DIR" "$MANIFEST_DIR" "$REPORT_DIR" outputs/checkpoints outputs/logs
 
 if [ "$RUN_PREPROCESS" = "1" ]; then
   require_dir "$RAW_XML_DIR" "raw XML"

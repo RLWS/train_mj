@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from mjai.serving.validation import RequestValidationError
 from mjai.serving.validation import validate_and_normalize_state
 
 
@@ -42,3 +45,16 @@ def test_turn_state_validation_backfills_legacy_own_riichi_flag() -> None:
     assert state["riichi_declared_by_player"] == [False, False, True, False]
     assert state["riichi_turn_by_player"] == [None, None, None, None]
     assert state["discard_history"] == []
+
+
+def test_response_state_validation_requires_round_wind() -> None:
+    with pytest.raises(RequestValidationError, match="round_wind"):
+        validate_and_normalize_state(
+            "response",
+            {
+                "actor": 0,
+                "hand": {"1m": 1},
+                "all_discards": [[], [], [], []],
+                "response_target": {"source": 1, "tile": "1m"},
+            },
+        )

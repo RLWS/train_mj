@@ -400,6 +400,8 @@ def test_train_multitask_smoke_from_generated_dataset(tmp_path: Path):
             str(calibration_report_path),
             "--pass-biases",
             "0,0.1",
+            "--no-yaku-call-penalties",
+            "0,0.4",
             "--false-call-targets",
             "100%",
             "--log-every-n-batches",
@@ -442,6 +444,8 @@ def test_train_multitask_smoke_from_generated_dataset(tmp_path: Path):
             "pass->pass,pass->chi,chi->pass,chi->chi,pon->pass,pon->pon",
             "--per-target",
             "1",
+            "--no-yaku-call-penalty",
+            "0.4",
             "--log-every-n-batches",
             "0",
         ]
@@ -475,6 +479,9 @@ def test_train_multitask_smoke_from_generated_dataset(tmp_path: Path):
     calibration_report = json.loads(calibration_report_path.read_text(encoding="utf-8"))
     assert calibration_report["task"] == "response"
     assert calibration_report["pass_biases"] == [0.0, 0.1]
+    assert calibration_report["no_yaku_call_penalties"] == [0.0, 0.4]
+    assert len(calibration_report["points"]) == 4
+    assert "no_yaku_false_call_rate" in calibration_report["points"][0]
     assert turn_error_samples_path.exists()
     assert response_error_samples_path.exists()
 
@@ -720,6 +727,8 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
             str(calibration_report_path),
             "--pass-biases",
             "0,0.1,0.2",
+            "--no-yaku-call-penalties",
+            "0,0.4",
             "--false-call-targets",
             "100%,0.5%",
         ]
@@ -744,6 +753,10 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
             ),
             "--per-target",
             "2",
+            "--pass-bias",
+            "0.3",
+            "--no-yaku-call-penalty",
+            "0.4",
             "--log-every-n-batches",
             "0",
         ]
@@ -781,14 +794,20 @@ def test_eval_response_smoke_from_generated_checkpoint(tmp_path: Path, capsys):
     assert calibration_report["split"] == "valid"
     assert calibration_report["manifest_path"] == str(calibration_manifest)
     assert calibration_report["pass_biases"] == [0.0, 0.1, 0.2]
+    assert calibration_report["no_yaku_call_penalties"] == [0.0, 0.4]
     assert calibration_report["false_call_rate_targets"] == [1.0, 0.005]
-    assert len(calibration_report["points"]) == 3
+    assert len(calibration_report["points"]) == 6
     assert len(calibration_report["selections"]) == 2
     assert calibration_report["selections"][0]["selected_pass_bias"] is not None
+    assert "selected_no_yaku_call_penalty" in calibration_report["selections"][0]
+    assert "selected_no_yaku_equivalent_call_margin" in calibration_report["selections"][0]
     first_point = calibration_report["points"][0]
     assert first_point["samples"] > 0
+    assert "no_yaku_equivalent_call_margin" in first_point
     assert 0.0 <= first_point["top1_accuracy"] <= 1.0
     assert 0.0 <= first_point["false_call_rate"] <= 1.0
+    assert 0.0 <= first_point["no_yaku_false_call_rate"] <= 1.0
+    assert 0.0 <= first_point["no_yaku_false_call_share"] <= 1.0
     assert 0.0 <= first_point["missed_call_rate"] <= 1.0
     assert "pass" in first_point["per_kind_samples"]
 

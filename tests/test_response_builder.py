@@ -118,6 +118,69 @@ def test_response_sample_state_includes_all_melds_after_open_call():
     assert any(meld for player_melds in sample_after_meld.state["all_melds"] for meld in player_melds)
 
 
+def test_response_sample_state_includes_round_wind_from_init():
+    """验证响应样本状态保留场风。"""
+    builder = ResponseSampleBuilder()
+    events = [
+        Event(
+            game_id="round-wind-case",
+            kyoku_index=0,
+            step_index=0,
+            event_type="init",
+            actor=None,
+            raw_tag="INIT",
+            payload={
+                "seed": "4,0,0,0,0,0",
+                "round_wind": 1,
+                "ten": "250,250,250,250",
+                "oya": 0,
+                "dora_indicator": "1m",
+                "hai0": ["1m"] * 13,
+                "hai1": [
+                    "1m",
+                    "2m",
+                    "3m",
+                    "4m",
+                    "5m",
+                    "6m",
+                    "7m",
+                    "8m",
+                    "9m",
+                    "1p",
+                    "2p",
+                    "3p",
+                    "4p",
+                ],
+                "hai2": ["2m"] * 13,
+                "hai3": ["3m"] * 13,
+            },
+        ),
+        Event(
+            game_id="round-wind-case",
+            kyoku_index=0,
+            step_index=1,
+            event_type="discard",
+            actor=0,
+            raw_tag="D1",
+            payload={"tile": "1m", "tile136": 0, "tsumogiri": False},
+        ),
+        Event(
+            game_id="round-wind-case",
+            kyoku_index=0,
+            step_index=2,
+            event_type="draw",
+            actor=1,
+            raw_tag="U4",
+            payload={"tile": "2m", "tile136": 4},
+        ),
+    ]
+
+    samples = builder.build_samples(events)
+
+    assert samples
+    assert samples[0].state["round_wind"] == 1
+
+
 def test_response_samples_include_ron_labels_on_real_fixtures():
     """验证真实夹具构建的响应样本包含荣和标签。
     
@@ -166,6 +229,7 @@ def test_response_sample_furiten_omits_ron_from_legal_actions():
                 "hai2": ["2z"] * 12 + ["5z"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
+                "round_wind": 0,
             },
         ),
         Event(
@@ -242,6 +306,7 @@ def test_response_samples_mark_temporary_furiten_after_passing_ron():
                 "hai2": ["2z"] * 12 + ["5z"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
+                "round_wind": 0,
             },
         ),
         Event(
@@ -322,6 +387,7 @@ def test_response_samples_clear_temporary_furiten_after_self_draw():
                 "hai2": ["2z"] * 12 + ["5z"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
+                "round_wind": 0,
             },
         ),
         Event(
@@ -414,6 +480,7 @@ def test_response_samples_mark_riichi_furiten_after_passing_ron():
                 "hai2": ["2z"] * 12 + ["5z"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
+                "round_wind": 0,
             },
         ),
         Event(
@@ -525,6 +592,7 @@ def test_response_samples_include_chankan_on_kakan_window():
                 "hai2": ["2z"] * 12 + ["5m"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
+                "round_wind": 0,
             },
         ),
         Event(
@@ -669,6 +737,7 @@ def test_response_samples_skip_applying_kakan_when_chankan_resolves():
                 "hai2": ["2z"] * 12 + ["5m"],
                 "hai3": ["3z"] * 13,
                 "ten": "250,250,250,250",
+                "round_wind": 0,
             },
         ),
         Event(

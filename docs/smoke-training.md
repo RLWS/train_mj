@@ -60,16 +60,20 @@ preprocess -> validate-events -> build-dataset -> make-manifest -> train turn/re
 ```bash
 TASKS=turn ./start.sh
 TASKS=response ./start.sh
+CLEAN_DATA=1 RUN_CALIBRATION=1 ./start.sh
 RUN_VALIDATE=0 ./start.sh
 RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
 RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
 ```
 
 `TASKS` 只影响训练和对应 eval，默认 `turn response` 都运行。`RUN_VALIDATE=0` 会跳过独立 validation report；如果同时保持 `SKIP_BUILD_VALIDATION=0`，`build-dataset` 仍会在构建样本前做内部回放校验。
+`CLEAN_DATA=1` 会在仓库内部清理旧的 `data/bronze_events`、`data/silver_samples` 和 `data/manifests`，并要求同时开启 `RUN_PREPROCESS=1`、`RUN_BUILD_DATASET=1`、`RUN_MANIFEST=1`；它适合本轮 `round_wind` 这类不兼容旧数据的全量重建。`RUN_CALIBRATION=1` 会在训练后跑 response valid/test calibration，默认扫描 `CALIBRATION_PASS_BIASES` 和 `CALIBRATION_NO_YAKU_CALL_PENALTIES=0,0.2,0.4`。
 
 这里推荐先单独跑 `validate-events`，确认 `files_failed=0` 后，再在 `build-dataset` 使用 `--skip-validation`，避免同一批事件在构建样本时重复回放校验。`build-dataset` 现在会输出 `elapsed_s`、`games_per_s` 和 `samples_per_s`，可以直接用来判断构建吞吐。
 
 当前 `silver_samples` parquet 会写入离线预编码的 `state_features_bin` 和 `candidate_features_bin`。`turn` 的 discard hand-shape 特征，包括向听数、有效牌数量等 CPU 密集计算，已经从训练期 DataLoader 移到 `build-dataset` 阶段。更新到这个 schema 后，旧的 `data/silver_samples` 需要删除或覆盖后重新生成，并重新执行 `make-manifest`。这次还新增了四家立直状态、对手立直巡目和全局牌河顺序 token，所以旧 checkpoint 也不能直接复用。
+
+2026-06-01 起，Tenhou `INIT seed` 会在 `preprocess` 阶段解析为 `round_wind`，用于修正 response 场风役牌路线和无役风险判断。旧 `data/bronze_events` 不再兼容；更新后必须从 `preprocess` 开始重新生成 `bronze_events`、`silver_samples` 和 manifest。
 
 执行完成后会得到：
 
@@ -337,20 +341,20 @@ response checkpoint 还会额外输出 `response` 诊断块，重点看：
 如果 response 的 false call 绝对量偏高，可以固定 checkpoint 做校准扫描，不需要重新训练：
 
 ```powershell
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --pass-biases 0,0.05,0.10,0.20,0.40 --false-call-targets 1%,0.8%,0.5%
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --pass-biases 0,0.05,0.10,0.20,0.40 --no-yaku-call-penalties 0,0.2,0.4 --false-call-targets 1%,0.8%,0.5%
 ```
 
-报告里的 `points` 是每个 `pass_bias` 的完整指标，`selections` 是每个 false call 目标下推荐的 operating point。这个命令只改变“叫牌分数必须比 pass 高多少才叫”的推理阈值，不会改 checkpoint 权重。
+报告里的 `points` 是每个 `pass_bias` 与 `no_yaku_call_penalty` 组合的完整指标，`selections` 是每个 false call 目标下推荐的 operating point。除常规 false call / missed call 外，报告还会写入 `no_yaku_false_call_rate` 和 `no_yaku_false_call_share`，用于专门追踪 `features[38] == 1` 的无明显役路误叫；`no_yaku_equivalent_call_margin` 表示无役候选实际需要超过 pass 的等效 margin。这个命令只改变推理选择阈值和无役候选扣分，不会改 checkpoint 权重。
 
 ### response 错例抽样
 
 需要系统分析 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 这类 hard negative 时，用专门的抽样命令重新跑全量 manifest 推理：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.3 --no-yaku-call-penalty 0.4
 ```
 
-`--seed` 默认继承 checkpoint 配置里的全局 `seed`；只有需要复现实验外的另一组随机样本时才显式传入。`--pass-bias 0` 表示按普通 `eval` 的 raw argmax 抽样；如果要分析当前建议的推理 operating point，使用 `--pass-bias 0.4` 或 `0.8`。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
+`--seed` 默认继承 checkpoint 配置里的全局 `seed`；只有需要复现实验外的另一组随机样本时才显式传入。`--pass-bias 0 --no-yaku-call-penalty 0` 表示按普通 `eval` 的 raw argmax 抽样；如果要分析当前建议的安全推理 operating point，使用 `--pass-bias 0.3 --no-yaku-call-penalty 0.4`。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
 
 输出是 JSONL，每行一条样本，包含 `sample_id`、`confusion`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。
 
@@ -380,14 +384,14 @@ python -m mjai.cli train --config configs/response_local_smoke.yaml
 python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
 python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-id 0 --step-id 2
 python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --report outputs/checkpoints/response_local_smoke/eval_valid.json
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.4
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --no-yaku-call-penalties 0,0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.3 --no-yaku-call-penalty 0.4
 python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/turn_local_smoke/turn_discard_rank23_valid.jsonl
 ```
 
 `configs/response_local_smoke.yaml` 默认设置了 `train.response_min_train_candidate_count: 2`。response 训练会过滤 `candidate_count == 1` 的 pass-only 样本，valid/test eval 仍保留全量样本。
 
-注意：turn 候选动作特征已经包含 discard 后向听、有效牌、牌河时序和按玩家拆开的现物信号；state 特征包含四家立直状态、对手立直巡目和全局牌河顺序 token。response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `state_features_bin` / `candidate_features_bin` 的维度会和当前模型不匹配。
+注意：turn 候选动作特征已经包含 discard 后向听、有效牌、牌河时序和按玩家拆开的现物信号；state 特征包含四家立直状态、对手立直巡目和全局牌河顺序 token。response 候选动作特征已经包含 call 前后向听、有效牌、赤牌/dora 消耗和 chi/pon 形状等离线预编码特征。修改这些特征或更新代码后，需要重新运行 `build-dataset` 和 `make-manifest`，否则旧 `state_features_bin` / `candidate_features_bin` 的维度或语义会和当前模型不匹配。涉及 `round_wind` 时还必须先重新运行 `preprocess`，不能复用旧 `bronze_events`。
 
 如果你再多走一步，把评估也跑上：
 

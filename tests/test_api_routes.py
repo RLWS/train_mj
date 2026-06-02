@@ -60,6 +60,7 @@ def test_api_health_models_and_predictions(tmp_path: Path):
     assert response.status_code == 200
     assert response.json()["selection_mode"] == "calibrated"
     assert response.json()["pass_bias"] == 0.3
+    assert response.json()["no_yaku_call_penalty"] == 0.0
     assert response.json()["selected_action"] in [
         {"kind": "pass"},
         {"kind": "chi", "tile": "3m", "consumed_tiles": ["1m", "2m"], "source": 0},

@@ -314,6 +314,7 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
         "hand": state.hands[actor].snapshot(),
         "scores": list(state.scores),
         "dealer": state.dealer,
+        "round_wind": state.round_wind,
         "seat_wind": (actor - state.dealer) % 4,
         "honba": state.honba,
         "riichi_sticks": state.riichi_sticks,

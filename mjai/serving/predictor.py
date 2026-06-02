@@ -167,13 +167,20 @@ class MahjongPredictor:
 
         predictions = rank_candidates(logits, legal_actions, top_k)
         raw_selection_index = int(torch.argmax(logits).item())
-        selection = select_response_action(logits, legal_actions, pass_bias=pass_bias)
+        selection = select_response_action(
+            logits,
+            legal_actions,
+            pass_bias=pass_bias,
+            no_yaku_call_penalty=self.response_policy.no_yaku_call_penalty,
+            candidate_features=candidate_feats[0],
+        )
         return PredictionResult(
             task="response",
             selection_mode="calibrated",
             selected_action=selection.selected_action,
             raw_selected_action=dict(legal_actions[raw_selection_index]),
             pass_bias=pass_bias,
+            no_yaku_call_penalty=self.response_policy.no_yaku_call_penalty,
             predictions=predictions,
             model=self.response_policy.metadata(),
         )
@@ -195,6 +202,7 @@ def build_predictor_from_config(config: dict[str, Any], *, base_dir: str | Path 
     turn_policy = load_policy_checkpoint(turn_checkpoint, task="turn", device=device)
     response_policy = load_policy_checkpoint(response_checkpoint, task="response", device=device)
     response_policy.default_pass_bias = _configured_pass_bias(response_config)
+    response_policy.no_yaku_call_penalty = _configured_no_yaku_call_penalty(response_config)
     max_legal_actions = int(config.get("api", {}).get("max_legal_actions", 64))
     return MahjongPredictor(
         turn_policy=turn_policy,
@@ -219,3 +227,8 @@ def _configured_pass_bias(response_config: dict[str, Any]) -> float:
     if pass_bias is not None:
         return float(pass_bias)
     return 0.3
+
+
+def _configured_no_yaku_call_penalty(response_config: dict[str, Any]) -> float:
+    value = response_config.get("no_yaku_call_penalty", 0.0)
+    return max(0.0, float(value))

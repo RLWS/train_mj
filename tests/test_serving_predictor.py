@@ -73,6 +73,35 @@ def test_response_selection_uses_pass_bias_margin():
     assert recall.selected_action == legal_actions[1]
 
 
+def test_response_selection_penalizes_no_yaku_call_candidates():
+    logits = torch.tensor([0.50, 0.85, 0.20], dtype=torch.float32)
+    legal_actions = [
+        {"kind": "pass"},
+        {"kind": "chi", "tile": "3m"},
+        {"kind": "pon", "tile": "5z"},
+    ]
+    candidate_features = torch.zeros((3, RESPONSE_ACTION_DIM), dtype=torch.float32)
+    candidate_features[1, 48 + 38] = 1.0
+
+    without_penalty = select_response_action(
+        logits,
+        legal_actions,
+        pass_bias=0.10,
+        candidate_features=candidate_features,
+    )
+    with_penalty = select_response_action(
+        logits,
+        legal_actions,
+        pass_bias=0.10,
+        no_yaku_call_penalty=0.30,
+        candidate_features=candidate_features,
+    )
+
+    assert without_penalty.selected_action == legal_actions[1]
+    assert with_penalty.raw_action == legal_actions[1]
+    assert with_penalty.selected_action == legal_actions[0]
+
+
 def test_serving_predictor_validates_legal_action_count(tmp_path: Path):
     turn_ckpt = _write_checkpoint(tmp_path / "turn.pt", task="turn", hidden_size=16)
     response_ckpt = _write_checkpoint(tmp_path / "response.pt", task="response", hidden_size=16)
@@ -136,6 +165,7 @@ def _api_config(
     *,
     max_legal_actions: int = 64,
     pass_bias: float = 0.3,
+    no_yaku_call_penalty: float = 0.0,
 ) -> dict:
     return {
         "api": {"max_legal_actions": max_legal_actions},
@@ -145,6 +175,7 @@ def _api_config(
             "response": {
                 "checkpoint": str(response_ckpt),
                 "pass_bias": {"default": pass_bias},
+                "no_yaku_call_penalty": no_yaku_call_penalty,
             },
         },
     }
@@ -177,6 +208,7 @@ def _turn_state() -> dict:
         "riichi_furiten": False,
         "own_melds": [],
         "dealer": 0,
+        "round_wind": 0,
         "seat_wind": 0,
         "dora_indicators": [],
         "scores": [25000, 25000, 25000, 25000],

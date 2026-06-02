@@ -88,6 +88,7 @@ class TenhouParser:
             elif tag == "INIT":
                 kyoku_index += 1
                 step_index = 0
+                seed = elem.get("seed")
                 events.append(
                     Event(
                         game_id=game_id,
@@ -97,10 +98,11 @@ class TenhouParser:
                         actor=None,
                         raw_tag=tag,
                         payload={
-                            "seed": elem.get("seed"),
+                            "seed": seed,
+                            "round_wind": _parse_round_wind(seed),
                             "ten": elem.get("ten"),
                             "oya": int(elem.get("oya", "0")),
-                            "dora_indicator": tile136_to_string(_parse_seed_dora_indicator(elem.get("seed"))),
+                            "dora_indicator": tile136_to_string(_parse_seed_dora_indicator(seed)),
                             "hai0": _parse_tiles_attr(elem.get("hai0")),
                             "hai1": _parse_tiles_attr(elem.get("hai1")),
                             "hai2": _parse_tiles_attr(elem.get("hai2")),
@@ -253,6 +255,16 @@ def _parse_seed_dora_indicator(value: str | None) -> int:
     if len(parts) < 6:
         return 0
     return int(parts[5])
+
+
+def _parse_round_wind(value: str | None) -> int:
+    """Parse the round wind from Tenhou INIT seed."""
+    if not value:
+        return 0
+    parts = [part for part in value.split(",") if part]
+    if not parts:
+        return 0
+    return max(0, int(parts[0]) // 4)
 
 
 def _parse_actor(tag: str, elem) -> int | None:

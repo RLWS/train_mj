@@ -36,6 +36,7 @@ def load_policy_checkpoint(
     dropout = float(model_config.get("dropout", 0.1))
     candidate_limit = _candidate_limit_for_task(config, selected_task)
     default_pass_bias = _default_pass_bias(config, selected_task)
+    no_yaku_call_penalty = _no_yaku_call_penalty(config, selected_task)
 
     if checkpoint_task == "multitask":
         model = MultitaskMahjongPolicyNet(hidden_size=hidden_size, dropout=dropout).to(resolved_device)
@@ -65,6 +66,7 @@ def load_policy_checkpoint(
         dropout=dropout,
         candidate_limit=candidate_limit,
         default_pass_bias=default_pass_bias,
+        no_yaku_call_penalty=no_yaku_call_penalty,
         model=model,
         config=config,
     )
@@ -131,3 +133,16 @@ def _default_pass_bias(config: dict[str, Any], task: str) -> float | None:
     if "response_pass_bias" in train_config:
         return float(train_config["response_pass_bias"])
     return 0.3
+
+
+def _no_yaku_call_penalty(config: dict[str, Any], task: str) -> float:
+    if task != "response":
+        return 0.0
+    response_config = config.get("models", {}).get("response", {})
+    value = response_config.get("no_yaku_call_penalty")
+    if value is not None:
+        return max(0.0, float(value))
+    train_config = config.get("train", {})
+    if "response_no_yaku_call_penalty" in train_config:
+        return max(0.0, float(train_config["response_no_yaku_call_penalty"]))
+    return 0.0

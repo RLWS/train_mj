@@ -1,6 +1,6 @@
 # 模型输入特征说明
 
-更新时间：`2026-05-19`
+更新时间：`2026-06-01`
 
 本文记录当前 `turn` / `response` policy 模型实际吃到的输入张量、维度和每个维度的语义。这里描述的是 `build-dataset` 写入 `silver_samples` 后，训练和评估阶段从 parquet 读取的离线预编码特征。
 
@@ -235,6 +235,8 @@ pass, chi, pon, daiminkan, ron, chankan, unknown
 
 新增的开副露役路特征是启发式信号，不等价于完整番种判定。它们用于降低“鸣牌后无役”“七对子/国士等门清路线被错误鸣牌破坏”这类 response false call。
 
+2026-06-01 起，样本状态会从 Tenhou `INIT seed` 写入 `round_wind`。该字段不增加 state 向量维度，但会影响 response candidate 的役牌路线判断，尤其是 `pon` 目标是否场风牌、`features[34]` 的役牌路线和 `features[38]` 的无明显开副露役路风险。旧 `bronze_events` 没有 `round_wind`，不再兼容；需要从 `preprocess` 开始重建数据，避免南场/西场被错误当作东场。
+
 ## 7. 模型如何消费这些输入
 
 `MahjongPolicyNet` 不直接看到原始 JSON。它只看到：
@@ -253,7 +255,7 @@ candidate_mask: [B, C]
 4. padding 候选通过 `candidate_mask` mask 掉。
 5. loss 是合法候选集合内的交叉熵，label 是真实动作在候选列表中的位置。
 
-当前 `turn` 和 `response` 是单任务训练入口；模型类有共享 encoder + 两个 head 的接口，但还没有实现真正 `task: multitask` 的 batch 混合与 loss 聚合。
+当前 `turn` 和 `response` 均支持单任务训练入口；多任务训练使用 `MultitaskMahjongPolicyNet`，保留任务专属 state/action projection 与 head，并共享状态主干。P800 主配置仍默认使用 v1.1 epoch-sequential multitask，v1.2 batch-interleave 作为显式实验配置保留。
 
 ## 8. 数据重建提醒
 
@@ -269,3 +271,5 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 2026-05-09 起，`response` 的 `candidate_features` 从 `77` 维增加到 `91` 维。
 
 2026-05-19 起，`turn` 的 `candidate_features` 从 `85` 维增加到 `89` 维，新增按绝对座位拆开的现物特征。`turn` / `response` 的 `state_features` 也同步加入四家立直状态、对手立直巡目和最多 192 个全局牌河顺序 token。已有 `data/silver_samples`、manifest 和旧 checkpoint 不再适用于当前代码，下一轮训练前必须重建数据并重训。
+
+2026-06-01 起，`round_wind` 会进入样本状态并修正 response 无役风险/役牌路线启发式。虽然 `state_features_bin` / `candidate_features_bin` 维度不变，但 response candidate 语义发生变化；要获得正确的南场/西场役牌判断，需要重新运行 `preprocess`、`build-dataset` 和 `make-manifest`。

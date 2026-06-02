@@ -777,12 +777,18 @@ def _is_yakuhai(state: dict, base_index: int) -> bool:
     seat_wind = int(state.get("seat_wind", -1))
     dealer = int(state.get("dealer", -1))
     actor = int(state.get("actor", -1))
-    round_wind = int(state.get("round_wind", 0))
+    round_wind = _require_round_wind(state)
     if honor == seat_wind:
         return True
     if honor == round_wind:
         return True
     return honor == ((actor - dealer) % 4)
+
+
+def _require_round_wind(state: dict) -> int:
+    if "round_wind" not in state:
+        raise KeyError("response action features require state.round_wind")
+    return int(state["round_wind"])
 
 
 def _chi_shape(action: dict) -> str:

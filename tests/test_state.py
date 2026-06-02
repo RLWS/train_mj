@@ -253,6 +253,7 @@ def test_game_state_tracks_round_context_and_dora():
             "seed": "0,2,1,0,0,16",
             "ten": "250,260,240,250",
             "oya": 2,
+            "round_wind": 0,
             "dora_indicator": "5m",
             "hai0": ["1m"] * 13,
             "hai1": ["1p"] * 13,

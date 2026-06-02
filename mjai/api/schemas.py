@@ -20,6 +20,7 @@ class ModelInfo(BaseModel):
     hidden_size: int
     dropout: float
     default_pass_bias: float | None = None
+    no_yaku_call_penalty: float = 0.0
 
 
 class ModelsResponse(BaseModel):
@@ -64,6 +65,7 @@ class ResponsePredictionResponse(BaseModel):
     task: str
     selection_mode: str
     pass_bias: float
+    no_yaku_call_penalty: float = 0.0
     selected_action: dict[str, Any]
     raw_selected_action: dict[str, Any]
     predictions: list[PredictionItem]

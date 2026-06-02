@@ -6,6 +6,7 @@
 # Common overrides:
 #   env TASKS=response docker-compose -f docker-compose.p800.yml up --force-recreate
 #   env TASKS=turn EVAL_SPLIT=valid docker-compose -f docker-compose.p800.yml up --force-recreate
+#   env CLEAN_DATA=1 RUN_PREPROCESS=1 RUN_VALIDATE=1 RUN_BUILD_DATASET=1 RUN_MANIFEST=1 RUN_TRAIN=1 RUN_EVAL=1 RUN_CALIBRATION=1 docker-compose -f docker-compose.p800.yml up --force-recreate
 #   env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 docker-compose -f docker-compose.p800.yml up --force-recreate
 #   env TASKS=multitask RUN_EXTRA_EVAL=1 RUN_CALIBRATION=1 EVAL_SPLIT=test docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
 #   docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml up --force-recreate
@@ -30,11 +31,13 @@ services:
       RUN_EXTRA_EVAL: ${RUN_EXTRA_EVAL:-0}
       RUN_CALIBRATION: ${RUN_CALIBRATION:-0}
       SKIP_BUILD_VALIDATION: ${SKIP_BUILD_VALIDATION:-1}
+      CLEAN_DATA: ${CLEAN_DATA:-0}
 
       EVAL_SPLIT: ${EVAL_SPLIT:-test}
       EXTRA_EVAL_SPLITS: ${EXTRA_EVAL_SPLITS:-test}
       CALIBRATION_SPLITS: ${CALIBRATION_SPLITS:-valid test}
       CALIBRATION_PASS_BIASES: ${CALIBRATION_PASS_BIASES:-0,0.02,0.04,0.06,0.08,0.10,0.12,0.16,0.20,0.30,0.40,0.60,0.80,1.00}
+      CALIBRATION_NO_YAKU_CALL_PENALTIES: ${CALIBRATION_NO_YAKU_CALL_PENALTIES:-0,0.2,0.4}
       CALIBRATION_FALSE_CALL_TARGETS: ${CALIBRATION_FALSE_CALL_TARGETS:-1%,0.8%,0.5%}
       CALIBRATION_LOG_EVERY_N_BATCHES: ${CALIBRATION_LOG_EVERY_N_BATCHES:-100}
       TASKS: ${TASKS:-turn response}
