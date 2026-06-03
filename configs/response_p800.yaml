@@ -21,16 +21,23 @@ train:
   precision: bf16
   allow_tf32: true
   float32_matmul_precision: high
-  batch_size: 16384
-  num_workers: 16
-  valid_num_workers: 4
-  log_every_n_steps: 500
+  batch_size: 32768
+  num_workers: 48
+  valid_num_workers: 12
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  streaming_dataset: true
+  shuffle_shards: true
+  shuffle_rows: true
+  shuffle_buffer_size: 1024
+  log_every_n_steps: 200
   epochs: 10
   lr: 0.001
   weight_decay: 0.0001
   response_min_train_candidate_count: 2
   response_train_diagnostics: false
-  response_eval_diagnostics: true
+  response_eval_diagnostics: false
   response_class_weights:
     pass: 1.0
     chi: 8.0

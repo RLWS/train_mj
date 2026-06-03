@@ -13,17 +13,23 @@ set -Eeuo pipefail
 #   CLEAN_DATA=1 RUN_CALIBRATION=1 ./start.sh
 #   TASKS=multitask RUN_EXTRA_EVAL=1 RUN_CALIBRATION=1 EVAL_SPLIT=test ./start.sh
 #   RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
+#   WORKERS=64 ./start.sh
+#   BUILD_WORKER_MAX=180 ./start.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 default_workers() {
   local workers=1
+  local max_workers="${BUILD_WORKER_MAX:-180}"
   if command -v nproc >/dev/null 2>&1; then
     workers="$(nproc)"
   fi
-  if [ "$workers" -gt 32 ]; then
-    workers=32
+  if ! [[ "$max_workers" =~ ^[0-9]+$ ]] || [ "$max_workers" -lt 1 ]; then
+    max_workers=180
+  fi
+  if [ "$workers" -gt "$max_workers" ]; then
+    workers="$max_workers"
   fi
   echo "$workers"
 }
