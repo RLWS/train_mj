@@ -57,6 +57,29 @@ def test_serving_predictor_returns_calibrated_response_action(tmp_path: Path):
     assert result.model.action_dim == RESPONSE_ACTION_DIM
 
 
+def test_serving_predictor_preserves_zero_default_pass_bias(tmp_path: Path):
+    turn_ckpt = _write_checkpoint(tmp_path / "turn.pt", task="turn", hidden_size=16)
+    response_ckpt = _write_checkpoint(tmp_path / "response.pt", task="response", hidden_size=16)
+    predictor = build_predictor_from_config(
+        _api_config(
+            turn_ckpt,
+            response_ckpt,
+            pass_bias=0.0,
+            no_yaku_call_penalty=0.4,
+        )
+    )
+
+    legal_actions = [
+        {"kind": "pass"},
+        {"kind": "chi", "tile": "3m", "consumed_tiles": ["1m", "2m"], "source": 0},
+    ]
+    result = predictor.predict_response(_response_state(), legal_actions, top_k=2)
+
+    assert result.pass_bias == 0.0
+    assert result.no_yaku_call_penalty == 0.4
+    assert result.model.default_pass_bias == 0.0
+
+
 def test_response_selection_uses_pass_bias_margin():
     logits = torch.tensor([0.50, 0.75, 0.10], dtype=torch.float32)
     legal_actions = [

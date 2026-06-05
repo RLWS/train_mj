@@ -68,7 +68,10 @@ class MahjongPredictor:
             task="response",
         )
         if pass_bias is None:
-            pass_bias = self.response_policy.default_pass_bias or 0.3
+            if self.response_policy.default_pass_bias is None:
+                pass_bias = 0.3
+            else:
+                pass_bias = self.response_policy.default_pass_bias
         if pass_bias < 0:
             raise BadRequestError("pass_bias must be non-negative")
         return self._predict_response(

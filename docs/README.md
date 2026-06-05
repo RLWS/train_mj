@@ -10,10 +10,11 @@
 4. [multitask-training.md](multitask-training.md)：v1.1 多任务模型结构、P800 启动方式、checkpoint 与评估口径。
 5. [model-inputs.md](model-inputs.md)：当前 turn / response 模型输入张量、维度和特征语义。
 6. [serving-api-plan.md](serving-api-plan.md)：新增 serving/API 模块的分层设计、接口约定、配置和落地顺序。
-7. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：turn / response 训练效果分析、response 特征增强记录、2026-05-06 P800 baseline 和 2026-05-10 improved 结论。
-8. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
-9. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
-10. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。
+7. [training-analysis-2026-06-04.md](training-analysis-2026-06-04.md)：2026-06-04 P800 单任务复训、turn/response 对比和 response 无役鸣牌 calibration 结论。
+8. [training-analysis-2026-05-02.md](training-analysis-2026-05-02.md)：turn / response 训练效果分析、response 特征增强记录、2026-05-06 P800 baseline 和 2026-05-10 improved 结论。
+9. [rule-coverage.md](rule-coverage.md)：规则引擎当前已覆盖和明确未覆盖的边界。
+10. [architecture-plan.md](architecture-plan.md)：总体 AI、数据、模型和训练路线。
+11. [engineering-guide.md](engineering-guide.md)：工程布局、配置、CLI、数据格式和任务计划。
 
 ## 命名说明
 
@@ -25,4 +26,5 @@
 - `model-inputs.md` 记录当前模型输入 schema；修改 state/action feature 维度时必须同步更新。
 - `multitask-training.md` 记录 v1.1 多任务训练主线；多任务实验结论优先写这里，不再继续扩张单任务训练分析文档。
 - `serving-api-plan.md` 记录 serving/API 模块方案；实现 API 前优先对齐该文档中的分层边界和 response operating point。
+- `training-analysis-2026-06-04.md` 记录 2026-06-04 P800 单任务复训与无役鸣牌 calibration，作为当前最新单任务训练结论。
 - `releases/` 记录本地 release notes；发远端 Release 时优先复用对应版本文档。

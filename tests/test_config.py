@@ -72,3 +72,22 @@ def test_load_resolved_multitask_experiment_config():
     assert config["train"]["distributed"] is True
     assert config["train"]["find_unused_parameters"] is True
     assert config["output_dir"] == "outputs/checkpoints/multitask_p800_v1_2_interleave"
+
+
+def test_api_local_targets_2026_06_04_safety_models():
+    config = load_yaml("configs/api_local.yaml")
+
+    assert (
+        config["models"]["turn"]["checkpoint"]
+        == "runs/2026-06-04_p800_single_v1_2_safety/turn/checkpoints/best.pt"
+    )
+    assert (
+        config["models"]["response"]["checkpoint"]
+        == "runs/2026-06-04_p800_single_v1_2_safety/response/checkpoints/best_response.pt"
+    )
+    assert config["models"]["response"]["pass_bias"] == {
+        "default": 0.0,
+        "recall": 0.0,
+        "conservative": 0.16,
+    }
+    assert config["models"]["response"]["no_yaku_call_penalty"] == 0.4
