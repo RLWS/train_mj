@@ -157,11 +157,13 @@ def build_turn_discard_feature_context(state: dict | None) -> dict | None:
     if state is None:
         return None
     counts = _hand_counts_from_state(state)
+    fixed_melds = _fixed_meld_count(state)
     # Shared once per sample so each discard candidate does not rerun the same
     # current-hand shanten and dora extraction.
     return {
         "counts": counts,
-        "current_shanten": shanten_number_from_counts(tuple(counts)),
+        "current_shanten": _turn_shanten_from_counts(tuple(counts), fixed_melds),
+        "fixed_melds": fixed_melds,
         "dora_bases": _dora_base_indices(state),
         "discard_timing": _discard_timing_context(state),
     }
@@ -395,9 +397,15 @@ def encode_turn_discard_features(
     after_counts[base_index] -= 1
     after_counts_tuple = tuple(after_counts)
     current_shanten = int(context["current_shanten"])
-    after_shanten = shanten_number_from_counts(after_counts_tuple)
-    effective_tiles = effective_tile_base_indices_from_counts(after_counts_tuple)
-    effective_tile_copies = sum(max(0, 4 - after_counts[index]) for index in effective_tiles)
+    fixed_melds = int(context.get("fixed_melds", 0))
+    after_shanten = _turn_shanten_from_counts(after_counts_tuple, fixed_melds)
+    effective_tiles = _turn_effective_tile_base_indices(after_counts_tuple, fixed_melds)
+    effective_tile_copies = _visible_effective_tile_copies(
+        state,
+        after_counts,
+        effective_tiles,
+        include_called_meld_tiles=True,
+    )
     shape = _shape_summary(after_counts)
 
     features[0] = 1.0
@@ -488,6 +496,22 @@ def _fixed_melds_after_response_call(state: dict) -> int:
     return min(4, len(state.get("own_melds", [])) + 1)
 
 
+def _fixed_meld_count(state: dict) -> int:
+    return min(4, len(state.get("own_melds", [])))
+
+
+def _turn_shanten_from_counts(counts: tuple[int, ...], fixed_melds: int) -> int:
+    if fixed_melds <= 0:
+        return shanten_number_from_counts(counts)
+    return standard_shanten_from_counts_with_fixed_melds(counts, fixed_melds)
+
+
+def _turn_effective_tile_base_indices(counts: tuple[int, ...], fixed_melds: int):
+    if fixed_melds <= 0:
+        return effective_tile_base_indices_from_counts(counts)
+    return effective_tile_base_indices_from_counts_with_fixed_melds(counts, fixed_melds)
+
+
 def _effective_tile_copies(counts: list[int], effective_tiles) -> int:
     """执行与函数名对应的业务逻辑。
     
@@ -509,11 +533,23 @@ def _visible_effective_tile_copies(
     counts: list[int],
     effective_tiles,
     extra_visible_bases: list[int] | None = None,
+    *,
+    include_called_meld_tiles: bool = False,
 ) -> int:
     """按当前可见牌修正有效牌枚数。"""
     extra_visible_bases = extra_visible_bases or []
     return sum(
-        max(0, 4 - _visible_base_count_with_hand_counts(state, counts, index, extra_visible_bases))
+        max(
+            0,
+            4
+            - _visible_base_count_with_hand_counts(
+                state,
+                counts,
+                index,
+                extra_visible_bases,
+                include_called_meld_tiles=include_called_meld_tiles,
+            ),
+        )
         for index in effective_tiles
     )
 
@@ -523,6 +559,8 @@ def _visible_base_count_with_hand_counts(
     hand_counts: list[int],
     base_index: int,
     extra_visible_bases: list[int],
+    *,
+    include_called_meld_tiles: bool = False,
 ) -> int:
     """统计某 base tile 已知不可摸的张数。"""
     visible = int(hand_counts[base_index])
@@ -532,10 +570,14 @@ def _visible_base_count_with_hand_counts(
             if tile_to_base_index(str(tile)) == base_index:
                 visible += 1
 
-    for meld in _visible_melds(state):
-        for tile in _meld_visible_tiles(meld):
-            if tile_to_base_index(tile) == base_index:
-                visible += 1
+    meld_tiles = (
+        _visible_meld_tiles_with_called_tiles(state)
+        if include_called_meld_tiles
+        else _visible_meld_tiles_without_called_tiles(state)
+    )
+    for tile in meld_tiles:
+        if tile_to_base_index(tile) == base_index:
+            visible += 1
 
     for tile in state.get("dora_indicators", []):
         if tile_to_base_index(str(tile)) == base_index:
@@ -544,6 +586,101 @@ def _visible_base_count_with_hand_counts(
     visible += sum(1 for extra_base in extra_visible_bases if extra_base == base_index)
     return min(4, visible)
 
+
+def _visible_meld_tiles_without_called_tiles(state: dict):
+    for meld in _visible_melds(state):
+        for tile in _meld_visible_tiles(meld):
+            yield tile
+
+
+def _visible_meld_tiles_with_called_tiles(state: dict):
+    called_tile_quotas = _missing_called_tile_quotas(state)
+    for meld in _visible_melds(state):
+        kind = str(meld.get("kind", ""))
+        if kind == "ankan":
+            yield from _meld_tiles(meld)
+            continue
+
+        for tile in meld.get("consumed_tiles", []):
+            yield str(tile)
+
+        called_tile = meld.get("called_tile")
+        if called_tile is None:
+            continue
+        called_base = tile_to_base_index(str(called_tile))
+        source = meld.get("source")
+        if source is None:
+            yield str(called_tile)
+            continue
+
+        key = (int(source), called_base)
+        if called_tile_quotas.get(key, 0) > 0:
+            called_tile_quotas[key] -= 1
+            yield str(called_tile)
+
+
+def _missing_called_tile_quotas(state: dict) -> dict[tuple[int, int], int]:
+    history_counts: dict[tuple[int, int], int] = {}
+    for event in state.get("discard_history", []):
+        if isinstance(event, dict):
+            actor = event.get("actor")
+            tile = event.get("tile")
+        else:
+            try:
+                actor, tile = event
+            except (TypeError, ValueError):
+                continue
+        if actor is None or tile is None:
+            continue
+        key = (int(actor), tile_to_base_index(str(tile)))
+        history_counts[key] = history_counts.get(key, 0) + 1
+
+    if not history_counts:
+        quotas: dict[tuple[int, int], int] = {}
+        for meld in _visible_melds(state):
+            called_tile = meld.get("called_tile")
+            source = meld.get("source")
+            if called_tile is None or source is None:
+                continue
+            called_base = tile_to_base_index(str(called_tile))
+            if _source_discards_include_base(state, int(source), called_base):
+                continue
+            key = (int(source), called_base)
+            quotas[key] = quotas.get(key, 0) + 1
+        return quotas
+
+    river_counts: dict[tuple[int, int], int] = {}
+    for actor, player_discards in enumerate(state.get("all_discards", [])):
+        for tile in player_discards:
+            key = (actor, tile_to_base_index(str(tile)))
+            river_counts[key] = river_counts.get(key, 0) + 1
+
+    return {
+        key: max(0, history_count - river_counts.get(key, 0))
+        for key, history_count in history_counts.items()
+    }
+
+
+def _source_discards_include_base(state: dict, source: int, base_index: int) -> bool:
+    all_discards = state.get("all_discards", [])
+    if source < 0 or source >= len(all_discards):
+        return False
+    return any(tile_to_base_index(str(tile)) == base_index for tile in all_discards[source])
+
+
+def _visible_count_with_called_meld_tiles(
+    state: dict,
+    base_index: int,
+    include_hand: bool = True,
+) -> int:
+    hand_counts = _hand_counts_from_state(state) if include_hand else [0] * 34
+    return _visible_base_count_with_hand_counts(
+        state,
+        hand_counts,
+        base_index,
+        [],
+        include_called_meld_tiles=True,
+    )
 
 def _open_yaku_route_summary(
     *,
@@ -650,7 +787,11 @@ def _meld_visible_tiles(meld: dict) -> list[str]:
 
 
 def _visible_melds(state: dict):
-    for player_melds in state["all_melds"]:
+    all_melds = state.get("all_melds")
+    if all_melds is None:
+        yield from state.get("own_melds", [])
+        return
+    for player_melds in all_melds:
         yield from player_melds
 
 
@@ -981,20 +1122,7 @@ def _visible_count(state: dict, base_index: int, include_hand: bool = True) -> i
     异常:
         无。
     """
-    visible = 0
-    if include_hand:
-        for tile, count in state.get("hand", {}).items():
-            if tile_to_base_index(str(tile)) == base_index:
-                visible += int(count)
-    for player_discards in state.get("all_discards", []):
-        for tile in player_discards:
-            if tile_to_base_index(str(tile)) == base_index:
-                visible += 1
-    for meld in state.get("own_melds", []):
-        for tile in [meld.get("called_tile"), *meld.get("consumed_tiles", [])]:
-            if tile is not None and tile_to_base_index(str(tile)) == base_index:
-                visible += 1
-    return visible
+    return _visible_count_with_called_meld_tiles(state, base_index, include_hand)
 
 
 def _discard_timing_context(state: dict) -> dict[str, object]:

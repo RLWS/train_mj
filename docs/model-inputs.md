@@ -273,3 +273,5 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 2026-05-19 起，`turn` 的 `candidate_features` 从 `85` 维增加到 `89` 维，新增按绝对座位拆开的现物特征。`turn` / `response` 的 `state_features` 也同步加入四家立直状态、对手立直巡目和最多 192 个全局牌河顺序 token。已有 `data/silver_samples`、manifest 和旧 checkpoint 不再适用于当前代码，下一轮训练前必须重建数据并重训。
 
 2026-06-01 起，`round_wind` 会进入样本状态并修正 response 无役风险/役牌路线启发式。虽然 `state_features_bin` / `candidate_features_bin` 维度不变，但 response candidate 语义发生变化；要获得正确的南场/西场役牌判断，需要重新运行 `preprocess`、`build-dataset` 和 `make-manifest`。
+
+2026-06-22 起，turn discard candidate features keep the same `TURN_ACTION_DIM=89`, but their semantics changed: shanten and effective waits now treat `own_melds` as fixed melds, and visible/effective wait counts include visible tiles from all player melds, including called tiles that may have been removed from `all_discards`. Rebuild `silver_samples` and manifests before retraining turn.

@@ -556,6 +556,61 @@ def test_encode_turn_action_adds_discard_candidate_features():
     assert vector[-TURN_DISCARD_FEATURE_DIM] == 1.0
 
 
+def test_encode_turn_discard_uses_fixed_melds_and_all_visible_meld_tiles():
+    state = {
+        "actor": 1,
+        "hand": {"7z": 1, "5z": 1},
+        "all_discards": [
+            ["2z", "9m", "7m", "1s", "3m", "8s", "5s", "4p"],
+            ["2p", "8m", "4m", "4p", "8p", "9p", "3z", "6z", "2p", "3p"],
+            ["9m", "1p", "3s", "1z", "7m", "4z", "9s", "9m"],
+            ["3z", "1p", "1p", "9s", "9s", "8m", "4p", "4s"],
+        ],
+        "discard_history": [
+            {"actor": 0, "tile": "2z"},
+            {"actor": 2, "tile": "7z"},
+            {"actor": 0, "tile": "7s"},
+            {"actor": 2, "tile": "4z"},
+        ],
+        "own_melds": [
+            {"kind": "chi", "source": 0, "called_tile": "3s", "consumed_tiles": ["1s", "2s"]},
+            {"kind": "chi", "source": 0, "called_tile": "7s", "consumed_tiles": ["8s", "9s"]},
+            {"kind": "pon", "source": 2, "called_tile": "4z", "consumed_tiles": ["4z", "4z"]},
+            {"kind": "chi", "source": 0, "called_tile": "3s", "consumed_tiles": ["1s", "2s"]},
+        ],
+        "all_melds": [
+            [{"kind": "pon", "source": 2, "called_tile": "7z", "consumed_tiles": ["7z", "7z"]}],
+            [
+                {"kind": "chi", "source": 0, "called_tile": "3s", "consumed_tiles": ["1s", "2s"]},
+                {"kind": "chi", "source": 0, "called_tile": "7s", "consumed_tiles": ["8s", "9s"]},
+                {"kind": "pon", "source": 2, "called_tile": "4z", "consumed_tiles": ["4z", "4z"]},
+                {"kind": "chi", "source": 0, "called_tile": "3s", "consumed_tiles": ["1s", "2s"]},
+            ],
+            [],
+            [],
+        ],
+        "riichi_declared": False,
+        "temporary_furiten": False,
+        "riichi_furiten": False,
+        "last_discard_actor": 0,
+        "last_discard_tile": "3s",
+        "dora_base_indices": [],
+    }
+
+    discard_7z = encode_turn_action({"kind": "discard", "tile": "7z"}, state)[-TURN_DISCARD_FEATURE_DIM:]
+    discard_5z = encode_turn_action({"kind": "discard", "tile": "5z"}, state)[-TURN_DISCARD_FEATURE_DIM:]
+
+    assert discard_7z[2] == 0.0
+    assert discard_7z[5] == pytest.approx(3 / 136)
+    assert discard_7z[19] == pytest.approx(1.0)
+    assert discard_7z[22] == 1.0
+
+    assert discard_5z[2] == 0.0
+    assert discard_5z[5] == 0.0
+    assert discard_5z[19] == pytest.approx(1 / 4)
+    assert discard_5z[22] == 1.0
+
+
 def test_encode_turn_action_adds_discard_river_timing_features():
     """验证自摸巡弃牌候选编码包含牌河时序摘要。"""
     state = {
