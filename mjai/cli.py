@@ -9,21 +9,12 @@ from mjai.data.builders.event_builder import EventBuilder
 from mjai.data.builders.event_validator import EventValidator
 from mjai.data.builders.dataset_builder import DatasetBuilder
 from mjai.data.builders.manifest_builder import ManifestBuilder
-from mjai.data.datasets.parquet_dataset import inspect_dataset_sample, inspect_dataset_sample_by_id
-from mjai.eval.case_dump import dump_case_to_json
-from mjai.eval.offline import evaluate_checkpoint
-from mjai.eval.response_calibration import calibrate_response_checkpoint
-from mjai.eval.response_error_sampling import (
-    DEFAULT_RESPONSE_ERROR_TARGETS,
-    sample_response_errors,
-)
-from mjai.eval.turn_error_sampling import (
-    DEFAULT_TURN_ERROR_LABEL_KINDS,
-    DEFAULT_TURN_ERROR_RANKS,
-    sample_turn_errors,
-)
-from mjai.training.engine import train_turn_model
 from mjai.utils.config import load_resolved_yaml, load_yaml
+
+
+DEFAULT_RESPONSE_ERROR_TARGETS = ("pass->chi", "pass->pon", "chi->pass", "pon->pass")
+DEFAULT_TURN_ERROR_LABEL_KINDS = ("discard",)
+DEFAULT_TURN_ERROR_RANKS = (2, 3)
 
 
 def _add_config_arg(parser: argparse.ArgumentParser) -> None:
@@ -202,6 +193,8 @@ def _run_train(args: argparse.Namespace) -> int:
     异常:
         无。
     """
+    from mjai.training.engine import train_turn_model
+
     config = load_resolved_yaml(args.config)
     summary = train_turn_model(config)
     if _distributed_rank_from_env() != 0:
@@ -253,6 +246,8 @@ def _run_eval(args: argparse.Namespace) -> int:
     异常:
         无。
     """
+    from mjai.eval.offline import evaluate_checkpoint
+
     config_override = _load_optional_config(getattr(args, "config", None))
     summary = evaluate_checkpoint(
         ckpt_path=args.ckpt,
@@ -313,6 +308,8 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
     异常:
         无。
     """
+    from mjai.eval.response_calibration import calibrate_response_checkpoint
+
     config_override = _load_optional_config(getattr(args, "config", None))
     pass_biases = _parse_float_list(args.pass_biases, option_name="--pass-biases")
     no_yaku_call_penalties = _parse_float_list(
@@ -368,6 +365,8 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
 
 
 def _run_sample_response_errors(args: argparse.Namespace) -> int:
+    from mjai.eval.response_error_sampling import sample_response_errors
+
     config_override = _load_optional_config(getattr(args, "config", None))
     targets = _parse_string_list(args.targets, option_name="--targets")
     summary = sample_response_errors(
@@ -402,6 +401,8 @@ def _run_sample_response_errors(args: argparse.Namespace) -> int:
 
 
 def _run_sample_turn_errors(args: argparse.Namespace) -> int:
+    from mjai.eval.turn_error_sampling import sample_turn_errors
+
     config_override = _load_optional_config(getattr(args, "config", None))
     label_kinds = _parse_string_list(args.label_kinds, option_name="--label-kinds")
     ranks = _parse_int_list(args.ranks, option_name="--ranks")
@@ -445,6 +446,8 @@ def _run_inspect_sample(args: argparse.Namespace) -> int:
     异常:
         ValueError: 当输入数据不满足函数约束时抛出。
     """
+    from mjai.data.datasets.parquet_dataset import inspect_dataset_sample, inspect_dataset_sample_by_id
+
     _load_optional_config(getattr(args, "config", None))
     if args.sample_id is None and args.index is None:
         raise ValueError("inspect-sample requires either --index or --sample-id")
@@ -468,6 +471,8 @@ def _run_dump_case(args: argparse.Namespace) -> int:
     异常:
         无。
     """
+    from mjai.eval.case_dump import dump_case_to_json
+
     _load_optional_config(getattr(args, "config", None))
     print(
         dump_case_to_json(

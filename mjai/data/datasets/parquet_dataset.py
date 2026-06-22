@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
+from mjai.data.datasets.sample_store import SAMPLE_SCHEMA
 from mjai.data.schema.samples import TurnSample
 from mjai.features.action_features import (
     RESPONSE_ACTION_DIM,
@@ -27,25 +28,6 @@ from mjai.features.state_features import (
 )
 from mjai.rules.tiles import tile_to_base_index
 from mjai.utils.paths import ensure_dir
-
-
-SAMPLE_SCHEMA = pa.schema(
-    [
-        ("sample_id", pa.string()),
-        ("game_id", pa.string()),
-        ("kyoku_index", pa.int32()),
-        ("step_index", pa.int32()),
-        ("actor", pa.int8()),
-        ("decision_type", pa.string()),
-        ("state_json", pa.string()),
-        ("legal_actions_json", pa.string()),
-        ("label_action_json", pa.string()),
-        ("state_features_bin", pa.binary()),
-        ("candidate_features_bin", pa.binary()),
-        ("label_index", pa.int16()),
-        ("label_kind", pa.string()),
-    ]
-)
 
 TURN_LABEL_KIND_ORDER = (
     "discard",

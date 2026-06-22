@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 import json
+import multiprocessing as mp
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import perf_counter
 
 from mjai.data.datasets.event_store import read_events_from_parquet
 from mjai.data.builders.sample_builder import ResponseSampleBuilder, TurnSampleBuilder
-from mjai.data.datasets.parquet_dataset import write_samples_to_parquet
+from mjai.data.datasets.sample_store import write_samples_to_parquet
 from mjai.data.tenhou.parser import TenhouParser
 from mjai.rules.validators import ReplayValidator
 from mjai.utils.paths import ensure_dir
@@ -295,16 +297,74 @@ def _run_process_build_workers(
     异常:
         无。
     """
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        return list(
-            executor.map(
-                build_func,
-                source_paths,
-                output_roots,
-                validate_flags,
-                chunksize=chunksize,
+    max_pending = _build_max_pending_chunks(workers)
+    context = _build_multiprocessing_context()
+    pending: set[Future[list[_ShardBuildResult]]] = set()
+    results: list[_ShardBuildResult] = []
+
+    with ProcessPoolExecutor(max_workers=workers, mp_context=context) as executor:
+        for start in range(0, len(source_paths), chunksize):
+            end = min(start + chunksize, len(source_paths))
+            pending.add(
+                executor.submit(
+                    _build_source_chunk,
+                    build_func,
+                    source_paths[start:end],
+                    output_roots[start:end],
+                    validate_flags[start:end],
+                )
             )
+            if len(pending) >= max_pending:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                results.extend(_collect_chunk_results(done))
+
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            results.extend(_collect_chunk_results(done))
+
+    return results
+
+
+def _build_source_chunk(
+    build_func,
+    source_paths: list[str],
+    output_roots: list[str],
+    validate_flags: list[bool],
+) -> list[_ShardBuildResult]:
+    return [
+        build_func(source_path, output_root, validate)
+        for source_path, output_root, validate in zip(source_paths, output_roots, validate_flags)
+    ]
+
+
+def _collect_chunk_results(
+    futures: set[Future[list[_ShardBuildResult]]],
+) -> list[_ShardBuildResult]:
+    results: list[_ShardBuildResult] = []
+    for future in futures:
+        results.extend(future.result())
+    return results
+
+
+def _build_multiprocessing_context() -> mp.context.BaseContext:
+    requested = os.environ.get("MJAI_BUILD_MP_START_METHOD", "spawn").strip()
+    available = set(mp.get_all_start_methods())
+    if requested not in available:
+        raise ValueError(
+            f"unsupported MJAI_BUILD_MP_START_METHOD={requested!r}; "
+            f"available methods: {sorted(available)}"
         )
+    return mp.get_context(requested)
+
+
+def _build_max_pending_chunks(workers: int) -> int:
+    configured = os.environ.get("MJAI_BUILD_MAX_PENDING_CHUNKS")
+    if configured:
+        try:
+            return max(1, int(configured))
+        except ValueError as exc:
+            raise ValueError("MJAI_BUILD_MAX_PENDING_CHUNKS must be an integer") from exc
+    return max(1, workers * 2)
 
 
 def _run_thread_build_workers(
