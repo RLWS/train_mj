@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable
 
 import torch
@@ -37,6 +37,9 @@ class ResponseTopKSummary:
     macro_top1_accuracy: float
     macro_top3_accuracy: float
     macro_top5_accuracy: float
+    topk_hits: dict[int, int] = field(default_factory=dict)
+    kind_totals: dict[str, int] = field(default_factory=dict)
+    kind_topk_hits: dict[str, dict[int, int]] = field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True)
@@ -256,6 +259,12 @@ class _TopKAccumulator:
             macro_top1_accuracy=self._macro_topk_accuracy(1),
             macro_top3_accuracy=self._macro_topk_accuracy(3),
             macro_top5_accuracy=self._macro_topk_accuracy(5),
+            topk_hits={top_k: int(hits) for top_k, hits in self.topk_hits.items()},
+            kind_totals={kind: int(samples) for kind, samples in self.kind_totals.items()},
+            kind_topk_hits={
+                kind: {top_k: int(hits) for top_k, hits in hits_by_k.items()}
+                for kind, hits_by_k in self.kind_topk_hits.items()
+            },
         )
 
     def _macro_topk_accuracy(self, top_k: int) -> float:
@@ -317,6 +326,136 @@ def response_selection_score(diagnostics: ResponseDiagnostics | None) -> float |
     binary = diagnostics.binary
     # Prefer a useful respond/pass decision, while discouraging false calls.
     return binary.non_pass_f1 - binary.false_call_rate
+
+
+def combine_response_diagnostics(
+    diagnostics: Iterable[ResponseDiagnostics | None],
+) -> ResponseDiagnostics | None:
+    """Combine per-rank response diagnostics into a single exact summary."""
+
+    items = [item for item in diagnostics if item is not None]
+    if not items:
+        return None
+
+    candidate_set_names = sorted({name for item in items for name in item.candidate_sets})
+    confusion: dict[str, int] = defaultdict(int)
+    for item in items:
+        for key, value in item.confusion.items():
+            confusion[key] += int(value)
+
+    return ResponseDiagnostics(
+        single_candidate=_combine_topk_summaries(item.single_candidate for item in items),
+        multi_candidate=_combine_topk_summaries(item.multi_candidate for item in items),
+        binary=_combine_binary_summaries(item.binary for item in items),
+        candidate_sets={
+            name: _combine_topk_summaries(
+                item.candidate_sets[name]
+                for item in items
+                if name in item.candidate_sets
+            )
+            for name in candidate_set_names
+        },
+        confusion=dict(sorted(confusion.items())),
+    )
+
+
+def _combine_topk_summaries(summaries: Iterable[ResponseTopKSummary]) -> ResponseTopKSummary:
+    items = list(summaries)
+    total_samples = sum(int(item.samples) for item in items)
+    topk_hits = {top_k: 0 for top_k in (1, 3, 5)}
+    kind_totals: dict[str, int] = defaultdict(int)
+    kind_topk_hits: dict[str, dict[int, int]] = defaultdict(lambda: {1: 0, 3: 0, 5: 0})
+
+    for item in items:
+        for top_k in (1, 3, 5):
+            topk_hits[top_k] += _topk_hit_count(item, top_k)
+
+        if item.kind_totals:
+            for kind, samples in item.kind_totals.items():
+                kind_totals[kind] += int(samples)
+            for kind, hits_by_k in item.kind_topk_hits.items():
+                for top_k in (1, 3, 5):
+                    kind_topk_hits[kind][top_k] += int(hits_by_k.get(top_k, 0))
+        elif item.samples > 0:
+            kind_totals["__all__"] += int(item.samples)
+            for top_k in (1, 3, 5):
+                kind_topk_hits["__all__"][top_k] += _topk_hit_count(item, top_k)
+
+    return ResponseTopKSummary(
+        samples=total_samples,
+        top1_accuracy=_safe_divide(topk_hits[1], total_samples),
+        top3_accuracy=_safe_divide(topk_hits[3], total_samples),
+        top5_accuracy=_safe_divide(topk_hits[5], total_samples),
+        macro_top1_accuracy=_macro_topk_accuracy_from_counts(kind_totals, kind_topk_hits, 1),
+        macro_top3_accuracy=_macro_topk_accuracy_from_counts(kind_totals, kind_topk_hits, 3),
+        macro_top5_accuracy=_macro_topk_accuracy_from_counts(kind_totals, kind_topk_hits, 5),
+        topk_hits=dict(topk_hits),
+        kind_totals=dict(sorted(kind_totals.items())),
+        kind_topk_hits={
+            kind: dict(hits_by_k)
+            for kind, hits_by_k in sorted(kind_topk_hits.items())
+        },
+    )
+
+
+def _topk_hit_count(summary: ResponseTopKSummary, top_k: int) -> int:
+    if summary.topk_hits:
+        return int(summary.topk_hits.get(top_k, 0))
+    accuracy = {
+        1: summary.top1_accuracy,
+        3: summary.top3_accuracy,
+        5: summary.top5_accuracy,
+    }[top_k]
+    return int(round(float(accuracy) * int(summary.samples)))
+
+
+def _macro_topk_accuracy_from_counts(
+    kind_totals: dict[str, int],
+    kind_topk_hits: dict[str, dict[int, int]],
+    top_k: int,
+) -> float:
+    values = [
+        _safe_divide(kind_topk_hits.get(kind, {}).get(top_k, 0), samples)
+        for kind, samples in kind_totals.items()
+        if samples > 0
+    ]
+    if not values:
+        return 0.0
+    return sum(values) / len(values)
+
+
+def _combine_binary_summaries(
+    summaries: Iterable[ResponseBinarySummary],
+) -> ResponseBinarySummary:
+    items = list(summaries)
+    actual_pass = sum(int(item.actual_pass) for item in items)
+    actual_non_pass = sum(int(item.actual_non_pass) for item in items)
+    predicted_pass = sum(int(item.predicted_pass) for item in items)
+    predicted_non_pass = sum(int(item.predicted_non_pass) for item in items)
+    false_call_count = sum(int(item.false_call_count) for item in items)
+    missed_call_count = sum(int(item.missed_call_count) for item in items)
+    pass_tp = actual_pass - false_call_count
+    non_pass_tp = actual_non_pass - missed_call_count
+    pass_precision = _safe_divide(pass_tp, predicted_pass)
+    pass_recall = _safe_divide(pass_tp, actual_pass)
+    non_pass_precision = _safe_divide(non_pass_tp, predicted_non_pass)
+    non_pass_recall = _safe_divide(non_pass_tp, actual_non_pass)
+    return ResponseBinarySummary(
+        actual_pass=actual_pass,
+        actual_non_pass=actual_non_pass,
+        predicted_pass=predicted_pass,
+        predicted_non_pass=predicted_non_pass,
+        pass_precision=pass_precision,
+        pass_recall=pass_recall,
+        pass_f1=_f1(pass_precision, pass_recall),
+        non_pass_precision=non_pass_precision,
+        non_pass_recall=non_pass_recall,
+        non_pass_f1=_f1(non_pass_precision, non_pass_recall),
+        false_call_count=false_call_count,
+        missed_call_count=missed_call_count,
+        false_call_rate=_safe_divide(false_call_count, actual_pass),
+        missed_call_rate=_safe_divide(missed_call_count, actual_non_pass),
+    )
 
 
 def _safe_divide(numerator: int | float, denominator: int | float) -> float:

@@ -5,9 +5,9 @@ defaults:
   - train: p800_single
 
 seed: 20260423
-exp_name: multitask_p800_v1_1
-output_dir: outputs/checkpoints/multitask_p800_v1_1
-log_dir: outputs/logs/multitask_p800_v1_1
+exp_name: multitask_p800_v1_1_ddp
+output_dir: outputs/checkpoints/multitask_p800_v1_1_ddp
+log_dir: outputs/logs/multitask_p800_v1_1_ddp
 
 data:
   train_manifest: data/manifests/train.jsonl
@@ -23,6 +23,9 @@ task:
   schedule: epoch_sequential
 
 train:
+  distributed: true
+  backend: vendor
+  find_unused_parameters: true
   precision: bf16
   allow_tf32: true
   float32_matmul_precision: high
