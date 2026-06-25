@@ -8,6 +8,9 @@
 # Claude
 .claude/
 
+# Codex
+.codex/
+
 # Local env
 .env
 .env.*
