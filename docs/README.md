@@ -7,7 +7,7 @@
 1. [status.md](status.md)：当前项目状态、已验证结果、主要缺口和下一步任务。
 2. [releases/v1.1.0.md](releases/v1.1.0.md)：v1.1.0 本地发布说明、推荐默认组合和已知缺陷。
 3. [smoke-training.md](smoke-training.md)：用夹具数据跑通预处理、构建样本、训练、评估和调试链路。
-4. [multitask-training.md](multitask-training.md)：v1.1 多任务模型结构、P800 启动方式、checkpoint 与评估口径。
+4. [multitask-training.md](multitask-training.md)：v1.1 多任务模型结构、P800/DDP 启动方式、checkpoint、评估口径和 40w run 结论。
 5. [model-inputs.md](model-inputs.md)：当前 turn / response 模型输入张量、维度和特征语义。
 6. [serving-api-plan.md](serving-api-plan.md)：新增 serving/API 模块的分层设计、接口约定、配置和落地顺序。
 7. [training-analysis-2026-06-04.md](training-analysis-2026-06-04.md)：2026-06-04 P800 单任务复训、turn/response 对比和 response 无役鸣牌 calibration 结论。
@@ -24,7 +24,7 @@
 - `rule-coverage.md` 原为 `RULE_COVERAGE.md`，记录规则边界。
 - `smoke-training.md` 原为 `SMOKE_TRAIN_TUTORIAL.md`，记录本地 smoke 工作流。
 - `model-inputs.md` 记录当前模型输入 schema；修改 state/action feature 维度时必须同步更新。
-- `multitask-training.md` 记录 v1.1 多任务训练主线；多任务实验结论优先写这里，不再继续扩张单任务训练分析文档。
+- `multitask-training.md` 记录 v1.1 多任务训练主线；多任务和 DDP 实验结论优先写这里，不再继续扩张单任务训练分析文档。
 - `serving-api-plan.md` 记录 serving/API 模块方案；实现 API 前优先对齐该文档中的分层边界和 response operating point。
 - `training-analysis-2026-06-04.md` 记录 2026-06-04 P800 单任务复训与无役鸣牌 calibration，作为当前最新单任务训练结论。
 - `releases/` 记录本地 release notes；发远端 Release 时优先复用对应版本文档。

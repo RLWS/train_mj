@@ -1,15 +1,15 @@
 # 项目进度状态
 
-更新时间：`2026-06-04`
+更新时间：`2026-06-24`
 
 ## 1. 总体判断
 
 当前项目已经明显超过“纯规划阶段”，可以视为：
 
 - `Phase 0` 第一版已完成：规则与数据的最小闭环已经跑通。
-- `Phase 1` 已推进到大数据单任务 baseline、第一轮特征复训和多任务调度实验之后：`turn/response` 都已经有 P800 baseline 与 improved 两轮 valid/test eval，v1.1 epoch-sequential multitask 和 v1.2 batch-interleave multitask 也已经有可对照 test 指标。
+- `Phase 1` 已推进到大数据单任务 baseline、第一轮特征复训、多任务调度实验和 40w DDP 训练之后：`turn/response` 都已经有 P800 baseline、improved、v1.1/v1.2 multitask、v1.2 safety 单任务和 40w multitask DDP 的 valid/test eval 与 response calibration 对照。
 
-换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准、分析模型取舍，并提供第一版 HTTP 推理接口”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 多任务结果显示 `turn` 明确受益，但 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务。v1.2 `batch_interleave` 修复了部分 response macro/`daiminkan` 问题；`best_turn.pt` 也恢复了大部分 turn 少数类回退，但整体仍不是对 v1.1 turn 的明确替代，response 经 raw eval 与 valid/test calibration 后仍未超过 improved。2026-05-20 基于 commit `7a7ad21` 的 v1.1 复训仍使用 20w 数据，`best_turn.pt` 刷新了 overall `turn top1/top3/top5` 与 `discard top1`，但 `riichi_discard` 和 `non_discard` 低于旧 v1.1/v1.2 候选；`response` raw eval 与 valid/test calibration 仍未超过 improved。2026-06-04 基于 `start.sh` 完成单任务 v1.2 safety/features 复训与 response valid/test calibration：`turn` 刷新当前 20w 主候选，test `top1=71.98%`、`macro_top1=91.53%`、`non_discard=91.99%`；`response` raw test false call 降到 `1.009%`、non-pass F1 升到 `73.24%`，但 exact `chi/daiminkan` 低于 05-10 improved。response 默认不直接替换，新增 `pass_bias=0.0 + no_yaku_call_penalty=0.4` 作为无役鸣牌抑制候选。当前默认 P800 多任务配置仍回到 v1.1；v1.2 仅作为显式实验配置保留。DDP 已接入训练引擎但尚未完成 P800 多卡实测；服务端合法动作生成和在线对局代理仍未完成。
+换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准、分析模型取舍，并提供第一版 HTTP 推理接口”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 多任务结果显示 `turn` 明确受益，但早期 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务。v1.2 `batch_interleave` 修复了部分 response macro/`daiminkan` 问题，但未解决核心 false/missed/F1/少数类取舍。2026-06-04 单任务 v1.2 safety/features 复训把 20w `turn` 推到 `top1=71.98%`、`macro_top1=91.53%`、`non_discard=91.99%`；`response` raw false call 降到 `1.009%`、non-pass F1 升到 `73.24%`，但 exact `chi/daiminkan` 低于 05-10 improved。2026-06-24 40w v1.1 DDP 多任务训练进一步刷新当前 turn 主候选：`best_turn.pt` test `top1=72.88%`、`top3=96.04%`、`top5=99.08%`、`riichi_discard=89.13%`、`non_discard=92.68%`；少数回退点是 `macro_top1` 略低于 06-04，`ankan/kakan` 需要错例复核。40w `best_response.pt` raw false call 降到 `0.987%`、non-pass F1 升到 `73.64%`、multi-candidate top1 升到 `87.87%`，但 missed call 为 `8.44%`，exact `chi/pon/daiminkan` 仍不如 05-10 improved；response 默认不直接替换，新增 40w `pass_bias=0.0 + no_yaku_call_penalty=0.4` 作为第一对照候选。DDP 已在 P800 40w 训练、eval 和 calibration 中跑通；服务端合法动作生成和在线对局代理仍未完成。
 
 ## 2. 已验证结果
 
@@ -38,7 +38,7 @@
   - `valid_games=1`
   - `test_games=1`
 - `python -m mjai.cli train --config <tmp>` 可运行。
-- 2026-05-20 训练引擎已接入 PyTorch DDP：`train.distributed: true` 需要通过 `torchrun` / `python -m torch.distributed.run` 启动；训练集 streaming dataset 按 rank 切分 shard；验证、checkpoint 和指标写盘只在 rank 0 执行；DDP checkpoint 会保存未带 `module.` 前缀的模型权重。该能力已通过本地编译、配置、dataset sharding 和 multitask smoke 回归，P800 多卡吞吐与指标仍待实机验证。
+- 2026-05-20 训练引擎已接入 PyTorch DDP：`train.distributed: true` 需要通过 `torchrun` / `python -m torch.distributed.run` 启动；训练集 streaming dataset 按 rank 切分 shard；验证、checkpoint 和指标写盘只在 rank 0 执行；DDP checkpoint 会保存未带 `module.` 前缀的模型权重。该能力已通过本地编译、配置、dataset sharding 和 multitask smoke 回归，并在 2026-06-24 P800 40w `multitask_p800_v1_1_ddp` 训练、eval 和 calibration 中完成实机验证；后续重点转为吞吐、卡数和稳定性调优。
 - 以单局清单裁剪出的最小训练集实测，`turn` 与 `response` 任务都可完成 `1` 个 epoch 的 smoke train，并落盘：
   - `config.resolved.yaml`
   - `train_metrics.json`
@@ -85,6 +85,11 @@
   - `turn_p800/best.pt` 是当前最强 turn 候选：test `top1=71.98%`、`top3=95.72%`、`top5=98.96%`、`macro_top1=91.53%`、`discard=71.49%`、`riichi_discard=87.89%`、`non_discard=91.99%`。相对 05-20 multitask `best_turn.pt`，overall 和少数类稳定性均更好。
   - `response_p800/best.pt` raw test 为 `multi_candidate top1=87.67%`、`non_pass_f1=73.24%`、`false_call_rate=1.009%`、`missed_call_rate=8.28%`、`chi=79.68%`、`pon=94.08%`、`daiminkan=61.86%`。它比 05-10 improved 更会压误叫，但 exact `chi` 与 `daiminkan` 更弱，不应直接无条件替换默认 response。
   - response calibration 显示 `best.pt` 与 `best_response.pt` 曲线一致。当前建议新增实战候选为 `pass_bias=0.0 + no_yaku_call_penalty=0.4`：test `false_call=0.915%`、`no_yaku_false=0.242%`、`missed=9.49%`、`F1=74.27%`、`multi top1=88.45%`、`chi/pon/daiminkan=77.0%/93.4%/61.5%`。05-10 improved `pass_bias=0.3` 仍保留为稳定 serving baseline。
+- 2026-06-24 P800 multitask v1.1 DDP 40w 训练已完成，训练产物已归档到 `runs/2026-06-24_p800_multitask_v1_1_ddp_40w/`，数据集已归档到 `runs/_datasets/tenhou_40w_2026-06-23/`，分析记录见 [multitask-training.md](multitask-training.md) 第 10 节和 run 目录下的 `analysis.md`。
+  - 40w 数据集质量证据完整：`379742` 局、`385081321` 条事件，`validate-events` 为 `files_seen=379742`、`files_valid=379742`、`files_failed=0`、`error_counts={}`；构建出 `185846893` 条 turn 与 `552934725` 条 response 样本，manifest test split 为 `18681274` 条 turn 和 `55580670` 条 response。
+  - `multitask/best_turn.pt` 是当前最强 turn 候选：test `top1=72.88%`、`top3=96.04%`、`top5=99.08%`、`macro_top1=91.35%`、`discard=72.40%`、`riichi_discard=89.13%`、`non_discard=92.68%`。相对 06-04 single，overall、discard、riichi_discard 和 non_discard 均提升；`macro_top1`、`ankan`、`kakan` 轻微或中等回退，需要错例复核。
+  - `multitask/best_response.pt` raw test 为 `multi_candidate top1=87.87%`、`non_pass_f1=73.64%`、`false_call_rate=0.987%`、`missed_call_rate=8.44%`、`chi=79.42%`、`pon=93.86%`、`daiminkan=62.31%`。它是当前 raw binary/multi 口径最强 response 候选，但相对 05-10 improved 仍牺牲 exact `chi/pon/daiminkan` 和 missed call。
+  - response calibration 中，当前最值得人工复核的 40w 候选为 `best_response.pt` + `pass_bias=0.0 + no_yaku_call_penalty=0.4`：test `false_call=0.884%`、`no_yaku_false=0.217%`、`missed=9.85%`、`F1=74.72%`、`multi top1=88.70%`、`chi/pon/daiminkan=76.3%/93.1%/61.9%`。自动选出的 `pass_bias=1.0 + no_yaku_call_penalty=0.4` 虽有更高 F1，但 missed call 达 `18.54%`、`daiminkan=28.5%`，不适合作默认。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
@@ -246,12 +251,12 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - v1.1 已新增 `MultitaskMahjongPolicyNet`：`turn/response` 各自保留 state projection、action encoder 和 head，共享一段状态 encoder 主干，解决两个任务输入维度不同但仍需共享表征的问题。
 - 训练入口已支持 `task: multitask`。v1.1 使用 epoch 级顺序调度；当前代码已新增 `batch_interleave`，会按有效训练 batch 进度比例交错更新 `turn` / `response`，valid 阶段仍分别评估两路指标。由于 response train 会过滤 pass-only 样本，P800 v1.2 显式配置 `task.interleave_batches`，避免用 response 原始行数高估调度权重。
 - 多任务 checkpoint 可通过 `python -m mjai.cli eval --ckpt <ckpt> --task turn|response` 分别评估，也已兼容 `calibrate-response`、`sample-response-errors` 和 `sample-turn-errors`。
-- P800 多任务训练已经完成三轮可对照结果：v1.1 epoch-sequential 证明 `turn` 受益但 `response` 弱于 improved；v1.2 batch-interleave 证明调度能改善 response macro/`daiminkan`，`best_turn.pt` 能恢复大部分 turn 少数类回退；commit `7a7ad21` 的 v1.1 复训进一步刷新 turn overall top1/top3/top5，但牺牲了 `riichi_discard` 与 `non_discard`。到目前为止，所有 multitask response 在 raw eval 与已完成 calibration 下仍未超过 improved。默认多任务训练入口回到 v1.1，`batch_interleave` 作为显式实验能力保留，复现配置位于 `configs/experiments/`。DDP 已作为训练加速工程能力接入；自动 loss scale 与 value head 仍暂不混入当前变量。
+- P800 多任务训练已经完成多轮可对照结果：v1.1 epoch-sequential 证明 `turn` 受益但早期 `response` 弱于 improved；v1.2 batch-interleave 证明调度能改善 response macro/`daiminkan`，但没有解决核心 false/missed/F1 取舍；commit `7a7ad21` 的 v1.1 复训进一步刷新 20w turn overall。2026-06-24 的 40w v1.1 DDP run 刷新当前 turn 主候选，并让 response raw binary/multi 指标超过 06-04，但 exact `chi/pon/daiminkan` 和 missed call 仍不足以直接替换 05-10 improved 默认。默认多任务训练入口仍以 v1.1 为主，`batch_interleave` 作为显式实验能力保留，复现配置位于 `configs/experiments/`。DDP 已作为 P800 大数据训练路径跑通；自动 loss scale 与 value head 仍暂不混入当前变量。
 
 下一阶段优先补：
 
-- 更大数据量的正式训练配置
-- 更长训练轮数与更可靠的 eval report 留存
+- 40w 主候选的少数类错例聚合与服务端 load smoke
+- DDP 吞吐、卡数和稳定性调优
 - 训练过程中的动作分布、候选规模和非法标签质量闸门
 - 类别不均衡下的自动权重估计、采样均衡和少数类错例聚合
 - 更高吞吐的数据格式后续方向：当前已经完成 state/action 特征离线预编码，下一步应根据 `data_wait`、GPU 利用率和内存占用决定是否继续推进 mmap/Arrow streaming 数据集，而不是回到训练期规则特征重算。
@@ -259,11 +264,11 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 数据重建与 P800 大数据训练提醒：
 
-- turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 improved run 的样本数和训练日志对齐。后续只要 feature schema、rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`；只要 parser 或事件 schema 变化，就必须从 `preprocess` 开始重建。
-- 20 万局量级的 baseline、improved 单任务训练、old v1.1 多任务、v1.2 `batch_interleave` 和 commit `7a7ad21` v1.1 复训都已跑完。`7a7ad21` 的 raw test eval 与 valid/test calibration 已归档。下一轮可把 DDP 作为单独的工程加速验证项推进；模型质量主线仍应在 `response_ce` loss scale、少数类处理、扩大到 40w，或对 `7a7ad21` 的 turn 少数类回退做错例排查中选一个变量推进，不要同时混入 value head 和复杂模型。
+- turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 `runs/_datasets/tenhou_40w_2026-06-23/` 都已有独立 dataset evidence。后续只要 feature schema、rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`；只要 parser 或事件 schema 变化，就必须从 `preprocess` 开始重建。
+- 20w baseline、improved 单任务、old v1.1 多任务、v1.2 `batch_interleave`、commit `7a7ad21` v1.1 复训、06-04 单任务 v1.2 safety 复训和 06-24 40w v1.1 DDP 训练都已跑完并归档。下一轮模型质量主线应在 40w `best_turn.pt` 少数类错例、40w response operating point 实战复核、`response_ce` loss scale 或少数类处理里一次只推进一个变量；DDP 后续作为吞吐/稳定性工程项单独推进，不要同时混入 value head 和复杂模型。
 - 当前缺口不是“能否训练”：后续应继续按 `runs/<date>_<exp>/` 固化每轮模型证据，并通过 `dataset_id` 引用 `runs/_datasets/<dataset_id>/` 中的数据证据。
-- v1.0.0 response 默认 operating point 仍为 05-10 improved `pass_bias=0.3`；06-04 单任务复训新增 `pass_bias=0.0 + no_yaku_call_penalty=0.4` 作为无役鸣牌抑制候选。后续推理/服务配置应同时保留稳定 baseline 和新候选，等待实战 case 决定是否切换。
-- response 无役鸣牌已加入第一版推理侧安全约束：`calibrate-response` 已支持 raw / `pass_bias` / `no_yaku_call_penalty` 组合扫描，并报告 false call、missed call 和无明显役路 false call，避免只靠加大 `pass_bias` 牺牲正常副露召回。06-04 calibration 证明 `no_yaku_call_penalty=0.4` 能把 no-yaku false call 从 `0.336%` 降到 `0.242%`，代价是 missed call 从 `8.28%` 升到 `9.49%`。
+- v1.0.0 response 默认 operating point 仍为 05-10 improved `pass_bias=0.3`；06-24 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 是当前第一对照候选。后续推理/服务配置应同时保留稳定 baseline 和新候选，等待实战 case 决定是否切换。
+- response 无役鸣牌已加入第一版推理侧安全约束：`calibrate-response` 已支持 raw / `pass_bias` / `no_yaku_call_penalty` 组合扫描，并报告 false call、missed call 和无明显役路 false call，避免只靠加大 `pass_bias` 牺牲正常副露召回。06-24 calibration 中 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 达到 test `false_call=0.884%`、`no_yaku_false=0.217%`、`missed=9.85%`、`F1=74.72%`、`multi top1=88.70%`，但 exact `chi/pon` 和 missed call 仍需实战复核。
 
 ## 5. 阶段结论
 
@@ -277,8 +282,8 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - `preprocess / validate-events`：已完成第一版
 - `Task 6` baseline 模型与训练引擎：已完成 `turn/response` 第一版，并已跑通 P800 大数据单任务 baseline
 - `Task 7` 离线评估：已完成第一版
-- `Task 8` 多任务训练：已完成可训练 baseline 和 P800 首轮验证；`turn` 正收益已确认，`response` 需要调度/权重和少数类质量改进
-- `Task 9` 训练机适配：P800 单卡 baseline 已验证；DDP 训练路径已实现，8 卡 P800 吞吐和指标仍待实机验证
+- `Task 8` 多任务训练：已完成可训练 baseline、P800 多轮验证和 40w DDP 训练；`turn` 正收益已确认并刷新主候选，`response` 仍需 operating point 实战复核和少数类质量改进
+- `Task 9` 训练机适配：P800 单卡 baseline 与 DDP 40w 训练路径已验证；后续重点是多卡吞吐、卡数、稳定性和监控
 
 ## 6. 建议的下一步任务
 
@@ -288,13 +293,13 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 目标：
 
-- 对比 05-10 improved `pass_bias=0.3` 与 06-04 current `pass_bias=0.0 + no_yaku_call_penalty=0.4`，决定 response 默认是否切换。
+- 对比 05-10 improved `pass_bias=0.3` 与 06-24 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4`，决定 response 默认是否切换。
 
 建议范围：
 
 1. 稳定 baseline：05-10 improved `pass_bias=0.3`
-2. 新候选：06-04 current `pass_bias=0.0 + no_yaku_call_penalty=0.4`
-3. 更保守候选：06-04 current `pass_bias=0.16 + no_yaku_call_penalty=0.4`
+2. 新候选：06-24 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4`
+3. 更保守候选：06-24 40w `best_response.pt + pass_bias=0.16 + no_yaku_call_penalty=0.4`
 4. 后续多任务或新特征实验必须同时报告 raw、baseline 和新候选 calibrated 指标
 
 最低验收标准：
@@ -307,9 +312,9 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 建议范围：
 
-1. 对 05-10 improved `pass_bias=0.3` 与 06-04 current `pass_bias=0.0 + no_yaku_call_penalty=0.4` 各抽一份 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass`
+1. 对 05-10 improved `pass_bias=0.3` 与 06-24 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 各抽一份 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass`
 2. `pass->chi/pass->pon` 重点判断误叫是否来自无役风险、防守/点况信息缺失、玩家风格差异或 action feature 不足
-3. `chi->pass/pon->pass` 重点判断 06-04 新候选是否误伤收益明确的副露，尤其是役牌、断幺、染手和对对和路线
+3. `chi->pass/pon->pass` 重点判断 40w 新候选是否误伤收益明确的副露，尤其是役牌、断幺、染手和对对和路线
 4. 使用 `no_yaku_false_call_rate` / `no_yaku_false_call_share` 专门追踪 `features[38] == 1` 的 false call
 
 ### 任务 3：turn 防铳评估与风险 rerank

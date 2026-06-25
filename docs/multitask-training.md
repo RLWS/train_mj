@@ -505,3 +505,86 @@ test 对比没有反转 response 结论。以 `best_response.pt` 为例：
 同 bias 下，`7a7ad21 best_response.pt` 在 false call、missed call、F1、multi top1 和 `daiminkan` 上都弱于 improved。`best.pt` 保留了更多 `daiminkan`，test `pass_bias=0.3` 时为 `66.4%`，但同时只有 `F1=73.17%`、`multi top1=87.78%`，仍不适合作为默认 response checkpoint。
 
 当前结论不变：response 默认继续使用 2026-05-10 improved；`7a7ad21` 这轮主要作为 turn overall 候选和 response rare-action 诊断证据。
+
+## 10. 2026-06-24 P800 v1.1 DDP 40w 结果
+
+本轮 run 已归档到 `runs/2026-06-24_p800_multitask_v1_1_ddp_40w/`，数据集已归档到 `runs/_datasets/tenhou_40w_2026-06-23/`。训练配置为 `multitask_p800_v1_1_ddp`，仍使用 v1.1 `epoch_sequential` 调度，但开启 `train.distributed=true`、`backend=vendor` 和 `precision=bf16`。完整分析见 run 目录下的 `analysis.md`。
+
+数据集证据：
+
+| 项目 | 数值 |
+| --- | ---: |
+| games | `379742` |
+| events | `385081321` |
+| validation failed | `0` |
+| turn samples | `185846893` |
+| response samples | `552934725` |
+| train turn / response | `148561311 / 442001364` |
+| valid turn / response | `18604308 / 55352691` |
+| test turn / response | `18681274 / 55580670` |
+
+训练日志中的有效训练样本为 `turn_train_samples=148561311`、`response_train_samples=41366889`。后者小于原始 response train 样本数，是因为训练继续过滤 pass-only 单候选 response 样本。
+
+### 10.1 Turn 结论
+
+40w `best_turn.pt` 刷新当前 turn 主候选：
+
+| 指标 | 05-20 multitask `best_turn` | 06-04 single | 06-24 40w `best_turn` |
+| --- | ---: | ---: | ---: |
+| loss | `0.7731` | `0.7597` | `0.7330` |
+| top1 | `71.88%` | `71.98%` | `72.88%` |
+| top3 | `95.59%` | `95.72%` | `96.04%` |
+| top5 | `98.92%` | `98.96%` | `99.08%` |
+| macro top1 | `91.06%` | `91.53%` | `91.35%` |
+| discard top1 | `71.42%` | `71.49%` | `72.40%` |
+| riichi_discard top1 | `85.94%` | `87.89%` | `89.13%` |
+| ankan top1 | `92.00%` | `92.86%` | `90.37%` |
+| kakan top1 | `97.12%` | `97.00%` | `96.22%` |
+| non_discard top1 | `90.73%` | `91.99%` | `92.68%` |
+
+相对 06-04 单任务 turn，40w `best_turn.pt` 提升 `top1 +0.90pp`、`top3 +0.32pp`、`top5 +0.12pp`、`discard +0.91pp`、`riichi_discard +1.25pp`、`non_discard +0.69pp`。回退点也明确：`macro_top1 -0.18pp`、`ankan -2.49pp`、`kakan -0.78pp`。
+
+当前判断：`runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_turn.pt` 是新的 turn 主候选。上线或 release 前仍需要抽 `ankan/kakan`、`riichi_discard` 和 `discard@rank2/3` 错例确认少数类质量。
+
+### 10.2 Response raw test 结论
+
+40w `best_response.pt` 是新的 response 候选，但不是无条件替换默认 serving 的结论：
+
+| 指标 | 05-10 improved | 06-04 single | 06-24 40w `best_response` |
+| --- | ---: | ---: | ---: |
+| overall top1 | `98.770%` | `98.846%` | `98.864%` |
+| macro top1 | `90.60%` | `89.08%` | `89.09%` |
+| multi-candidate top1 | `86.86%` | `87.67%` | `87.87%` |
+| multi-candidate macro top1 | `88.43%` | `87.10%` | `87.15%` |
+| non-pass F1 | `72.14%` | `73.24%` | `73.64%` |
+| false call rate | `1.105%` | `1.009%` | `0.987%` |
+| missed call rate | `7.28%` | `8.28%` | `8.44%` |
+| chi / pon top1 | `81.98% / 94.75%` | `79.68% / 94.08%` | `79.42% / 93.86%` |
+| daiminkan top1 | `68.17%` | `61.86%` | `62.31%` |
+
+相对 06-04 single，40w `best_response.pt` 小幅改善 false call、non-pass F1、multi-candidate top1 和 `daiminkan`，但 missed call 更高，exact `chi/pon` 更低。相对 05-10 improved，它的 binary/multi 指标更好，但 exact action 质量仍有明显代价，尤其是 `chi` 和 `daiminkan`。
+
+`best.pt` 可作为诊断 checkpoint 保留：它的 raw `chi=82.61%`、`pon=94.64%`、`missed=7.10%` 更好，但 false call `1.044%`、multi-candidate top1 `87.51%` 和 `daiminkan=48.20%` 更弱，因此 response 候选优先看 `best_response.pt`。
+
+### 10.3 Calibration 结论
+
+以 test split 的 `best_response.pt` 为主，关键点如下：
+
+| checkpoint | pass_bias | no_yaku_penalty | false call | no-yaku false | missed call | non-pass F1 | multi top1 | chi / pon / daiminkan |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 05-10 improved | `0.3` | `0.0` | `0.925%` | n/a | `9.29%` | `74.18%` | `88.40%` | `78.4 / 93.1 / 61.6` |
+| 06-04 single | `0.0` | `0.4` | `0.915%` | `0.242%` | `9.49%` | `74.27%` | `88.45%` | `77.0 / 93.4 / 61.5` |
+| 06-24 40w | `0.0` | `0.4` | `0.884%` | `0.217%` | `9.85%` | `74.72%` | `88.70%` | `76.3 / 93.1 / 61.9` |
+| 06-24 40w | `0.16` | `0.4` | `0.800%` | `0.184%` | `11.00%` | `75.65%` | `89.38%` | `74.3 / 92.2 / 58.0` |
+| 06-24 40w | `0.3` | `0.4` | `0.732%` | `0.158%` | `12.09%` | `76.36%` | `89.90%` | `72.4 / 91.3 / 53.8` |
+| 06-24 40w | `1.0` | `0.4` | `0.452%` | `0.068%` | `18.54%` | `78.47%` | `91.71%` | `61.5 / 85.8 / 28.5` |
+
+当前最值得人工复核的 response 候选是 06-24 40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4`。它比 06-04 同类候选更低 false call、更高 F1/multi top1，且 `daiminkan` 略好；代价是 missed call 更高，`chi/pon` 更低。
+
+自动 selection 在 false-call 目标下会偏向 `pass_bias=1.0`，但该点 missed call 已到 `18.54%`，`daiminkan` 只有 `28.5%`，不适合作为默认 serving operating point。
+
+### 10.4 当前决策
+
+- `turn`：40w `best_turn.pt` 升为当前主候选。
+- `response`：05-10 improved `pass_bias=0.3` 继续作为稳定 serving baseline；40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4` 升为第一 response 对照候选。
+- `DDP`：本轮已经在 P800 上完成 `train.distributed=true` 的 40w 训练、eval 和 calibration，DDP 训练路径不再只是本地 smoke 能力。后续 DDP 工作重点应转为吞吐、卡数和稳定性调优，而不是“是否能跑通”。

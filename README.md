@@ -20,7 +20,7 @@
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
 - 已补上第一版 serving/API：`mjai/serving` 提供推理内核，`mjai/api` 提供 FastAPI 封装，支持 `/health`、`/v1/models`、`/v1/predict/turn` 和 `/v1/predict/response`。
-- P800 20w 数据上已完成单任务 improved、多任务 v1.1、v1.2 interleave 和 commit `7a7ad21` v1.1 复训的 run 归档；当前结论仍是 `turn` 可继续比较多任务候选，`response` 默认保留 2026-05-10 improved 单任务 checkpoint。
+- P800 20w/40w 数据上已完成单任务 improved、v1.2 safety 单任务、多任务 v1.1/v1.2 和 40w v1.1 DDP run 归档；当前 `turn` 主候选已更新为 40w `multitask/best_turn.pt`，`response` 稳定 serving baseline 仍保留 2026-05-10 improved，40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 作为第一对照候选。
 - 当前测试基线为 `pytest` 全量通过，结果是 `127 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
@@ -108,6 +108,6 @@ pytest
 
 ## 建议的下一步
 
-1. 用 `sample-turn-errors` 针对 `7a7ad21 best_turn.pt` 抽 `riichi_discard` 和 `non_discard` 回退错例，判断它是否能替代 old v1.1。
-2. 继续 response hard negative 和 rare-action 分析；在 `response_ce` loss scale、少数类处理或扩大到 40w 数据中一次只推进一个变量。
-3. 把 DDP 作为单独的工程加速验证项推进，避免和模型质量变量混在同一轮实验里。
+1. 用 `sample-turn-errors` 针对 40w `best_turn.pt` 抽 `ankan/kakan`、`riichi_discard` 和 `discard@rank2/3`，确认主候选的少数类回退边界。
+2. 对比 05-10 improved `pass_bias=0.3` 与 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 的人工/在线 response case。
+3. 继续 DDP 吞吐、卡数和稳定性调优，避免把工程加速变量和模型质量变量混在同一轮实验里。
