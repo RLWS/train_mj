@@ -256,6 +256,8 @@ def _run_eval(args: argparse.Namespace) -> int:
         report_path=getattr(args, "report", None),
         task_override=getattr(args, "task", None),
     )
+    if _distributed_rank_from_env() != 0:
+        return 0
     print(
         f"evaluated task={summary.task} split={summary.split} "
         f"loss={summary.loss:.4f} top1={summary.top1_accuracy:.4f} "
@@ -332,6 +334,8 @@ def _run_calibrate_response(args: argparse.Namespace) -> int:
         progress_callback=_print_calibration_progress,
         progress_every_n_batches=max(0, int(args.log_every_n_batches)),
     )
+    if _distributed_rank_from_env() != 0:
+        return 0
     print(
         f"calibrated task={summary.task} split={summary.split} "
         f"points={len(summary.points)} samples={summary.points[0].samples if summary.points else 0} "

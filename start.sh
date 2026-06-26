@@ -219,17 +219,19 @@ run_eval_report() {
   local ckpt="$1"
   local split="$2"
   local report="$3"
-  local task_arg="${4:-}"
+  local config="$4"
+  local task_arg="${5:-}"
   require_file "$ckpt" "eval checkpoint"
+  require_file "$config" "eval config"
   mkdir -p "$(dirname "$report")"
   if [ -n "$task_arg" ]; then
-    run "$PYTHON_BIN" -m mjai.cli eval \
+    run_eval_config "$config" \
       --ckpt "$ckpt" \
       --task "$task_arg" \
       --split "$split" \
       --report "$report"
   else
-    run "$PYTHON_BIN" -m mjai.cli eval \
+    run_eval_config "$config" \
       --ckpt "$ckpt" \
       --split "$split" \
       --report "$report"
@@ -240,11 +242,13 @@ run_response_calibration() {
   local ckpt="$1"
   local split="$2"
   local report="$3"
+  local config="$4"
   local manifest="$MANIFEST_DIR/$split.jsonl"
   require_file "$ckpt" "calibration checkpoint"
+  require_file "$config" "calibration config"
   require_file "$manifest" "$split manifest"
   mkdir -p "$(dirname "$report")"
-  run "$PYTHON_BIN" -m mjai.cli calibrate-response \
+  run_calibration_config "$config" \
     --ckpt "$ckpt" \
     --split "$split" \
     --manifest "$manifest" \
@@ -253,6 +257,13 @@ run_response_calibration() {
     --no-yaku-call-penalties "$CALIBRATION_NO_YAKU_CALL_PENALTIES" \
     --false-call-targets "$CALIBRATION_FALSE_CALL_TARGETS" \
     --log-every-n-batches "$CALIBRATION_LOG_EVERY_N_BATCHES"
+}
+
+config_requests_eval_ddp() {
+  local config="$1"
+  local value
+  value="$("$PYTHON_BIN" -c 'from mjai.utils.config import load_resolved_yaml; import sys; print(str(bool(load_resolved_yaml(sys.argv[1]).get("eval", {}).get("distributed", False))).lower())' "$config")"
+  [ "$value" = "true" ]
 }
 
 config_requests_ddp() {
@@ -286,6 +297,48 @@ run_train_config() {
       --config "$config"
   else
     run "$PYTHON_BIN" -m mjai.cli train --config "$config"
+  fi
+}
+
+run_eval_config() {
+  local config="$1"
+  shift
+  if config_requests_eval_ddp "$config"; then
+    local nproc
+    nproc="$(default_ddp_nproc)"
+    if [ "$nproc" -le 1 ]; then
+      echo "config requests eval DDP but DDP_NPROC_PER_NODE/default CUDA device count is not > 1: $config" >&2
+      exit 1
+    fi
+    run "$PYTHON_BIN" -m torch.distributed.run \
+      --standalone \
+      "--nproc_per_node=$nproc" \
+      -m mjai.cli eval \
+      --config "$config" \
+      "$@"
+  else
+    run "$PYTHON_BIN" -m mjai.cli eval --config "$config" "$@"
+  fi
+}
+
+run_calibration_config() {
+  local config="$1"
+  shift
+  if config_requests_eval_ddp "$config"; then
+    local nproc
+    nproc="$(default_ddp_nproc)"
+    if [ "$nproc" -le 1 ]; then
+      echo "config requests eval DDP but DDP_NPROC_PER_NODE/default CUDA device count is not > 1: $config" >&2
+      exit 1
+    fi
+    run "$PYTHON_BIN" -m torch.distributed.run \
+      --standalone \
+      "--nproc_per_node=$nproc" \
+      -m mjai.cli calibrate-response \
+      --config "$config" \
+      "$@"
+  else
+    run "$PYTHON_BIN" -m mjai.cli calibrate-response --config "$config" "$@"
   fi
 }
 
@@ -387,12 +440,13 @@ fi
 if [ "$RUN_EVAL" = "1" ]; then
   for task in $TASKS; do
     ckpt="$(eval_ckpt_for_task "$task")"
+    config="$(train_config_for_task "$task")"
     if [ "$task" = "multitask" ]; then
-      run_eval_report "$ckpt" "$EVAL_SPLIT" "$MULTITASK_TURN_EVAL_REPORT" turn
-      run_eval_report "$ckpt" "$EVAL_SPLIT" "$MULTITASK_RESPONSE_EVAL_REPORT" response
+      run_eval_report "$ckpt" "$EVAL_SPLIT" "$MULTITASK_TURN_EVAL_REPORT" "$config" turn
+      run_eval_report "$ckpt" "$EVAL_SPLIT" "$MULTITASK_RESPONSE_EVAL_REPORT" "$config" response
     else
       report="$(eval_report_for_task "$task")"
-      run_eval_report "$ckpt" "$EVAL_SPLIT" "$report"
+      run_eval_report "$ckpt" "$EVAL_SPLIT" "$report" "$config"
     fi
   done
 else
@@ -405,7 +459,8 @@ if [ "$RUN_EXTRA_EVAL" = "1" ]; then
       run_eval_report \
         "$RESPONSE_BEST_RESPONSE_CKPT" \
         "$split" \
-        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_response_${split}_eval.json"
+        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_response_${split}_eval.json" \
+        "$RESPONSE_TRAIN_CONFIG"
     done
   fi
   if contains_task multitask; then
@@ -414,11 +469,13 @@ if [ "$RUN_EXTRA_EVAL" = "1" ]; then
         "$MULTITASK_BEST_TURN_CKPT" \
         "$split" \
         "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_turn_${split}_eval.json" \
+        "$MULTITASK_TRAIN_CONFIG" \
         turn
       run_eval_report \
         "$MULTITASK_BEST_RESPONSE_CKPT" \
         "$split" \
         "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_response_${split}_eval.json" \
+        "$MULTITASK_TRAIN_CONFIG" \
         response
     done
   fi
@@ -432,11 +489,13 @@ if [ "$RUN_CALIBRATION" = "1" ]; then
       run_response_calibration \
         "$RESPONSE_BEST_CKPT" \
         "$split" \
-        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_calibration_${split}.json"
+        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_calibration_${split}.json" \
+        "$RESPONSE_TRAIN_CONFIG"
       run_response_calibration \
         "$RESPONSE_BEST_RESPONSE_CKPT" \
         "$split" \
-        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_response_calibration_${split}.json"
+        "$REPORT_DIR/${RESPONSE_REPORT_PREFIX}_best_response_calibration_${split}.json" \
+        "$RESPONSE_TRAIN_CONFIG"
     done
   fi
   if contains_task multitask; then
@@ -444,11 +503,13 @@ if [ "$RUN_CALIBRATION" = "1" ]; then
       run_response_calibration \
         "$MULTITASK_BEST_CKPT" \
         "$split" \
-        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_calibration_${split}.json"
+        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_calibration_${split}.json" \
+        "$MULTITASK_TRAIN_CONFIG"
       run_response_calibration \
         "$MULTITASK_BEST_RESPONSE_CKPT" \
         "$split" \
-        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_response_calibration_${split}.json"
+        "$REPORT_DIR/${MULTITASK_REPORT_PREFIX}_best_response_calibration_${split}.json" \
+        "$MULTITASK_TRAIN_CONFIG"
     done
   fi
 else

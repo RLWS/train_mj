@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-06-24`
+更新时间：`2026-06-25`
 
 ## 1. 总体判断
 
@@ -90,6 +90,23 @@
   - `multitask/best_turn.pt` 是当前最强 turn 候选：test `top1=72.88%`、`top3=96.04%`、`top5=99.08%`、`macro_top1=91.35%`、`discard=72.40%`、`riichi_discard=89.13%`、`non_discard=92.68%`。相对 06-04 single，overall、discard、riichi_discard 和 non_discard 均提升；`macro_top1`、`ankan`、`kakan` 轻微或中等回退，需要错例复核。
   - `multitask/best_response.pt` raw test 为 `multi_candidate top1=87.87%`、`non_pass_f1=73.64%`、`false_call_rate=0.987%`、`missed_call_rate=8.44%`、`chi=79.42%`、`pon=93.86%`、`daiminkan=62.31%`。它是当前 raw binary/multi 口径最强 response 候选，但相对 05-10 improved 仍牺牲 exact `chi/pon/daiminkan` 和 missed call。
   - response calibration 中，当前最值得人工复核的 40w 候选为 `best_response.pt` + `pass_bias=0.0 + no_yaku_call_penalty=0.4`：test `false_call=0.884%`、`no_yaku_false=0.217%`、`missed=9.85%`、`F1=74.72%`、`multi top1=88.70%`、`chi/pon/daiminkan=76.3%/93.1%/61.9%`。自动选出的 `pass_bias=1.0 + no_yaku_call_penalty=0.4` 虽有更高 F1，但 missed call 达 `18.54%`、`daiminkan=28.5%`，不适合作默认。
+  - 2026-06-25 对正式 valid split 追加扩展扫描，报告为 `outputs/reports/formal_calibration_low_false_call_valid_20260625_151255.json`，覆盖 `55,352,691` 条 response 样本。若目标明确偏向“错过鸣牌没关系，但尽量压低错误鸣牌”，推荐极保守档 `pass_bias=2.0 + no_yaku_call_penalty=0.8`：valid `false_call=0.1972%`、`no_yaku_false=0.0083%`、`missed=31.52%`、`precision=85.73%`、`recall=68.48%`、`F1=76.14%`。代表性参数对比如下：
+
+| pass_bias | no_yaku_penalty | false call | missed call | precision | recall | F1 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2.0` | `1.2` | `0.1928%` | `32.31%` | `85.87%` | `67.69%` | `75.70%` |
+| `2.0` | `0.8` | `0.1972%` | `31.52%` | `85.73%` | `68.48%` | `76.14%` |
+| `2.0` | `0.2` | `0.2115%` | `30.01%` | `85.13%` | `69.99%` | `76.82%` |
+| `1.8` | `0.8` | `0.2321%` | `28.91%` | `84.13%` | `71.09%` | `77.06%` |
+| `1.8` | `0.4` | `0.2428%` | `27.87%` | `83.72%` | `72.13%` | `77.49%` |
+| `1.6` | `0.4` | `0.2853%` | `25.35%` | `81.91%` | `74.65%` | `78.11%` |
+| `1.6` | `0.2` | `0.2950%` | `24.72%` | `81.54%` | `75.28%` | `78.29%` |
+| `1.4` | `0.4` | `0.3332%` | `22.94%` | `80.01%` | `77.06%` | `78.51%` |
+| `1.4` | `0.2` | `0.3454%` | `22.27%` | `79.57%` | `77.73%` | `78.64%` |
+| `1.2` | `0.4` | `0.3878%` | `20.67%` | `77.97%` | `79.33%` | `78.64%` |
+| `1.2` | `0.2` | `0.4035%` | `19.96%` | `77.44%` | `80.04%` | `78.72%` |
+| `1.0` | `0.4` | `0.4501%` | `18.52%` | `75.80%` | `81.48%` | `78.54%` |
+| `1.0` | `0.2` | `0.4693%` | `17.77%` | `75.20%` | `82.23%` | `78.56%` |
 - `python -m mjai.cli inspect-sample --dataset <tmp> --index <n>` 可运行。
 - `python -m mjai.cli inspect-sample --dataset <tmp> --sample-id <id>` 可运行。
 - 对生成的 `silver_samples` 实测，可按全局索引输出：
@@ -267,8 +284,8 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 - turn/response action feature 维度已更新到当前数据版本，`runs/_datasets/tenhou_20w_2026-05-06/` 与 `runs/_datasets/tenhou_40w_2026-06-23/` 都已有独立 dataset evidence。后续只要 feature schema、rules 或 split 逻辑变化，就必须新建 dataset version 并重跑 `build-dataset` / `make-manifest`；只要 parser 或事件 schema 变化，就必须从 `preprocess` 开始重建。
 - 20w baseline、improved 单任务、old v1.1 多任务、v1.2 `batch_interleave`、commit `7a7ad21` v1.1 复训、06-04 单任务 v1.2 safety 复训和 06-24 40w v1.1 DDP 训练都已跑完并归档。下一轮模型质量主线应在 40w `best_turn.pt` 少数类错例、40w response operating point 实战复核、`response_ce` loss scale 或少数类处理里一次只推进一个变量；DDP 后续作为吞吐/稳定性工程项单独推进，不要同时混入 value head 和复杂模型。
 - 当前缺口不是“能否训练”：后续应继续按 `runs/<date>_<exp>/` 固化每轮模型证据，并通过 `dataset_id` 引用 `runs/_datasets/<dataset_id>/` 中的数据证据。
-- v1.0.0 response 默认 operating point 仍为 05-10 improved `pass_bias=0.3`；06-24 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 是当前第一对照候选。后续推理/服务配置应同时保留稳定 baseline 和新候选，等待实战 case 决定是否切换。
-- response 无役鸣牌已加入第一版推理侧安全约束：`calibrate-response` 已支持 raw / `pass_bias` / `no_yaku_call_penalty` 组合扫描，并报告 false call、missed call 和无明显役路 false call，避免只靠加大 `pass_bias` 牺牲正常副露召回。06-24 calibration 中 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 达到 test `false_call=0.884%`、`no_yaku_false=0.217%`、`missed=9.85%`、`F1=74.72%`、`multi top1=88.70%`，但 exact `chi/pon` 和 missed call 仍需实战复核。
+- v1.0.0 response 默认 operating point 仍为 05-10 improved `pass_bias=0.3`；06-24 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 是当前第一对照候选。若目标临时转为极低错误鸣牌，可额外保留 06-25 valid 扩展扫描得到的 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8` 极保守档。后续推理/服务配置应同时保留稳定 baseline、新候选和极保守档，等待实战 case 决定是否切换。
+- response 无役鸣牌已加入第一版推理侧安全约束：`calibrate-response` 已支持 raw / `pass_bias` / `no_yaku_call_penalty` 组合扫描，并报告 false call、missed call 和无明显役路 false call，避免只靠加大 `pass_bias` 牺牲正常副露召回。06-24 calibration 中 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 达到 test `false_call=0.884%`、`no_yaku_false=0.217%`、`missed=9.85%`、`F1=74.72%`、`multi top1=88.70%`；06-25 正式 valid 扩展扫描中极保守档 `pass_bias=2.0 + no_yaku_call_penalty=0.8` 达到 `false_call=0.1972%`、`no_yaku_false=0.0083%`、`missed=31.52%`。前者适合人工复核/默认候选对照，后者只适合明确“宁愿漏鸣也要压低错误鸣牌”的场景。
 
 ## 5. 阶段结论
 

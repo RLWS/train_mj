@@ -10,12 +10,19 @@ import torch
 from torch.utils.data import DataLoader
 
 from mjai.data.datasets.parquet_dataset import ResponseBatchCollator, StreamingManifestResponseDataset
+from mjai.eval.distributed import (
+    EvalDistributedContext,
+    gather_eval_objects,
+    initialize_eval_distributed_context,
+    shutdown_eval_distributed_context,
+)
 from mjai.eval.offline import (
     _batch_size_for_task,
     _candidate_limit_for_task,
     _merge_dicts,
-    _resolve_device,
+    _resolve_eval_num_workers,
     _resolve_manifest_path,
+    _worker_loader_kwargs,
 )
 from mjai.features.action_features import RESPONSE_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM
@@ -141,9 +148,65 @@ def calibrate_response_checkpoint(
     resolved_manifest_path = _resolve_calibration_manifest_path(config, split, manifest_path)
     candidate_limit = _candidate_limit_for_task(config, "response")
     batch_size = _batch_size_for_task(config, "response")
-    device = _resolve_device(config.get("train", {}).get("device"))
+    resolved_report_path = _resolve_calibration_report_path(checkpoint_path, split, report_path)
+    distributed_context = initialize_eval_distributed_context(config)
+    try:
+        summary = _calibrate_response_checkpoint_inner(
+            checkpoint=checkpoint,
+            checkpoint_path=checkpoint_path,
+            checkpoint_task_name=checkpoint_task_name,
+            task_name=task_name,
+            split=split,
+            config=config,
+            resolved_manifest_path=resolved_manifest_path,
+            candidate_limit=candidate_limit,
+            batch_size=batch_size,
+            pass_biases=pass_biases,
+            no_yaku_call_penalties=no_yaku_call_penalties,
+            false_call_rate_targets=false_call_rate_targets,
+            resolved_report_path=resolved_report_path,
+            progress_callback=progress_callback,
+            progress_every_n_batches=progress_every_n_batches,
+            distributed_context=distributed_context,
+        )
+        if distributed_context.is_main:
+            ensure_dir(resolved_report_path.parent)
+            resolved_report_path.write_text(
+                json.dumps(asdict(summary), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        return summary
+    finally:
+        shutdown_eval_distributed_context(distributed_context)
 
-    dataset = _build_calibration_dataset(resolved_manifest_path)
+
+def _calibrate_response_checkpoint_inner(
+    *,
+    checkpoint: dict[str, Any],
+    checkpoint_path: Path,
+    checkpoint_task_name: str,
+    task_name: str,
+    split: str,
+    config: dict[str, Any],
+    resolved_manifest_path: Path,
+    candidate_limit: int,
+    batch_size: int,
+    pass_biases: list[float],
+    no_yaku_call_penalties: list[float],
+    false_call_rate_targets: list[float],
+    resolved_report_path: Path,
+    progress_callback: Callable[[int, int, int], None] | None,
+    progress_every_n_batches: int,
+    distributed_context: EvalDistributedContext,
+) -> ResponseCalibrationSummary:
+    device = distributed_context.device
+    num_workers = _resolve_eval_num_workers(config)
+    pin_memory = bool(config.get("eval", {}).get("pin_memory", device.type == "cuda"))
+    dataset = _build_calibration_dataset(
+        resolved_manifest_path,
+        distributed_rank=distributed_context.rank,
+        distributed_world_size=distributed_context.world_size,
+    )
     if len(dataset) == 0:
         raise ValueError(
             f"manifest has 0 response samples for split '{split}': {resolved_manifest_path}"
@@ -153,8 +216,10 @@ def calibrate_response_checkpoint(
         dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=num_workers,
         collate_fn=ResponseBatchCollator(candidate_limit=candidate_limit),
+        pin_memory=pin_memory,
+        **_worker_loader_kwargs(config, num_workers),
     )
 
     if checkpoint_task_name == "multitask":
@@ -172,7 +237,6 @@ def calibrate_response_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    resolved_report_path = _resolve_calibration_report_path(checkpoint_path, split, report_path)
     scanner = _ResponseCalibrationScanner(
         pass_biases=pass_biases,
         no_yaku_call_penalties=no_yaku_call_penalties,
@@ -180,25 +244,34 @@ def calibrate_response_checkpoint(
 
     total_batches = len(data_loader)
     samples_processed = 0
+    non_blocking = bool(pin_memory and device.type == "cuda")
     with torch.no_grad():
         for batch_index, batch in enumerate(data_loader, start=1):
             prepared_batch = {
-                key: value.to(device) if isinstance(value, torch.Tensor) else value
+                key: value.to(device, non_blocking=non_blocking)
+                if isinstance(value, torch.Tensor)
+                else value
                 for key, value in batch.items()
             }
             logits = model.forward_response(prepared_batch)
             scanner.update(logits=logits, batch=prepared_batch)
             samples_processed += int(prepared_batch["labels"].shape[0])
-            if progress_callback is not None and _should_report_progress(
-                batch_index,
-                total_batches,
-                progress_every_n_batches,
+            if (
+                distributed_context.is_main
+                and progress_callback is not None
+                and _should_report_progress(
+                    batch_index,
+                    total_batches,
+                    progress_every_n_batches,
+                )
             ):
                 progress_callback(batch_index, total_batches, samples_processed)
 
-    points = scanner.points()
+    scanners = gather_eval_objects(scanner, distributed_context)
+    merged_scanner = _merge_calibration_scanners(scanners)
+    points = merged_scanner.points()
     selections = _select_operating_points(points, false_call_rate_targets)
-    summary = ResponseCalibrationSummary(
+    return ResponseCalibrationSummary(
         task=task_name,
         split=split,
         checkpoint_path=str(checkpoint_path),
@@ -211,12 +284,6 @@ def calibrate_response_checkpoint(
         points=points,
         selections=selections,
     )
-    ensure_dir(resolved_report_path.parent)
-    resolved_report_path.write_text(
-        json.dumps(asdict(summary), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return summary
 
 
 class _ResponseCalibrationScanner:
@@ -456,6 +523,32 @@ class _ResponseCalibrationScanner:
             )
         return points
 
+    def merge(self, other: "_ResponseCalibrationScanner") -> None:
+        if self._points != other._points:
+            raise ValueError("cannot merge calibration scanners with different scan points")
+        self._samples += other._samples
+        self._multi_candidate_samples += other._multi_candidate_samples
+        self._actual_pass += other._actual_pass
+        self._actual_non_pass += other._actual_non_pass
+        self._add_list(self._top1_hits, other._top1_hits)
+        self._add_list(self._multi_top1_hits, other._multi_top1_hits)
+        self._add_list(self._predicted_pass, other._predicted_pass)
+        self._add_list(self._predicted_non_pass, other._predicted_non_pass)
+        self._add_list(self._pass_tp, other._pass_tp)
+        self._add_list(self._non_pass_tp, other._non_pass_tp)
+        self._add_list(self._false_call, other._false_call)
+        self._add_list(self._no_yaku_false_call, other._no_yaku_false_call)
+        self._add_list(
+            self._no_yaku_false_call_candidate,
+            other._no_yaku_false_call_candidate,
+        )
+        self._add_list(self._missed_call, other._missed_call)
+        for kind, samples in other._per_kind_samples.items():
+            self._per_kind_samples[kind] = self._per_kind_samples.get(kind, 0) + int(samples)
+        for kind, hits in other._per_kind_top1_hits.items():
+            self._per_kind_top1_hits.setdefault(kind, [0] * self._point_count)
+            self._add_list(self._per_kind_top1_hits[kind], hits)
+
     @staticmethod
     def _add_vector(target: list[int], values: torch.Tensor) -> None:
         """向当前状态添加输入数据。
@@ -471,6 +564,11 @@ class _ResponseCalibrationScanner:
             无。
         """
         for index, value in enumerate(values.detach().to("cpu").tolist()):
+            target[index] += int(value)
+
+    @staticmethod
+    def _add_list(target: list[int], values: list[int]) -> None:
+        for index, value in enumerate(values):
             target[index] += int(value)
 
 
@@ -588,7 +686,26 @@ def _select_operating_points(
     return selections
 
 
-def _build_calibration_dataset(manifest_path: Path) -> StreamingManifestResponseDataset:
+def _merge_calibration_scanners(
+    scanners: list[_ResponseCalibrationScanner],
+) -> _ResponseCalibrationScanner:
+    if not scanners:
+        raise ValueError("cannot merge empty calibration scanner list")
+    merged = _ResponseCalibrationScanner(
+        pass_biases=scanners[0].pass_biases,
+        no_yaku_call_penalties=scanners[0].no_yaku_call_penalties,
+    )
+    for scanner in scanners:
+        merged.merge(scanner)
+    return merged
+
+
+def _build_calibration_dataset(
+    manifest_path: Path,
+    *,
+    distributed_rank: int = 0,
+    distributed_world_size: int = 1,
+) -> StreamingManifestResponseDataset:
     """构建与函数名对应的数据结构或处理结果。
     
     参数:
@@ -607,6 +724,8 @@ def _build_calibration_dataset(manifest_path: Path) -> StreamingManifestResponse
         shuffle_rows=False,
         shuffle_buffer_size=0,
         include_legal_actions=True,
+        distributed_rank=distributed_rank,
+        distributed_world_size=distributed_world_size,
     )
 
 

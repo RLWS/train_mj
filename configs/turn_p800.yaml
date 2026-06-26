@@ -39,3 +39,9 @@ train:
     ankan: 8.0
     kakan: 8.0
     kyuushu_kyuuhai: 8.0
+
+eval:
+  distributed: false
+  backend: vendor
+  batch_size: 16384
+  num_workers: 8

@@ -78,6 +78,8 @@ train:
     chankan: 12.0
 
 eval:
+  distributed: false
+  backend: vendor
   turn_batch_size: 8192
   response_batch_size: 16384
   num_workers: 4

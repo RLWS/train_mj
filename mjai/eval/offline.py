@@ -14,13 +14,23 @@ from mjai.data.datasets.parquet_dataset import (
     StreamingManifestTurnDataset,
     TurnBatchCollator,
 )
+from mjai.eval.distributed import (
+    EvalDistributedContext,
+    gather_eval_objects,
+    initialize_eval_distributed_context,
+    shutdown_eval_distributed_context,
+)
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
 from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.models.policy_net import MahjongPolicyNet
 from mjai.training.class_balance import build_sample_weights, class_group_name, class_weight_map
 from mjai.training.losses import policy_loss
-from mjai.training.metrics import ResponseDiagnostics, ResponseMetricsAccumulator
+from mjai.training.metrics import (
+    ResponseDiagnostics,
+    ResponseMetricsAccumulator,
+    combine_response_diagnostics,
+)
 from mjai.utils.device import normalize_device_name
 from mjai.utils.paths import ensure_dir
 
@@ -106,6 +116,24 @@ class EvalSummary:
     misclassified_examples: list[MisclassifiedExample]
 
 
+@dataclass(slots=True, frozen=True)
+class _EvalPartial:
+    total_loss: float
+    total_samples: int
+    batches: int
+    topk_hits: dict[int, int]
+    kind_totals: dict[str, int]
+    kind_loss_totals: dict[str, float]
+    kind_hits: dict[str, dict[int, int]]
+    group_totals: dict[str, int]
+    group_loss_totals: dict[str, float]
+    group_hits: dict[str, dict[int, int]]
+    bucket_totals: dict[str, int]
+    bucket_hits: dict[str, dict[int, int]]
+    response: ResponseDiagnostics | None
+    misclassified_examples: list[MisclassifiedExample]
+
+
 def evaluate_checkpoint(
     ckpt_path: str | Path,
     split: str,
@@ -148,13 +176,61 @@ def evaluate_checkpoint(
     candidate_limit = _candidate_limit_for_task(config, task_name)
     batch_size = _batch_size_for_task(config, task_name)
     max_misclassified_examples = int(config.get("eval", {}).get("max_misclassified_examples", 10))
-    device = _resolve_device(config.get("train", {}).get("device"))
+    resolved_report_path = _resolve_report_path(checkpoint_path, split, report_path)
+    distributed_context = initialize_eval_distributed_context(config)
+    try:
+        summary = _evaluate_checkpoint_inner(
+            checkpoint=checkpoint,
+            checkpoint_path=checkpoint_path,
+            checkpoint_task_name=checkpoint_task_name,
+            task_name=task_name,
+            split=split,
+            config=config,
+            manifest_path=manifest_path,
+            candidate_limit=candidate_limit,
+            batch_size=batch_size,
+            max_misclassified_examples=max_misclassified_examples,
+            resolved_report_path=resolved_report_path,
+            distributed_context=distributed_context,
+        )
+        if distributed_context.is_main:
+            ensure_dir(resolved_report_path.parent)
+            resolved_report_path.write_text(
+                json.dumps(asdict(summary), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        return summary
+    finally:
+        shutdown_eval_distributed_context(distributed_context)
+
+
+def _evaluate_checkpoint_inner(
+    *,
+    checkpoint: dict[str, Any],
+    checkpoint_path: Path,
+    checkpoint_task_name: str,
+    task_name: str,
+    split: str,
+    config: dict[str, Any],
+    manifest_path: Path,
+    candidate_limit: int,
+    batch_size: int,
+    max_misclassified_examples: int,
+    resolved_report_path: Path,
+    distributed_context: EvalDistributedContext,
+) -> EvalSummary:
+    device = distributed_context.device
     num_workers = _resolve_eval_num_workers(config)
     pin_memory = bool(config.get("eval", {}).get("pin_memory", device.type == "cuda"))
     dataset_dir = _resolve_dataset_dir(manifest_path, task_name)
     bronze_dir = _resolve_bronze_dir(config)
 
-    dataset = _build_dataset(task_name, manifest_path)
+    dataset = _build_dataset(
+        task_name,
+        manifest_path,
+        distributed_rank=distributed_context.rank,
+        distributed_world_size=distributed_context.world_size,
+    )
     if len(dataset) == 0:
         raise ValueError(f"manifest has 0 samples for split '{split}': {manifest_path}")
 
@@ -183,6 +259,45 @@ def evaluate_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
+    partial = _evaluate_loader(
+        model=model,
+        data_loader=data_loader,
+        task_name=task_name,
+        config=config,
+        device=device,
+        pin_memory=pin_memory,
+        max_misclassified_examples=max_misclassified_examples,
+        dataset_dir=dataset_dir,
+        bronze_dir=bronze_dir,
+    )
+    partials = gather_eval_objects(partial, distributed_context)
+    combined = _combine_eval_partials(
+        partials,
+        max_misclassified_examples=max_misclassified_examples,
+    )
+    return _summary_from_partial(
+        partial=combined,
+        task_name=task_name,
+        split=split,
+        manifest_path=manifest_path,
+        checkpoint_path=checkpoint_path,
+        resolved_report_path=resolved_report_path,
+        device=device,
+    )
+
+
+def _evaluate_loader(
+    *,
+    model,
+    data_loader: DataLoader,
+    task_name: str,
+    config: dict[str, Any],
+    device: torch.device,
+    pin_memory: bool,
+    max_misclassified_examples: int,
+    dataset_dir: Path,
+    bronze_dir: Path,
+) -> _EvalPartial:
     weight_map = class_weight_map(task_name, config.get("train", {}))
     total_loss = 0.0
     total_samples = 0
@@ -311,24 +426,100 @@ def evaluate_checkpoint(
                         )
                     )
 
-    average_loss = total_loss / total_samples
-    resolved_report_path = _resolve_report_path(checkpoint_path, split, report_path)
-    ensure_dir(resolved_report_path.parent)
-    per_kind = _build_eval_kind_summaries(kind_totals, kind_hits, kind_loss_totals)
-    class_groups = _build_eval_kind_summaries(group_totals, group_hits, group_loss_totals)
+    return _EvalPartial(
+        total_loss=total_loss,
+        total_samples=total_samples,
+        batches=batches,
+        topk_hits=topk_hits,
+        kind_totals=kind_totals,
+        kind_loss_totals=kind_loss_totals,
+        kind_hits=kind_hits,
+        group_totals=group_totals,
+        group_loss_totals=group_loss_totals,
+        group_hits=group_hits,
+        bucket_totals=bucket_totals,
+        bucket_hits=bucket_hits,
+        response=None if response_metrics is None else response_metrics.summary(),
+        misclassified_examples=misclassified_examples,
+    )
 
-    summary = EvalSummary(
+
+def _combine_eval_partials(
+    partials: list[_EvalPartial],
+    *,
+    max_misclassified_examples: int,
+) -> _EvalPartial:
+    total_loss = sum(partial.total_loss for partial in partials)
+    total_samples = sum(partial.total_samples for partial in partials)
+    batches = sum(partial.batches for partial in partials)
+    topk_hits = {k: sum(partial.topk_hits.get(k, 0) for partial in partials) for k in (1, 3, 5)}
+    kind_totals = _sum_int_dicts(partial.kind_totals for partial in partials)
+    kind_loss_totals = _sum_float_dicts(partial.kind_loss_totals for partial in partials)
+    kind_hits = _sum_nested_hit_dicts(partial.kind_hits for partial in partials)
+    group_totals = _sum_int_dicts(partial.group_totals for partial in partials)
+    group_loss_totals = _sum_float_dicts(partial.group_loss_totals for partial in partials)
+    group_hits = _sum_nested_hit_dicts(partial.group_hits for partial in partials)
+    bucket_totals = _sum_int_dicts(partial.bucket_totals for partial in partials)
+    bucket_hits = _sum_nested_hit_dicts(partial.bucket_hits for partial in partials)
+    misclassified_examples: list[MisclassifiedExample] = []
+    for partial in partials:
+        remaining = max_misclassified_examples - len(misclassified_examples)
+        if remaining <= 0:
+            break
+        misclassified_examples.extend(partial.misclassified_examples[:remaining])
+
+    return _EvalPartial(
+        total_loss=total_loss,
+        total_samples=total_samples,
+        batches=batches,
+        topk_hits=topk_hits,
+        kind_totals=kind_totals,
+        kind_loss_totals=kind_loss_totals,
+        kind_hits=kind_hits,
+        group_totals=group_totals,
+        group_loss_totals=group_loss_totals,
+        group_hits=group_hits,
+        bucket_totals=bucket_totals,
+        bucket_hits=bucket_hits,
+        response=combine_response_diagnostics(partial.response for partial in partials),
+        misclassified_examples=misclassified_examples,
+    )
+
+
+def _summary_from_partial(
+    *,
+    partial: _EvalPartial,
+    task_name: str,
+    split: str,
+    manifest_path: Path,
+    checkpoint_path: Path,
+    resolved_report_path: Path,
+    device: torch.device,
+) -> EvalSummary:
+    if partial.total_samples <= 0:
+        raise ValueError(f"eval produced 0 samples for split '{split}': {manifest_path}")
+    per_kind = _build_eval_kind_summaries(
+        partial.kind_totals,
+        partial.kind_hits,
+        partial.kind_loss_totals,
+    )
+    class_groups = _build_eval_kind_summaries(
+        partial.group_totals,
+        partial.group_hits,
+        partial.group_loss_totals,
+    )
+    return EvalSummary(
         task=task_name,
         split=split,
-        loss=average_loss,
-        top1_accuracy=topk_hits[1] / total_samples,
-        top3_accuracy=topk_hits[3] / total_samples,
-        top5_accuracy=topk_hits[5] / total_samples,
+        loss=partial.total_loss / partial.total_samples,
+        top1_accuracy=partial.topk_hits[1] / partial.total_samples,
+        top3_accuracy=partial.topk_hits[3] / partial.total_samples,
+        top5_accuracy=partial.topk_hits[5] / partial.total_samples,
         macro_top1_accuracy=_macro_topk_accuracy(per_kind, 1),
         macro_top3_accuracy=_macro_topk_accuracy(per_kind, 3),
         macro_top5_accuracy=_macro_topk_accuracy(per_kind, 5),
-        samples=total_samples,
-        batches=batches,
+        samples=partial.total_samples,
+        batches=partial.batches,
         manifest_path=str(manifest_path),
         checkpoint_path=str(checkpoint_path),
         report_path=str(resolved_report_path),
@@ -338,20 +529,41 @@ def evaluate_checkpoint(
         candidate_buckets={
             bucket: EvalBucketSummary(
                 samples=count,
-                top1_accuracy=bucket_hits[bucket][1] / count,
-                top3_accuracy=bucket_hits[bucket][3] / count,
-                top5_accuracy=bucket_hits[bucket][5] / count,
+                top1_accuracy=partial.bucket_hits[bucket][1] / count,
+                top3_accuracy=partial.bucket_hits[bucket][3] / count,
+                top5_accuracy=partial.bucket_hits[bucket][5] / count,
             )
-            for bucket, count in sorted(bucket_totals.items())
+            for bucket, count in sorted(partial.bucket_totals.items())
         },
-        response=None if response_metrics is None else response_metrics.summary(),
-        misclassified_examples=misclassified_examples,
+        response=partial.response,
+        misclassified_examples=partial.misclassified_examples,
     )
-    resolved_report_path.write_text(
-        json.dumps(asdict(summary), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return summary
+
+
+def _sum_int_dicts(dicts) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for item in dicts:
+        for key, value in item.items():
+            result[key] = result.get(key, 0) + int(value)
+    return result
+
+
+def _sum_float_dicts(dicts) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for item in dicts:
+        for key, value in item.items():
+            result[key] = result.get(key, 0.0) + float(value)
+    return result
+
+
+def _sum_nested_hit_dicts(dicts) -> dict[str, dict[int, int]]:
+    result: dict[str, dict[int, int]] = {}
+    for item in dicts:
+        for key, hits in item.items():
+            target = result.setdefault(key, {1: 0, 3: 0, 5: 0})
+            for top_k in (1, 3, 5):
+                target[top_k] += int(hits.get(top_k, 0))
+    return result
 
 
 def _resolve_manifest_path(config: dict[str, Any], split: str) -> Path:
@@ -604,7 +816,13 @@ def _build_top_predictions(
     return predictions
 
 
-def _build_dataset(task_name: str, manifest_path: Path):
+def _build_dataset(
+    task_name: str,
+    manifest_path: Path,
+    *,
+    distributed_rank: int = 0,
+    distributed_world_size: int = 1,
+):
     # 大数据评估默认流式读取 parquet shard，不再把整个 valid/test split 载入内存。
     # 错例报告仍需要动作 JSON，因此只额外读取 legal_actions/label_action，不读取 state_json。
     """构建与函数名对应的数据结构或处理结果。
@@ -627,6 +845,8 @@ def _build_dataset(task_name: str, manifest_path: Path):
             shuffle_buffer_size=0,
             include_legal_actions=True,
             include_label_action=True,
+            distributed_rank=distributed_rank,
+            distributed_world_size=distributed_world_size,
         )
     return StreamingManifestResponseDataset(
         manifest_path,
@@ -636,6 +856,8 @@ def _build_dataset(task_name: str, manifest_path: Path):
         shuffle_buffer_size=0,
         include_legal_actions=True,
         include_label_action=True,
+        distributed_rank=distributed_rank,
+        distributed_world_size=distributed_world_size,
     )
 
 

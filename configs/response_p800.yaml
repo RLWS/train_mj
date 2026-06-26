@@ -45,3 +45,9 @@ train:
     daiminkan: 8.0
     ron: 12.0
     chankan: 12.0
+
+eval:
+  distributed: false
+  backend: vendor
+  batch_size: 32768
+  num_workers: 12
