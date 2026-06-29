@@ -998,20 +998,22 @@ baseline 的默认候选 `pass_bias=0.4` 不应直接迁移到 improved；它会
 | `0.3` | `0.925%` | `9.29%` | `74.18%` | `88.40%` | `78.4 / 93.1` |
 | `0.4` | `0.869%` | `10.06%` | `74.80%` | `88.85%` | `77.1 / 92.4` |
 
-因此 v1.0.0 默认 response operating point 定为 `pass_bias=0.3`：它是当前中段扫描里第一个明确进入 `false_call_rate <= 1%` 的点，比 `0.4` 保留更多 `chi/pon` exact action。`pass_bias=0.16` 可作为偏召回候选，`pass_bias=0.4` 可作为保守候选，`0.8/1.0` 不作为默认候选。
+因此 v1.0.0 默认 response operating point 当时定为 `pass_bias=0.3`：它是该轮中段扫描里第一个明确进入 `false_call_rate <= 1%` 的点，比 `0.4` 保留更多 `chi/pon` exact action。`pass_bias=0.16` 可作为偏召回候选，`pass_bias=0.4` 可作为保守候选，`0.8/1.0` 当时不作为默认候选。当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
 
-### 11.4 当前决策
+### 11.4 当时决策
 
 - turn：采用 `runs/2026-05-10_p800_improved/turn/checkpoints/best.pt` 作为 v1.0.0 基线。
 - response：采用 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为 v1.0.0 基线，默认 `pass_bias=0.3`。
 - baseline response 仍有对照价值，尤其用于判断 `chi/pon` exact action 的回退是否可接受。
 - 下一轮不要先上多任务或 DDP。当前主线应是 response operating point 定标、response 吃碰错例抽样、turn 杠类回退排查，以及基于证据决定下一组特征。
 
+当前仓库默认已在 2026-06-24 40w DDP 与 2026-06-25 扩展校准后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`；本节保留为 05-10 历史分析。
+
 ## 12. 下一步核心工作
 
 ### 12.1 接入 response operating point
 
-目标不是继续盲目提高 `non_pass_f1`，而是把 v1.0.0 的 response 默认点接入推理/服务配置，并让后续实验都能报告同一组 operating points。
+目标当时不是继续盲目提高 `non_pass_f1`，而是把 v1.0.0 的 response 默认点接入推理/服务配置，并让后续实验都能报告同一组 operating points。
 
 优先级：
 

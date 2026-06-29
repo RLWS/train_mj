@@ -126,13 +126,13 @@ def _default_pass_bias(config: dict[str, Any], task: str) -> float | None:
         if pass_bias:
             first_key = next(iter(pass_bias))
             return float(pass_bias[first_key])
-        return 0.3
+        return 2.0
     if pass_bias is not None:
         return float(pass_bias)
     train_config = config.get("train", {})
     if "response_pass_bias" in train_config:
         return float(train_config["response_pass_bias"])
-    return 0.3
+    return 2.0
 
 
 def _no_yaku_call_penalty(config: dict[str, Any], task: str) -> float:

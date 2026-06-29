@@ -1,6 +1,6 @@
 # Serving API 方案
 
-更新时间：`2026-06-01`
+更新时间：`2026-06-29`
 
 本文记录为项目新增 API 模块的方案与当前实现状态。目标是让外部应用可以通过稳定接口调用当前 `turn` / `response` 模型，同时保持规则、特征、模型和 HTTP 服务之间的边界清晰。
 
@@ -14,7 +14,7 @@
 
 - 复用现有 `mjai/features/`、`mjai/models/`、`mjai/eval/` 的模型输入和 checkpoint 加载逻辑。
 - 模型只在 `legal_actions` 候选集合内打分，最终输出必须来自合法候选集合。
-- `response` 推理显式接入当前已验证的 `pass_bias` operating point，默认使用 v1.0.0 improved response 的 `pass_bias=0.3`。
+- `response` 推理显式接入当前已验证的 `pass_bias` operating point；当前默认使用 06-24 40w `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`，优先压低错误鸣牌。
 - `response` 推理支持 `no_yaku_call_penalty`，用于对“首次开门后无明显役路”的 `chi/pon/daiminkan` 候选额外扣分，降低无役鸣牌 false call。
 - HTTP 层保持薄封装，业务推理能力沉到 `mjai/serving/`，便于 CLI、测试和未来在线对局代理复用。
 
@@ -150,10 +150,10 @@ choose_non_pass = non_pass_exists and (
 当前默认值：
 
 ```text
-default:      pass_bias = 0.3
-recall:       pass_bias = 0.16
-conservative: pass_bias = 0.4
-no_yaku_call_penalty = 0.4  # configs/api_local.yaml
+default:      pass_bias = 2.0
+recall:       pass_bias = 0.0
+conservative: pass_bias = 0.16
+no_yaku_call_penalty = 0.8  # configs/api_local.yaml
 ```
 
 ### `mjai/serving/validation.py`
@@ -209,12 +209,13 @@ no_yaku_call_penalty = 0.4  # configs/api_local.yaml
       "action_dim": 89
     },
     "response": {
-      "checkpoint": "outputs/checkpoints/response_local_smoke/best.pt",
+      "checkpoint": "runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_response.pt",
       "checkpoint_task": "response",
       "device": "cuda",
       "state_dim": 8216,
       "action_dim": 91,
-      "default_pass_bias": 0.3
+      "default_pass_bias": 2.0,
+      "no_yaku_call_penalty": 0.8
     }
   }
 }
@@ -318,7 +319,7 @@ no_yaku_call_penalty = 0.4  # configs/api_local.yaml
     {"kind": "chi", "tile": "3m", "consumed_tiles": ["2m", "4m"], "source": 3}
   ],
   "top_k": 5,
-  "pass_bias": 0.3
+  "pass_bias": 2.0
 }
 ```
 
@@ -328,7 +329,8 @@ no_yaku_call_penalty = 0.4  # configs/api_local.yaml
 {
   "task": "response",
   "selection_mode": "calibrated",
-  "pass_bias": 0.3,
+  "pass_bias": 2.0,
+  "no_yaku_call_penalty": 0.8,
   "selected_action": {"kind": "pass"},
   "raw_selected_action": {
     "kind": "chi",
@@ -378,21 +380,23 @@ api:
   debug_log_max_body_chars: 20000
   debug_log_logger: uvicorn.error
 
-device: cuda
+device: auto
 
 models:
   turn:
-    checkpoint: outputs/checkpoints/turn_local_smoke/best.pt
+    checkpoint: runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_turn.pt
   response:
-    checkpoint: outputs/checkpoints/response_local_smoke/best.pt
+    checkpoint: runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_response.pt
     pass_bias:
-      default: 0.3
-      recall: 0.16
-      conservative: 0.4
+      default: 2.0
+      recall: 0.0
+      conservative: 0.16
+    no_yaku_call_penalty: 0.8
 
 security:
   api_key_env: MJAI_API_KEY
   allow_without_api_key: true
+  header_name: X-API-Key
 ```
 
 部署或对外暴露时，应将 `allow_without_api_key` 改为 `false`，并通过环境变量注入 `MJAI_API_KEY`。
@@ -489,7 +493,8 @@ uvicorn mjai.api.app:create_app --factory --host 0.0.0.0 --port 8000
 - 返回的 `selected_action` 必须存在于输入 `legal_actions`。
 - `top_k` 截断正确。
 - `response pass_bias=0.0` 与 raw argmax 一致。
-- `response pass_bias=0.3` 使用 calibrated 选择逻辑。
+- `response pass_bias=2.0` 使用当前默认 calibrated 选择逻辑。
+- `response no_yaku_call_penalty=0.8` 会在 calibrated 选择前惩罚无明显役路的 call 候选。
 
 ### API 层测试
 
@@ -510,7 +515,7 @@ uvicorn mjai.api.app:create_app --factory --host 0.0.0.0 --port 8000
 - `pytest tests/test_serving_predictor.py tests/test_api_routes.py tests/test_cli.py::test_cli_registers_serve_api_command` 通过。
 - 在 `configs/api_local.yaml` 指向真实 checkpoint 后，`python -m mjai.cli serve-api --config configs/api_local.yaml` 可启动。
 - 用一条 turn 样本和一条 response 样本请求 API，返回动作都来自输入候选集合。
-- response 默认 `pass_bias=0.3` 在配置和响应中都可追踪。
+- response 默认 `pass_bias=2.0` 与 `no_yaku_call_penalty=0.8` 在配置和响应中都可追踪。
 - 结构错误的请求返回 `400`，业务校验错误返回 `422` 或 `413`，API key 缺失返回 `401`。
 
 ## 10. 分阶段落地
@@ -575,7 +580,7 @@ uvicorn mjai.api.app:create_app --factory --host 0.0.0.0 --port 8000
 ## 11. 风险与注意事项
 
 - 特征 schema 已在 `docs/model-inputs.md` 固化；只要 state/action feature 维度变化，API 推理必须和训练数据同步更新。
-- `response` 的默认模型应优先使用 2026-05-10 improved 单任务 response checkpoint，而不是 v1.1 multitask response。
+- `response` 的默认模型当前使用 2026-06-24 40w v1.1 DDP `best_response.pt`，并采用 `pass_bias=2.0 + no_yaku_call_penalty=0.8` 的低误鸣档；05-10 improved 与 40w `pass_bias=0.0 + no_yaku_call_penalty=0.4` 仍应作为对照口径保留。
 - 外部应用如果自行生成 `legal_actions`，必须和项目规则引擎动作格式保持一致。
 - API 服务启动时应一次性加载模型，不应每个请求重新加载 checkpoint。
 - GPU 推理应使用单模型常驻；如果后续做高并发，需要再评估 batching、队列和多进程模型副本。

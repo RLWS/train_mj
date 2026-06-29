@@ -8,7 +8,7 @@
 
 - `turn`：可以提升为当前主候选。本轮 test `top1=71.98%`、`top3=95.72%`、`top5=98.96%`、`macro_top1=91.53%`，整体优于 05-10 improved 和 05-20 multitask `best_turn.pt`。
 - `response`：不是无条件替代。raw test 比 05-10 improved 有更低 false call、更高 non-pass F1 和更高 multi-candidate top1，但 exact `chi`、`daiminkan` 和 macro 指标回退。
-- `response calibration`：`best.pt` 与 `best_response.pt` 曲线一致。`pass_bias=0.0 + no_yaku_call_penalty=0.4` 是最值得实战复核的新候选；它压低无役误叫，不需要先叠加额外 pass bias。
+- `response calibration`：`best.pt` 与 `best_response.pt` 曲线一致。当时 `pass_bias=0.0 + no_yaku_call_penalty=0.4` 是最值得实战复核的新候选；当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
 
 ## 2. 归档内容
 
@@ -117,11 +117,13 @@ outputs/reports/event_validation.json
 - `pass_bias=0.16 + no_yaku_call_penalty=0.4` 更保守，false call 降到 `0.841%`，但 missed call 到 `10.47%`，`chi/daiminkan` 进一步下滑。
 - 不建议把 `pass_bias=0.3 + no_yaku_call_penalty=0.4` 直接作为默认；它的 missed call 已到 `11.36%`，exact `chi/daiminkan` 下降明显。
 
-建议：
+当时建议：
 
 - 旧默认继续保留：05-10 improved `pass_bias=0.3`。
 - 新候选进入实战复核：06-04 current `pass_bias=0.0 + no_yaku_call_penalty=0.4`。
 - 若实战仍有明显误叫，再试 06-04 current `pass_bias=0.16 + no_yaku_call_penalty=0.4`。
+
+当前仓库默认已在 2026-06-24 40w DDP 与 2026-06-25 扩展校准后切到 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`；本节保留为 06-04 历史分析。
 
 ## 6. 数据证据说明
 
@@ -138,6 +140,6 @@ outputs/reports/event_validation.json
 ## 7. 下一步
 
 1. `turn`：把 06-04 `turn_p800/best.pt` 作为当前主候选，先做 serving load smoke，再更新部署配置或 release note。
-2. `response`：不要直接替换 05-10 improved 默认；先用实战/人工 case 对比 05-10 improved `pass_bias=0.3` 与 06-04 current `pass_bias=0.0 + no_yaku_call_penalty=0.4`。
+2. `response`：本轮当时不直接替换 05-10 improved 默认；当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
 3. 错例抽样：按两个 response operating point 分别抽 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass`，并单独标记无役 false call。
 4. 数据归档：下一轮如果确实重建数据，需要补齐新的 dataset archive，而不是只靠 `outputs/reports/event_validation.json`。

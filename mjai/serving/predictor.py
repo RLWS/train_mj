@@ -69,7 +69,7 @@ class MahjongPredictor:
         )
         if pass_bias is None:
             if self.response_policy.default_pass_bias is None:
-                pass_bias = 0.3
+                pass_bias = 2.0
             else:
                 pass_bias = self.response_policy.default_pass_bias
         if pass_bias < 0:
@@ -226,10 +226,10 @@ def _resolve_checkpoint_path(base_dir: Path, value: Any) -> Path:
 def _configured_pass_bias(response_config: dict[str, Any]) -> float:
     pass_bias = response_config.get("pass_bias")
     if isinstance(pass_bias, dict):
-        return float(pass_bias.get("default", 0.3))
+        return float(pass_bias.get("default", 2.0))
     if pass_bias is not None:
         return float(pass_bias)
-    return 0.3
+    return 2.0
 
 
 def _configured_no_yaku_call_penalty(response_config: dict[str, Any]) -> float:

@@ -74,20 +74,20 @@ def test_load_resolved_multitask_experiment_config():
     assert config["output_dir"] == "outputs/checkpoints/multitask_p800_v1_2_interleave"
 
 
-def test_api_local_targets_2026_06_04_safety_models():
+def test_api_local_targets_2026_06_24_ddp_40w_models():
     config = load_yaml("configs/api_local.yaml")
 
     assert (
         config["models"]["turn"]["checkpoint"]
-        == "runs/2026-06-04_p800_single_v1_2_safety/turn/checkpoints/best.pt"
+        == "runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_turn.pt"
     )
     assert (
         config["models"]["response"]["checkpoint"]
-        == "runs/2026-06-04_p800_single_v1_2_safety/response/checkpoints/best_response.pt"
+        == "runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_response.pt"
     )
     assert config["models"]["response"]["pass_bias"] == {
-        "default": 0.0,
+        "default": 2.0,
         "recall": 0.0,
         "conservative": 0.16,
     }
-    assert config["models"]["response"]["no_yaku_call_penalty"] == 0.4
+    assert config["models"]["response"]["no_yaku_call_penalty"] == 0.8

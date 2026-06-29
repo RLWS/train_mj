@@ -298,10 +298,10 @@ test 复核后的可比点如下：
 
 结论：valid 和 test 曲线一致。校准后 `best_response.pt` 可以接近 improved response，但在相同或相近 false-call 区间仍略弱：`non_pass_f1` 更低、missed call 更高，`chi/pon` 略低，`daiminkan` 明显低。自动 target selection 会倾向选择更大的 `pass_bias` 来抬高 `non_pass_f1`，但这会把 missed call 和少数类质量压坏；不能只按 report 里的 selected point 决定默认 operating point。`best.pt` 适合诊断 epoch-sequential multitask 的偏召回行为，不适合作为 response 默认候选。
 
-### 7.4 当前决策
+### 7.4 当时决策
 
 - `turn`：multitask v1.1 可以作为新的候选 baseline，后续优先用 `runs/2026-05-12_p800_multitask_v1_1/multitask/checkpoints/best.pt` 或 `best_turn.pt` 做进一步验证。
-- `response`：继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为当前默认候选。multitask `best_response.pt` 的 raw test、valid calibration 和 test calibration 均未证明它能替代 improved。
+- `response`：当时继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为默认候选。multitask `best_response.pt` 的 raw test、valid calibration 和 test calibration 均未证明它能替代 improved。当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
 - 校准：multitask `best_response.pt` 的实验候选点可记录为 `pass_bias=0.2`（test `false_call=0.998%`、`missed=9.07%`、`F1=73.02%`）和 `pass_bias=0.6`（test `false_call=0.750%`、`missed=12.83%`、`F1=75.54%`）。它们可用于后续对照，但不建议直接沿用为默认；v1.0.0 improved 的默认 `pass_bias=0.3` 仍是当前 serving 候选。
 - 训练策略：test calibration 没有反转 response 结论。下一轮优先尝试调整 epoch-sequential 调度、降低 `response_ce` loss scale，或单独处理 `daiminkan`/少数类质量；不要只靠更大的 `pass_bias` 抬高 `non_pass_f1`。
 
@@ -437,10 +437,10 @@ v1.2 `best_response.pt` 的 valid/test 曲线一致。test 关键 bias 点如下
 
 自动 target selection 在 v1.2 valid/test 上都会选择 `pass_bias=1.0` 作为 `1.0%` 和 `0.8%` false-call 目标下的最高 F1 点；test 为 `false_call=0.665%`、`missed=13.28%`、`non_pass_f1=76.93%`。这个点过于保守，`daiminkan top1` 只有 `25.6%`，不适合作为默认 operating point。
 
-### 8.4 当前决策
+### 8.4 当时决策
 
 - `turn`：v1.2 `best_turn.pt` 是合理候选，但 v1.1 仍是更均衡的 turn baseline。后续如果要选 v1.2，应明确接受 macro 与 `non_discard` 小幅下降，换取 overall top1、discard 与 ankan。
-- `response`：继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为默认候选。v1.2 的 response 只说明 interleave 比 v1.1 `best.pt` 更健康，不说明它已经超过单任务 improved。
+- `response`：当时继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为默认候选。v1.2 的 response 只说明 interleave 比 v1.1 `best.pt` 更健康，不说明它已经超过单任务 improved。当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
 - 调度：`batch_interleave` 去掉了 epoch-sequential 的顺序覆盖变量，并改善了部分 response macro 指标，但没有解决 response 的核心 false/missed/F1/少数类取舍。因此默认 P800 多任务配置已回到 v1.1 `epoch_sequential`；v1.2 保留为 `configs/experiments/multitask_p800_v1_2_interleave.yaml`，只在需要复现实验或继续验证调度变量时显式使用。
 
 ## 9. 2026-05-20 commit 7a7ad21 v1.1 复训结果
@@ -504,7 +504,7 @@ test 对比没有反转 response 结论。以 `best_response.pt` 为例：
 
 同 bias 下，`7a7ad21 best_response.pt` 在 false call、missed call、F1、multi top1 和 `daiminkan` 上都弱于 improved。`best.pt` 保留了更多 `daiminkan`，test `pass_bias=0.3` 时为 `66.4%`，但同时只有 `F1=73.17%`、`multi top1=87.78%`，仍不适合作为默认 response checkpoint。
 
-当前结论不变：response 默认继续使用 2026-05-10 improved；`7a7ad21` 这轮主要作为 turn overall 候选和 response rare-action 诊断证据。
+当时结论不变：response 默认继续使用 2026-05-10 improved；`7a7ad21` 这轮主要作为 turn overall 候选和 response rare-action 诊断证据。当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
 
 ## 10. 2026-06-24 P800 v1.1 DDP 40w 结果
 
@@ -579,7 +579,7 @@ test 对比没有反转 response 结论。以 `best_response.pt` 为例：
 | 06-24 40w | `0.3` | `0.4` | `0.732%` | `0.158%` | `12.09%` | `76.36%` | `89.90%` | `72.4 / 91.3 / 53.8` |
 | 06-24 40w | `1.0` | `0.4` | `0.452%` | `0.068%` | `18.54%` | `78.47%` | `91.71%` | `61.5 / 85.8 / 28.5` |
 
-当前最值得人工复核的 response 候选是 06-24 40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4`。它比 06-04 同类候选更低 false call、更高 F1/multi top1，且 `daiminkan` 略好；代价是 missed call 更高，`chi/pon` 更低。
+06-24 40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4` 是较高召回对照档。它比 06-04 同类候选更低 false call、更高 F1/multi top1，且 `daiminkan` 略好；代价是 missed call 更高，`chi/pon` 更低。
 
 自动 selection 在 false-call 目标下会偏向 `pass_bias=1.0`，但该点 missed call 已到 `18.54%`，`daiminkan` 只有 `28.5%`，不适合作为默认 serving operating point。
 
@@ -612,11 +612,11 @@ outputs/reports/formal_calibration_low_false_call_valid_20260625_151255.json
 | `1.0` | `0.4` | `0.4501%` | `18.52%` | `75.80%` | `81.48%` | `78.54%` |
 | `1.0` | `0.2` | `0.4693%` | `17.77%` | `75.20%` | `82.23%` | `78.56%` |
 
-若目标明确偏向“错过鸣牌没关系，但错误鸣牌尽量低”，当前推荐补充保守档为 `pass_bias=2.0 + no_yaku_call_penalty=0.8`：valid `false_call_rate=0.1972%`、`no_yaku_false_call_rate=0.0083%`、`missed_call_rate=31.52%`、`non_pass_precision=85.73%`、`non_pass_recall=68.48%`。相比 `2.0 + 1.2`，false call 只高 `0.0044pp`，但 missed call 低约 `0.79pp`，因此更适合作为“极保守但不过度牺牲召回”的候选。
+当前 response serving 默认已经按“错过鸣牌没关系，但错误鸣牌尽量低”的口径切到 `pass_bias=2.0 + no_yaku_call_penalty=0.8`：valid `false_call_rate=0.1972%`、`no_yaku_false_call_rate=0.0083%`、`missed_call_rate=31.52%`、`non_pass_precision=85.73%`、`non_pass_recall=68.48%`。相比 `2.0 + 1.2`，false call 只高 `0.0044pp`，但 missed call 低约 `0.79pp`，因此更适合作为“极保守但不过度牺牲召回”的默认档。
 
 ### 10.4 当前决策
 
 - `turn`：40w `best_turn.pt` 升为当前主候选。
-- `response`：05-10 improved `pass_bias=0.3` 继续作为稳定 serving baseline；40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4` 升为第一 response 对照候选。
-- `response` 极保守档：若线上目标临时转为强压错误鸣牌，可额外使用 40w `best_response.pt` + `pass_bias=2.0` + `no_yaku_call_penalty=0.8`；该点 valid false call 约 `0.20%`，但 missed call 约 `31.5%`，不应替代默认档，只适合明确宁愿漏鸣的场景。
+- `response`：40w `best_response.pt` + `pass_bias=2.0` + `no_yaku_call_penalty=0.8` 升为当前默认 serving 档；该点 valid false call 约 `0.20%`，但 missed call 约 `31.5%`。
+- `response` 对照口径：05-10 improved `pass_bias=0.3` 继续作为稳定历史 baseline；40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4` 作为较高召回对照档。
 - `DDP`：本轮已经在 P800 上完成 `train.distributed=true` 的 40w 训练、eval 和 calibration，DDP 训练路径不再只是本地 smoke 能力。后续 DDP 工作重点应转为吞吐、卡数和稳定性调优，而不是“是否能跑通”。

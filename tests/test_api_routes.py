@@ -59,8 +59,8 @@ def test_api_health_models_and_predictions(tmp_path: Path):
     assert len(turn.json()["predictions"]) == 1
     assert response.status_code == 200
     assert response.json()["selection_mode"] == "calibrated"
-    assert response.json()["pass_bias"] == 0.3
-    assert response.json()["no_yaku_call_penalty"] == 0.0
+    assert response.json()["pass_bias"] == 2.0
+    assert response.json()["no_yaku_call_penalty"] == 0.8
     assert response.json()["selected_action"] in [
         {"kind": "pass"},
         {"kind": "chi", "tile": "3m", "consumed_tiles": ["1m", "2m"], "source": 0},
@@ -191,7 +191,8 @@ def _client(
         turn_ckpt,
         response_ckpt,
         max_legal_actions=max_legal_actions,
-        pass_bias=0.3,
+        pass_bias=2.0,
+        no_yaku_call_penalty=0.8,
     )
     if api_overrides:
         config["api"].update(api_overrides)

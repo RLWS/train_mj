@@ -187,8 +187,8 @@ def _api_config(
     response_ckpt: Path,
     *,
     max_legal_actions: int = 64,
-    pass_bias: float = 0.3,
-    no_yaku_call_penalty: float = 0.0,
+    pass_bias: float = 2.0,
+    no_yaku_call_penalty: float = 0.8,
 ) -> dict:
     return {
         "api": {"max_legal_actions": max_legal_actions},

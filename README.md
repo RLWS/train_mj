@@ -20,7 +20,7 @@
 - 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
 - `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
 - 已补上第一版 serving/API：`mjai/serving` 提供推理内核，`mjai/api` 提供 FastAPI 封装，支持 `/health`、`/v1/models`、`/v1/predict/turn` 和 `/v1/predict/response`。
-- P800 20w/40w 数据上已完成单任务 improved、v1.2 safety 单任务、多任务 v1.1/v1.2 和 40w v1.1 DDP run 归档；当前 `turn` 主候选已更新为 40w `multitask/best_turn.pt`，`response` 稳定 serving baseline 仍保留 2026-05-10 improved，40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 作为第一对照候选。
+- P800 20w/40w 数据上已完成单任务 improved、v1.2 safety 单任务、多任务 v1.1/v1.2 和 40w v1.1 DDP run 归档；当前 `turn` 主候选已更新为 40w `multitask/best_turn.pt`，`response` 默认 serving 配置已切到 40w `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`，优先压低错误鸣牌；05-10 improved 与 40w `pass_bias=0.0 + no_yaku_call_penalty=0.4` 继续作为对照口径保留。
 - 当前测试基线为 `pytest` 全量通过，结果是 `127 passed`。
 - 使用 `tests/fixtures/tenhou` 实测可完成：
   - `20` 局 XML 预处理
@@ -56,8 +56,8 @@ python -m mjai.cli build-dataset --input <bronze_events_dir> --output <samples_d
 python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
 python -m mjai.cli train --config <train_config_yaml>
 python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
-python -m mjai.cli calibrate-response --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --report <calibration_report_json> --pass-biases 0,0.16,0.3,0.4 --no-yaku-call-penalties 0,0.2,0.4
-python -m mjai.cli sample-response-errors --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <response_errors_jsonl> --targets "pass->chi,pass->pon,chi->pass,pon->pass" --pass-bias 0.3 --no-yaku-call-penalty 0.4
+python -m mjai.cli calibrate-response --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --report <calibration_report_json> --pass-biases 0,0.16,0.3,0.4,1.0,1.4,1.8,2.0 --no-yaku-call-penalties 0,0.4,0.8
+python -m mjai.cli sample-response-errors --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <response_errors_jsonl> --targets "pass->chi,pass->pon,chi->pass,pon->pass" --pass-bias 2.0 --no-yaku-call-penalty 0.8
 python -m mjai.cli sample-turn-errors --ckpt <turn_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <turn_errors_jsonl>
 python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
 python -m mjai.cli inspect-sample --dataset <samples_dir> --sample-id <sample_id>
@@ -109,5 +109,5 @@ pytest
 ## 建议的下一步
 
 1. 用 `sample-turn-errors` 针对 40w `best_turn.pt` 抽 `ankan/kakan`、`riichi_discard` 和 `discard@rank2/3`，确认主候选的少数类回退边界。
-2. 对比 05-10 improved `pass_bias=0.3` 与 40w `best_response.pt + pass_bias=0.0 + no_yaku_call_penalty=0.4` 的人工/在线 response case。
+2. 复核当前默认 response 档 `40w best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8` 的人工/在线 case，重点确认 `31%+` missed call 是否符合“宁愿漏鸣也要压低误鸣”的产品口径。
 3. 继续 DDP 吞吐、卡数和稳定性调优，避免把工程加速变量和模型质量变量混在同一轮实验里。
