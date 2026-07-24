@@ -1,113 +1,279 @@
-# 雀魂四麻 AI 训练仓库
+# train_mj：立直麻将 AI 训练与推理工程
 
-本仓库用于构建基于天凤牌谱的雀魂四麻 AI 训练链路，目标是形成一条可验证、可训练、可扩展的工程闭环：
+`train_mj` 是一个面向四人立直麻将的研究型 AI 工程。项目以天凤牌谱为主要数据源，覆盖事件解析、规则回放、合法动作生成、监督样本构建、多任务训练、离线评估、阈值校准和 HTTP 推理服务。
+
+本项目关注的不只是“训练出一个模型”，而是建立一条可复现、可诊断、可持续迭代的完整链路：
 
 ```text
-天凤 XML -> 事件解析 -> 状态回放 -> 合法动作生成 -> 样本构建 -> 模型训练 -> 推理校验
+天凤 XML
+  -> 标准化事件
+  -> 规则状态回放
+  -> 合法动作候选
+  -> turn / response 样本
+  -> 单任务或多任务训练
+  -> 离线评估与错误分析
+  -> 推理 API
 ```
 
-## 当前状态
+> [!IMPORTANT]
+> 本仓库仅授权用于个人学习、教学和非商业研究。禁止商业使用、付费服务、赌博、作弊、代打、刷分、未经平台许可的自动化对局，以及任何违法或损害第三方权益的用途。完整条款见 [LICENSE](LICENSE)。
+>
+> 由于许可证包含非商业限制，本项目属于“源码公开（source available）”，不属于 OSI 定义下的开源软件。
 
-- 已完成第一阶段的数据闭环：天凤 XML 解析、`bronze_events` 持久化、回放校验、合法动作生成、`turn/response` 样本构建、Parquet 写出、按 `game_id` 的 manifest 切分。
-- 已补上第一版诊断输出：事件分布、失败原因聚合、动作标签分布、split 样本数和空 split warning。
-- 已打通第一版训练闭环：`turn/response` manifest 读取、状态/动作特征、候选排序模型、类别加权 loss、总体/宏平均/按动作类别指标、checkpoint 与指标落盘；2026-05-06 已有 P800 大数据单任务 baseline。
-- 已补上第一版离线评估：可从 checkpoint 对 `turn/response` 的 `train/valid/test` split 做 `loss`、`top-k accuracy`、`macro top-k`、按动作类别与主类/非主类分组聚合评估，并导出 JSON 报告。
-- 已补上第一版样本抽查：可直接从 `silver_samples` 目录按全局索引读取样本，查看 label、合法动作和状态快照。
-- 已补上第一版 case 定位：可从 `eval` 错例跳转到 `inspect-sample`，再按 `game_id / kyoku_index / step_index` 回溯 `bronze_events` 上下文。
-- 已补上第一版自家高价值回合动作：`turn` 合法动作与样本链路已支持 `tsumo`、`ankan`、`kakan` 和 `kyuushu_kyuuhai`，其中当前真实夹具已覆盖 `tsumo`、`ankan` 与 `kyuushu_kyuuhai` 样本。
-- 已补上第一版 `ron` 正确性过滤：当前 `response` 合法动作与样本链路已支持自家舍牌振听、同巡振听和立直后振听。
-- 已补上第一版 `chankan`：当前 `response` 合法动作、样本标签与训练动作编码已支持抢杠，且 `kakan` 响应窗口已收紧为只暴露 `pass / ron / chankan`。
-- 已修正天凤 `daiminkan` 副露解码中的赤牌归属边界：明杠会使用 Tenhou anchor tile 作为被鸣牌，避免把来源低位误当作 called index。
-- `build-dataset` 已支持 `--workers N` 按分片并行构建样本，适合在本机或训练机上扩大真实牌谱数据量。
-- 已补上第一版 serving/API：`mjai/serving` 提供推理内核，`mjai/api` 提供 FastAPI 封装，支持 `/health`、`/v1/models`、`/v1/predict/turn` 和 `/v1/predict/response`。
-- P800 20w/40w 数据上已完成单任务 improved、v1.2 safety 单任务、多任务 v1.1/v1.2 和 40w v1.1 DDP run 归档；当前 `turn` 主候选已更新为 40w `multitask/best_turn.pt`，`response` 默认 serving 配置已切到 40w `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`，优先压低错误鸣牌；05-10 improved 与 40w `pass_bias=0.0 + no_yaku_call_penalty=0.4` 继续作为对照口径保留。
-- 当前测试基线为 `pytest` 全量通过，结果是 `127 passed`。
-- 使用 `tests/fixtures/tenhou` 实测可完成：
-  - `20` 局 XML 预处理
-  - `6281` 条事件写入 `bronze_events`
-  - `20` 个事件分片全部校验通过
-  - `2996` 条 `turn` 样本
-  - `8910` 条 `response` 样本
-  - `turn` 单任务 `1` epoch smoke train
-  - `response` 单任务 `1` epoch smoke train
-  - `turn` / `response` checkpoint 的 `valid` split 离线评估
-- `serving/` 与 `api/` 已有第一版可调用接口；服务端合法动作生成、在线对局 session 和完整代理仍是后续工作。
+## 实战记录
 
-## 当前可用命令
+下图是项目模型在雀魂四人麻将段位场中的一组阶段性实战记录：
 
-P800/Linux 上可以直接用仓库根目录的 [start.sh](start.sh) 串起完整链路。默认读取 `/workspace/dataset`，其余产物仍写入当前仓库下的 `data/` 和 `outputs/`：
+![项目模型在雀魂四人麻将段位场达到雀杰三的阶段性记录](docs/assets/mahjong-soul-expert-3-record.png)
+
+截图记录了 `47` 场对局，账号段位为 **雀杰 3**，段位分 `1702 / 2000`，平均顺位 `2.191`；一至四位率分别为 `29.79% / 27.66% / 36.17% / 6.38%`。
+
+雀魂四人麻将的主要段位顺序为：
+
+```text
+初心 -> 雀士 -> 雀杰 -> 雀豪 -> 雀圣 -> 魂天
+```
+
+除魂天外，每个主要段位又分为 1、2、3 三个阶段。因此，**雀杰 3（简称“杰三”）是雀杰段位的最高阶段，再晋一级即为雀豪 1**。它可以说明系统已经具备一定的牌效率、攻守判断和真实段位环境对局能力，但并不等同于顶尖水平、职业水平或已经稳定达到雀豪。
+
+这张截图是实战展示，不是严格的模型基准：
+
+- `47` 场样本仍然很小，麻将结果具有显著方差。
+- 段位和顺位会同时受到匹配环境、对手强度、版本、策略阈值与运气影响。
+- 更可靠的结论需要结合更长周期实战、固定牌谱回放、离线指标和错例分析。
+
+雀魂官方对段位顺序的说明可参考 [雀魂简明入门指南](https://mahjongsoul.com/startguide/)。
+
+## 为什么立直麻将 AI 难以训练
+
+立直麻将不是普通的静态分类问题。一个可用系统必须同时处理规则、信息、决策和工程上的多重困难。
+
+### 1. 不完全信息与高随机性
+
+模型只能看到自己的手牌、公开牌河、副露、立直状态和剩余牌数，无法直接知道对手手牌与牌山顺序。相同决策在不同隐藏状态下可能得到完全不同的结果，单局输赢不足以评价动作质量。
+
+### 2. 动作空间随局面变化
+
+切牌、立直、摸和、吃、碰、杠、荣和、流局声明等动作并非始终可用。规则引擎必须先正确生成合法候选，模型才能排序；赤五、振听、抢杠、立直后限制、役种和途中流局等边界都会影响标签正确性。
+
+### 3. 奖励延迟且目标相互制约
+
+局部目标包括牌效率、和牌率、打点、放铳风险与局收支，整场目标又更关心最终顺位和避四。更激进的策略可能提高和牌率，却同时增加放铳率；只优化单一指标容易得到实战上失衡的模型。
+
+### 4. 牌谱监督不等于最优策略
+
+监督学习只能模仿数据中的玩家选择。牌谱包含不同水平、风格和局面判断，也缺少“如果选择另一个动作会怎样”的反事实标签。高频切牌样本还会淹没立直、杠、和牌等少数但关键的动作。
+
+### 5. 离线准确率与实战表现存在差距
+
+`top-1 accuracy` 高不代表对局策略一定更强。错误鸣牌、漏鸣、危险牌选择等少量错误可能显著影响最终顺位，因此需要分类指标、风险指标、阈值校准、固定案例与线上实战共同验证。
+
+### 6. 数据与训练成本高
+
+原始牌谱需要经过解析、回放验证、样本构建和特征预编码。任何事件 schema、规则语义或特征维度变更，都可能要求重建数据集并重新训练。大规模实验还涉及多进程构建、GPU 吞吐、DDP 一致性和可复现性。
+
+## 已实现能力
+
+### 数据与规则
+
+- 解析天凤 XML，并写出标准化的 Parquet 事件分片。
+- 回放对局状态，校验事件一致性与标签合法性。
+- 生成 `turn` 与 `response` 决策候选及训练样本。
+- 支持赤五、副露、立直、振听、抢杠、暗杠、加杠、九种九牌等关键边界。
+- 按 `game_id` 生成互斥的 `train / valid / test` manifest。
+- 在数据构建阶段预编码状态和候选特征，减少训练阶段的重复计算。
+
+### 模型与训练
+
+- 共享麻将状态编码器。
+- `turn_head`：自家回合的切牌、立直、和牌及杠等决策。
+- `response_head`：对他家出牌或加杠的通过、鸣牌及和牌决策。
+- 支持单任务训练、多任务训练、类别加权和 DDP。
+- 保存 resolved config、训练指标、最佳 checkpoint 与最终 checkpoint。
+
+### 评估与推理
+
+- 输出 loss、top-k、macro top-k、分类聚合及少数类指标。
+- 支持 response 的 `pass_bias` 与无役鸣牌惩罚校准。
+- 支持 response/turn 错例抽样、单样本检查和事件上下文回溯。
+- 提供 FastAPI 推理接口：
+  - `GET /health`
+  - `GET /v1/models`
+  - `POST /v1/predict/turn`
+  - `POST /v1/predict/response`
+
+当前更详细的训练结果、默认 checkpoint 取舍和已知边界见 [项目状态](docs/status.md)。
+
+## 快速开始
+
+### 环境要求
+
+- Python `3.10+`
+- 本地 smoke 测试可使用 CPU 或 CUDA
+- 大规模训练建议使用 CUDA GPU
+
+创建环境并安装依赖：
+
+```bash
+python -m venv .venv
+```
+
+Windows PowerShell：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e ".[dev,training,api]"
+```
+
+Linux/macOS：
+
+```bash
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[dev,training,api]"
+```
+
+运行测试：
+
+```bash
+python -m pytest
+```
+
+查看命令：
+
+```bash
+python -m mjai.cli --help
+```
+
+## 最小数据闭环
+
+仓库提供 `tests/fixtures/tenhou` 作为本地 smoke 数据。以下命令会依次完成牌谱解析、事件验证、样本构建和数据集切分：
+
+```bash
+python -m mjai.cli preprocess \
+  --input tests/fixtures/tenhou \
+  --output data/bronze_events
+
+python -m mjai.cli validate-events \
+  --input data/bronze_events \
+  --report outputs/reports/event_validation.json
+
+python -m mjai.cli build-dataset \
+  --input data/bronze_events \
+  --output data/silver_samples \
+  --workers 8 \
+  --skip-validation
+
+python -m mjai.cli make-manifest \
+  --input data/silver_samples \
+  --output data/manifests
+```
+
+`validate-events` 确认 `files_failed=0` 后，可以在 `build-dataset` 中使用 `--skip-validation`，避免重复回放验证。Windows 建议从 `6` 或 `8` 个构建进程开始；训练机可根据 CPU、内存、NVMe 利用率和 CLI 的 `samples_per_s` 再调高。
+
+## 训练、评估与服务
+
+本地 smoke 训练：
+
+```bash
+python -m mjai.cli train --config configs/turn_local_smoke.yaml
+python -m mjai.cli train --config configs/response_local_smoke.yaml
+```
+
+离线评估：
+
+```bash
+python -m mjai.cli eval \
+  --ckpt outputs/checkpoints/turn_local_smoke/best.pt \
+  --split valid \
+  --report outputs/checkpoints/turn_local_smoke/eval_valid.json
+```
+
+检查样本与回溯案例：
+
+```bash
+python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
+python -m mjai.cli dump-case \
+  --game-id <game_id> \
+  --kyoku-id <kyoku_index> \
+  --step-id <step_index>
+```
+
+启动本地推理 API：
+
+```bash
+python -m mjai.cli serve-api --config configs/api_local.yaml
+```
+
+调用 API 前，请先把 `configs/api_local.yaml` 中的 checkpoint 路径改为本机实际文件。当前 API 要求调用方传入 `legal_actions`，服务端完整合法动作生成和在线对局 session 尚未实现。
+
+P800/Linux 环境也可以使用仓库根目录的 `start.sh` 串起完整链路：
 
 ```bash
 ./start.sh
 TASKS=turn ./start.sh
 TASKS=response ./start.sh
 CLEAN_DATA=1 RUN_CALIBRATION=1 ./start.sh
-RUN_VALIDATE=0 ./start.sh
-RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
 ```
 
-`TASKS` 控制训练和对应评估的任务，默认是 `turn response` 全跑；`RUN_VALIDATE=0` 只跳过独立 `validate-events` 报告，`build-dataset` 是否跳过内部回放校验仍由 `SKIP_BUILD_VALIDATION` 控制。
-本轮 `round_wind` 会在 `preprocess` 阶段写入事件；如果要针对当前代码跑全量训练，建议使用 `CLEAN_DATA=1` 清掉仓库内旧的 `bronze_events`、`silver_samples` 和 manifest 后从头重建。`RUN_CALIBRATION=1` 会在训练后对 response checkpoint 扫描 `pass_bias` 与 `no_yaku_call_penalty`。
+## 项目结构
 
-```bash
-python -m mjai.cli preprocess --input <raw_xml_dir> --output <bronze_events_dir>
-python -m mjai.cli validate-events --input <bronze_events_dir> --report <report_json>
-python -m mjai.cli build-dataset --input <bronze_events_dir> --output <samples_dir> --workers 8
-python -m mjai.cli make-manifest --input <samples_dir> --output <manifest_dir>
-python -m mjai.cli train --config <train_config_yaml>
-python -m mjai.cli eval --ckpt <checkpoint_path> --split valid --report <eval_report_json>
-python -m mjai.cli calibrate-response --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --report <calibration_report_json> --pass-biases 0,0.16,0.3,0.4,1.0,1.4,1.8,2.0 --no-yaku-call-penalties 0,0.4,0.8
-python -m mjai.cli sample-response-errors --ckpt <response_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <response_errors_jsonl> --targets "pass->chi,pass->pon,chi->pass,pon->pass" --pass-bias 2.0 --no-yaku-call-penalty 0.8
-python -m mjai.cli sample-turn-errors --ckpt <turn_checkpoint_path> --split valid --manifest <manifest_jsonl> --output <turn_errors_jsonl>
-python -m mjai.cli inspect-sample --dataset <samples_dir> --index 100
-python -m mjai.cli inspect-sample --dataset <samples_dir> --sample-id <sample_id>
-python -m mjai.cli dump-case --game-id <game_id> --kyoku-id <kyoku_index> --step-id <step_index>
-python -m mjai.cli serve-api --config configs/api_local.yaml
-pytest
+```text
+train_mj/
+├─ mjai/
+│  ├─ data/          # 天凤解析、事件 schema、数据集构建与读取
+│  ├─ rules/         # 牌表示、状态回放、合法动作与计分边界
+│  ├─ features/      # 状态、历史与候选动作特征
+│  ├─ models/        # 共享编码器、单任务与多任务策略网络
+│  ├─ training/      # loss、指标、优化器与训练引擎
+│  ├─ eval/          # 离线评估、校准与错例抽样
+│  ├─ serving/       # checkpoint 加载与推理内核
+│  └─ api/           # FastAPI 路由与请求 schema
+├─ configs/          # 数据、模型、任务、训练与服务配置
+├─ tests/            # 单元测试、集成测试与确定性夹具
+├─ docs/             # 架构、工程、训练、规则和状态文档
+├─ data/             # 本地生成的数据，不应提交
+└─ outputs/          # 本地日志、报告与 checkpoint，不应提交
 ```
 
-说明：
+## 文档导航
 
-- `preprocess` 会把天凤 XML 转成事件分片 Parquet，并输出 `preprocess_summary.json`。
-- `validate-events` 会回放校验事件分片，并输出包含事件分布、失败原因和回放摘要的 JSON 报告。
-- `build-dataset` 当前从 `bronze_events` 构建 `turn/response` Parquet 样本，并输出标签分布摘要；`--workers N` 会按事件分片并行构建，Windows 本机建议先从 `6` 或 `8` 起步；当前真实夹具的 `turn` 标签已覆盖 `discard / riichi_discard / tsumo / ankan / kyuushu_kyuuhai`，构建链路本身已支持 `kakan`。
-- `make-manifest` 会按 `game_id` 生成 `train/valid/test` 清单，并输出 split 样本统计与 warning。
-- `train` 当前支持最小 `turn/response` baseline，可通过 `train.turn_class_weights` / `train.response_class_weights` 做样本级类别加权，并输出 `config.resolved.yaml`、`train_metrics.json`、`best.pt`、`final.pt`。
-- `eval` 当前支持最小离线评估，输出 `loss`、`top1/top3/top5 accuracy`、`macro top-k`、按动作类别聚合指标、主类/非主类分组、候选规模分桶和错例导出，并生成 JSON 报告。
-- `calibrate-response` 会固定 response checkpoint 扫描 pass/call score margin 和 `no_yaku_call_penalty`，为指定 false call 目标选择 non-pass F1 最好的推理 operating point，并输出 `no_yaku_false_call_rate` / `no_yaku_false_call_share` 等无役鸣牌诊断指标。
-- `sample-response-errors` 会重新跑 response manifest 推理，并按 `label->pred` confusion 分桶做 reservoir sampling；`--pass-bias` 与 `--no-yaku-call-penalty` 会共同决定抽样口径。
-- `sample-turn-errors` 会重新跑 turn manifest 推理，并按 label kind 与 label rank 分桶做 reservoir sampling；默认抽 `discard` 的 `rank=2/3` 样本。
-- `inspect-sample` 当前支持从样本目录或单个 parquet 文件按索引或 `sample_id` 抽查样本。
-- `dump-case` 当前支持从 `bronze_events` 中定位目标决策点的原始事件上下文。
-- `serve-api` 当前启动第一版 FastAPI 推理服务，要求配置中的 turn/response checkpoint 路径在本机存在，且调用方在预测请求中传入 `legal_actions`。
-- `replay-eval`、`infer-on-state` 仍未实装。
+- [文档索引](docs/README.md)：完整阅读顺序。
+- [项目状态](docs/status.md)：当前结果、默认模型组合、缺口和下一步。
+- [架构方案](docs/architecture-plan.md)：数据、规则、模型与训练策略。
+- [工程指南](docs/engineering-guide.md)：目录、配置、CLI 和工程约定。
+- [本地 smoke 流程](docs/smoke-training.md)：从夹具到训练与评估。
+- [模型输入](docs/model-inputs.md)：状态和动作特征 schema。
+- [多任务训练](docs/multitask-training.md)：多任务、DDP 与历史实验结论。
+- [规则覆盖](docs/rule-coverage.md)：已支持规则与明确的边界。
+- [Serving/API 设计](docs/serving-api-plan.md)：推理服务的分层与接口。
+- [版本记录](CHANGELOG.md)：版本变化摘要。
 
-训练性能说明：
+## 已知限制
 
-- `build-dataset` 会在写出 parquet 时离线预编码 `state_features_bin` 和 `candidate_features_bin`，包括 `turn` discard 的向听数、有效牌、牌河时序等候选特征；训练和评估阶段只做 float32 binary 到 tensor 的拷贝，不再在每个 epoch 的 DataLoader worker 中重复计算这些规则特征。
-- 这次样本 schema 已更新，且 2026-06-01 起 `preprocess` 会从 Tenhou `INIT seed` 写入 `round_wind`，用于修正 response 场风役牌路线和无役风险判断；旧的 `data/bronze_events` / `data/silver_samples` 不能继续用于训练，变更后需要重新执行 `preprocess -> build-dataset -> make-manifest`。
-- Windows 本地 smoke 配置默认使用 `train.num_workers: 0`，避免 spawn worker 复制整份内存数据集；Linux/P800 可以继续通过配置提高 `num_workers`，但应以训练日志里的 `data_wait` 和 `samples_per_s` 判断是否真的收益。
-- 训练过程会按 `train.log_every_n_steps` 输出 batch 进度日志，包含 `batch/total`、`batch_time`、`data_wait`、`compute_time`、窗口平均耗时、samples/s、窗口 loss/accuracy 和 ETA；其中 `data_wait` 用于定位 DataLoader 或 batch collation 是否仍是瓶颈。
+- 规则引擎仍不是完整的立直麻将规则与计分实现。
+- API 当前只负责在调用方提供的合法候选集合中排序。
+- 仓库不包含原始商业牌谱、私有数据、训练 checkpoint 或平台凭据。
+- 离线模型指标不能直接等同于长期段位表现。
+- 本项目仍处于研究与工程迭代阶段，不保证决策正确性、服务稳定性或对任何平台版本持续兼容。
 
-## 当前缺口
+## 使用声明与许可证
 
-- 规则引擎还不是完整日麻规则实现；虽然已补上自家舍牌振听、同巡振听、立直后振听、`kyuushu_kyuuhai` 和第一版 `chankan`，但仍缺少更完整的和牌机会放弃语义、其他途中流局边界与完整计分结算等能力。
-- 诊断输出已经有第一版，并已打通 `eval -> inspect-sample -> dump-case` 的轻量跳转链路，但还缺少更细的错例聚合、固定 case 集合和更丰富的数据质量报告。
-- 当前训练与评估已覆盖 `turn/response` 单任务 baseline 与多任务对照 run；类别权重仍是手工配置，自动权重估计、采样均衡、系统化错误分析工具和服务端合法动作生成仍待推进。
+本项目公开代码是为了学习、教学、复现实验和非商业研究。使用者必须遵守所在地法律、数据来源条款及游戏平台规则。
 
-## 文档索引
+明确禁止：
 
-- [CHANGELOG.md](CHANGELOG.md)：版本摘要。
-- [docs/README.md](docs/README.md)：文档总索引和推荐阅读顺序。
-- [docs/releases/v1.1.0.md](docs/releases/v1.1.0.md)：v1.1.0 发布说明。
-- [docs/status.md](docs/status.md)：当前实现进度、已验证结果、主要缺口和建议的下一步任务。
-- [docs/smoke-training.md](docs/smoke-training.md)：本地 smoke 数据、训练、评估和调试工作流。
-- [docs/rule-coverage.md](docs/rule-coverage.md)：当前规则引擎覆盖范围与未实现边界。
-- [docs/architecture-plan.md](docs/architecture-plan.md)：总体 AI、数据、模型和训练路线。
-- [docs/engineering-guide.md](docs/engineering-guide.md)：工程设计与目录、CLI、配置约定。
+- 将本项目或其衍生模型用于商业产品、收费服务、广告变现或其他营利活动。
+- 用于赌博、代打、刷分、作弊、批量账号、破坏公平匹配或规避平台风控。
+- 未经平台授权接入线上对局、控制真实账号或进行高频自动化操作。
+- 侵犯牌谱、软件、商标、隐私或其他第三方权利。
+- 用于任何违法、欺诈、骚扰、攻击或其他不正当行为。
 
-## 建议的下一步
+允许的非商业修改与再分发必须保留版权声明、完整许可证、用途限制和修改说明。详细授权条款以 [LICENSE](LICENSE) 为准。
 
-1. 用 `sample-turn-errors` 针对 40w `best_turn.pt` 抽 `ankan/kakan`、`riichi_discard` 和 `discard@rank2/3`，确认主候选的少数类回退边界。
-2. 复核当前默认 response 档 `40w best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8` 的人工/在线 case，重点确认 `31%+` missed call 是否符合“宁愿漏鸣也要压低误鸣”的产品口径。
-3. 继续 DDP 吞吐、卡数和稳定性调优，避免把工程加速变量和模型质量变量混在同一轮实验里。
+## 免责声明
+
+本项目与雀魂、天凤、Catfood Studio、Yostar、Soul Games 及其关联方不存在官方隶属、授权或背书关系。项目中提及的产品名和商标归各自权利人所有。
+
+代码和模型按“原样”提供，不附带任何明示或默示保证。使用者应自行承担因训练、部署、数据处理、账号行为或第三方索赔产生的全部风险与责任。

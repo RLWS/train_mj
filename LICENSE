@@ -1,0 +1,143 @@
+train_mj EDUCATIONAL AND NON-COMMERCIAL SOURCE LICENSE
+Version 1.0, July 2026
+
+Copyright (c) 2026 train_mj contributors
+All rights reserved except as expressly granted below.
+
+IMPORTANT NOTICE
+
+This license makes the source code publicly available for learning, teaching,
+evaluation, and non-commercial research. It is not an Open Source Initiative
+approved open-source license because it restricts fields of use and commercial
+use.
+
+By using, copying, modifying, distributing, training from, deploying, or
+otherwise exercising any right in the Software, you accept this license.
+
+1. DEFINITIONS
+
+"Software" means this repository and all source code, configuration files,
+documentation, examples, and other materials distributed with this license.
+
+"Derivative Work" means any modification, adaptation, translation, model,
+service, application, or other work based on or incorporating a substantial
+part of the Software.
+
+"Non-Commercial Purpose" means an activity whose primary purpose is personal
+learning, teaching, academic evaluation, reproducible experimentation, or
+research without commercial advantage or monetary compensation.
+
+"Commercial Use" means any use intended for or directed toward commercial
+advantage or monetary compensation, including use in a paid product or service,
+internal business operation, consultancy, advertising-supported service,
+commercial model or dataset, or revenue-generating deployment.
+
+2. LIMITED LICENSE GRANT
+
+Subject to all terms of this license, each copyright holder grants you a
+worldwide, royalty-free, non-exclusive, non-transferable license to:
+
+a. access, run, and study the Software for a Non-Commercial Purpose;
+b. modify the Software and create Derivative Works for a Non-Commercial
+   Purpose; and
+c. redistribute the Software or Derivative Works for a Non-Commercial Purpose,
+   provided that you:
+   i. preserve all copyright, attribution, disclaimer, and license notices;
+   ii. include a complete copy of this license;
+   iii. clearly identify your modifications; and
+   iv. impose no terms that conflict with this license.
+
+No rights are granted except those stated expressly in this section.
+
+3. PROHIBITED USES
+
+You may not use the Software or any Derivative Work:
+
+a. for any Commercial Use;
+b. for gambling, wagering, or facilitating games of chance for money or other
+   items of value;
+c. for cheating, account boosting, paid play, collusion, rank manipulation,
+   automated farming, mass-account operation, unfair matchmaking, or evasion of
+   anti-cheat, security, or platform controls;
+d. to connect to, automate, operate, or control an online game or a real user
+   account without the platform operator's prior authorization;
+e. to violate a platform's terms of service, applicable law, regulation,
+   contract, privacy right, intellectual-property right, or other third-party
+   right;
+f. for fraud, harassment, unauthorized surveillance, security attacks, malware,
+   or any other unlawful, harmful, abusive, or deceptive purpose; or
+g. to represent that the Software or a Derivative Work is officially affiliated
+   with, authorized by, or endorsed by Mahjong Soul, Tenhou, Catfood Studio,
+   Yostar, Soul Games, or any other third party.
+
+4. DATA, MODELS, AND THIRD-PARTY MATERIALS
+
+This license applies only to rights held by the copyright holders in the
+Software. It does not grant rights to game clients, game assets, match records,
+datasets, checkpoints, trademarks, APIs, accounts, personal data, or any other
+third-party material.
+
+You are solely responsible for obtaining permission to access and use all data
+and services, for complying with their terms, and for respecting privacy and
+intellectual-property rights.
+
+5. ATTRIBUTION
+
+Any permitted public redistribution or publication must provide reasonable
+attribution to the train_mj project, retain this license, and state prominently
+that the work is unofficial and not endorsed by the operators or owners of any
+referenced game platform.
+
+6. NO TRADEMARK LICENSE
+
+No permission is granted to use any project name, logo, contributor name, game
+title, platform name, or trademark except as reasonably necessary for factual
+attribution and description.
+
+7. TERMINATION
+
+Your rights under this license terminate automatically and immediately if you
+breach any term. Upon termination, you must stop using and distributing the
+Software and Derivative Works and delete all copies in your possession or
+control. Sections concerning prohibited uses, third-party rights, disclaimers,
+liability, and governing obligations survive termination.
+
+8. DISCLAIMER OF WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, RELIABILITY, OR
+AVAILABILITY. YOU USE THE SOFTWARE ENTIRELY AT YOUR OWN RISK.
+
+9. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, NO COPYRIGHT HOLDER OR CONTRIBUTOR WILL
+BE LIABLE FOR ANY CLAIM, DAMAGES, LOSS, PENALTY, ACCOUNT ACTION, DATA LOSS,
+BUSINESS INTERRUPTION, OR OTHER LIABILITY ARISING FROM OR RELATED TO THE
+SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT, NEGLIGENCE, STRICT LIABILITY, OR
+OTHERWISE.
+
+10. OTHER RIGHTS
+
+Commercial licensing or another use outside this license requires separate
+prior written permission from all relevant copyright holders. No contributor is
+obligated to provide support, maintenance, updates, data, models, or permission.
+
+If any provision is held unenforceable, it will be limited or removed only to
+the minimum extent necessary, and the remaining provisions will remain in
+effect. Failure to enforce a provision is not a waiver.
+
+---
+
+中文摘要（便于理解，不替代以上英文条款）
+
+本项目仅授权用于个人学习、教学、评估和非商业研究。允许在上述范围内
+使用、修改和再分发，但必须保留版权、完整许可证、用途限制并说明修改。
+
+禁止任何商业或营利用途；禁止赌博、代打、刷分、作弊、批量账号、破坏
+公平匹配、规避风控；未经平台授权，不得接入线上对局、控制真实账号或
+执行自动化操作；不得违反法律、平台规则、隐私、知识产权及其他第三方
+权利，也不得用于欺诈、攻击、骚扰或其他不当行为。
+
+本许可证不授予任何牌谱、数据集、模型权重、游戏客户端、素材、商标、
+账号或第三方服务的权利。软件按“原样”提供，使用者自行承担全部风险。
