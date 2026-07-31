@@ -5,8 +5,8 @@
 This repository has moved past the planning stage. Primary documents are:
 
 - `docs/README.md`: documentation index and recommended reading order.
-- `docs/architecture-plan.md`: overall AI, data, model, and training strategy.
-- `docs/engineering-guide.md`: implementation layout, CLI design, configuration, and task plan.
+- `docs/architecture-plan.md`: long-term AI, data, model, and training strategy.
+- `docs/engineering-guide.md`: current implementation layout, CLI, configuration, and data contracts.
 - `docs/status.md`: current implementation status, validated results, and next priorities.
 - `docs/smoke-training.md`: hands-on smoke data, training, eval, and debugging workflow.
 - `docs/rule-coverage.md`: current rule-engine coverage and known unsupported boundaries.
@@ -15,13 +15,15 @@ Current layout:
 
 - `mjai/`: Python source package.
 - `mjai/data/`: Tenhou XML parsing, event schemas, and dataset builders.
-- `mjai/rules/`: tile representation, game state, legal actions, validation, and scoring.
-- `mjai/features/`: state, history, and action encoders.
-- `mjai/models/`: shared encoder plus `turn_head`, `response_head`, `value_head`.
-- `mjai/training/`: losses, metrics, optimizers.
+- `mjai/rules/`: tile representation, game state, hand-shape checks, legal actions, and replay validation. Full scoring is not implemented.
+- `mjai/features/`: fixed-layout state/history and candidate-action feature encoders.
+- `mjai/models/`: single-task and multitask MLP candidate rankers. There is no value head.
+- `mjai/training/`: training engine, losses, class balance, and metrics.
+- `mjai/eval/`: offline evaluation, distributed aggregation, calibration, and error sampling.
+- `mjai/serving/` and `mjai/api/`: checkpoint inference and FastAPI routes.
 - `configs/`: YAML configs for data, model, task, and environment.
 - `tests/`: unit and integration tests with fixtures under `tests/fixtures/`.
-- `data/` and `outputs/`: local datasets, samples, logs, checkpoints, reports. Do not commit generated files.
+- `data/`, `outputs/`, and `runs/`: local datasets, samples, logs, checkpoints, reports, and run evidence. Do not commit generated files.
 
 ## Build, Test, and Development Commands
 
@@ -47,7 +49,7 @@ For local smoke data, use `tests/fixtures/tenhou` as the raw XML input. Run loca
 
 ## Coding Style & Naming Conventions
 
-Use Python 3.10+ style, 4-space indentation, and type hints for public interfaces. Prefer clear module names such as `legal_actions.py`, `sample_builder.py`, and `policy_net.py`. Use `snake_case` for functions, `PascalCase` for classes, and lowercase YAML names such as `turn_small.yaml`.
+Use Python 3.10+ style, 4-space indentation, and type hints for public interfaces. Prefer clear module names such as `legal_actions.py`, `sample_builder.py`, and `policy_net.py`. Use `snake_case` for functions, `PascalCase` for classes, and lowercase YAML names such as `turn_local_smoke.yaml`.
 
 Keep rule logic out of model code. The rules engine must generate legal candidates before the model scores them.
 
@@ -57,7 +59,7 @@ Use `pytest`. Name tests as `test_*.py` and keep deterministic fixtures in `test
 
 ## Commit & Pull Request Guidelines
 
-There is no git history yet, so use a simple convention going forward:
+The repository has established history and tags. Continue the existing simple Conventional Commit style:
 
 ```text
 feat: add Tenhou event parser

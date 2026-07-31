@@ -36,12 +36,12 @@ mjai/
     predictor.py         # 纯 Python 推理入口：state + legal_actions -> ranked actions
     schemas.py           # serving 层 dataclass / TypedDict
     action_adapter.py    # logits -> 可执行动作；response pass_bias 策略放这里
-    validation.py        # 请求内核校验、候选动作合法性兜底
+    validation.py        # schema、必要字段、动作类型和基础取值校验
   api/
     __init__.py
     app.py               # FastAPI app factory 和启动入口
     deps.py              # API key middleware 与安全配置
-    routes.py            # /health /metadata /predict 路由
+    routes.py            # /health /v1/models /v1/predict/* 路由
     schemas.py           # Pydantic 请求/响应模型
 configs/
   api_local.yaml
@@ -407,11 +407,13 @@ security:
 `POST /v1/predict/turn` 与 `POST /v1/predict/response` 的原始 JSON 请求体写入
 `api.debug_log_logger` 指定的 logger；`debug_log_responses` 默认为 `true`，会同时输出
 预测返回体，包含 `selected_action`、`predictions` 等字段。请求体和响应体都默认最多保留
-`debug_log_max_body_chars` 个字符。该开关默认关闭；线上或对外暴露服务不要长期打开，避免泄露牌局数据或产生过量日志。
+`debug_log_max_body_chars` 个字符。当前 `configs/api_local.yaml` 为本地联调打开了请求与响应日志；线上或对外暴露服务必须关闭，避免泄露牌局数据或产生过量日志。
+
+`api.request_timeout_seconds` 当前只存在于配置示例，代码尚未实现请求超时控制，不能把它当成生效的服务保护。
 
 ## 6. 依赖管理
 
-API 依赖应放到 optional dependency，避免训练环境默认安装 Web 依赖：
+API 依赖已经放到 optional dependency，避免训练环境默认安装 Web 依赖：
 
 ```toml
 [project.optional-dependencies]
@@ -430,7 +432,7 @@ pip install -e ".[api]"
 
 ## 7. 启动方式
 
-推荐新增 CLI 子命令：
+当前 CLI 子命令：
 
 ```bash
 python -m mjai.cli serve-api --config configs/api_local.yaml

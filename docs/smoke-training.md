@@ -1,5 +1,7 @@
 # Smoke Train 与调试上手教程
 
+更新时间：`2026-07-31`
+
 这份教程带你完整走一遍当前仓库已经打通的最小闭环，目标不是只把命令跑通，而是让你熟悉现在项目里这几类对象之间的关系：
 
 - `bronze_events`：事件分片
@@ -30,7 +32,11 @@
 cd <repo-root>
 ```
 
-当前流程依赖本地可用的 Python / PyTorch 环境。
+当前流程依赖 Python `3.10+` 和可用的 PyTorch 环境。项目的 editable install 不会安装 PyTorch；请先按本机 CUDA/P800 vendor 环境安装匹配的 PyTorch，再安装项目依赖：
+
+```powershell
+pip install -e ".[dev,training,api]"
+```
 
 ## 3. 第一步：准备 smoke 数据
 
@@ -75,18 +81,20 @@ RUN_PREPROCESS=0 RUN_VALIDATE=0 SKIP_BUILD_VALIDATION=1 ./start.sh
 
 2026-06-01 起，Tenhou `INIT seed` 会在 `preprocess` 阶段解析为 `round_wind`，用于修正 response 场风役牌路线和无役风险判断。旧 `data/bronze_events` 不再兼容；更新后必须从 `preprocess` 开始重新生成 `bronze_events`、`silver_samples` 和 manifest。
 
+2026-07-31 对当前 21 个 XML 夹具实测得到 `7386` 条事件、`3532` 条 turn 样本、`10506` 条 response 样本，事件校验 `21/21` 通过，manifest game 数为 `19/1/1`。
+
 执行完成后会得到：
 
-- 事件分片目录：[data/bronze_events](../data/bronze_events)
-- 事件校验报告：[outputs/reports/smoke_event_validation.json](../outputs/reports/smoke_event_validation.json)
-- 样本分片目录：[data/silver_samples](../data/silver_samples)
-- manifest 目录：[data/manifests](../data/manifests)
+- 事件分片目录：`data/bronze_events`
+- 事件校验报告：`outputs/reports/smoke_event_validation.json`
+- 样本分片目录：`data/silver_samples`
+- manifest 目录：`data/manifests`
 
 最关键的文件是：
 
-- [train.jsonl](../data/manifests/train.jsonl)
-- [valid.jsonl](../data/manifests/valid.jsonl)
-- [test.jsonl](../data/manifests/test.jsonl)
+- `data/manifests/train.jsonl`
+- `data/manifests/valid.jsonl`
+- `data/manifests/test.jsonl`
 
 这一步对应的含义是：
 
@@ -110,15 +118,17 @@ python -m mjai.cli build-dataset --input data/bronze_events --output data/silver
 
 `build-dataset` 现在优先使用进程池并行，适合 CPU 密集的规则回放和合法动作生成。可以试 `--workers 32`、`48`、`64`，取 `samples_per_s` 最高且机器负载稳定的值。
 
-因为候选特征已经离线预编码，训练阶段不再需要用很多 DataLoader worker 做特征计算。Windows 本地配置默认 `num_workers: 0`，主要避免 worker spawn 后复制整份 manifest 数据集；Linux/P800 上可以从较小的 worker 数起步，再看训练日志里的 `data_wait` 是否仍然明显。
+因为候选特征已经离线预编码，训练阶段不再需要用很多 DataLoader worker 做特征计算。Windows 本地配置默认 `num_workers: 0`，主要避免 spawn/进程通信开销和平台稳定性问题；默认训练主线使用 streaming dataset，并不会在初始化时把整份 manifest 样本 JSON 全部常驻内存。Linux/P800 上可以从较小的 worker 数起步，再看训练日志里的 `data_wait` 是否仍然明显。
 
-P800/CUDA 单卡训练现在会读取 `train.precision`、`train.allow_tf32` 和 `train.float32_matmul_precision`。`turn_p800.yaml` 与 `response_p800.yaml` 默认开启 `precision: bf16`、`allow_tf32: true` 和 `float32_matmul_precision: high`；训练启动日志会打印 `precision`、`autocast`、`autocast_dtype`、`allow_tf32`。如果日志里 `data_wait` 接近 0 但 GPU 利用率仍低，瓶颈通常不是 DataLoader，而是当前 MLP ranker 单 step 计算量偏小。优先观察 `samples_per_s` 和 `avg_compute_time`，再尝试把 `batch_size` 从 `2048` 提到 `4096` 或 `8192`；继续加 `num_workers` 通常收益不大。
+P800/CUDA 单卡训练现在会读取 `train.precision`、`train.allow_tf32` 和 `train.float32_matmul_precision`。`turn_p800.yaml` 与 `response_p800.yaml` 默认开启 `precision: bf16`、`allow_tf32: true` 和 `float32_matmul_precision: high`；当前 batch size 分别为 turn `16384`、response `32768`。训练启动日志会打印 `precision`、`autocast`、`autocast_dtype`、`allow_tf32`。如果 `data_wait` 接近 0 但 GPU 利用率仍低，瓶颈通常不是 DataLoader，而是当前 MLP ranker 单 step 计算量偏小；继续加 worker 通常收益不大。
 
 `response` 训练还要额外注意诊断开销。训练 split 默认 `response_train_diagnostics: false`，不会读取/解析 `legal_actions_json`，也不会逐样本计算 response candidate-set 诊断；valid split 默认 `response_eval_diagnostics: true`，仍会输出 `non_pass_f1`、false/missed call 等指标，并继续用于选择 `best_response.pt`。如果为了排查训练集诊断临时打开 `response_train_diagnostics: true`，GPU 利用率会明显下降。
 
-`response` 的候选数通常远少于 `turn`，即使 DataLoader 不阻塞，单个 batch 的 GPU 计算也更轻。P800 默认 response `batch_size` 设为 `16384`，比 turn 的 `8192` 更大；如果显存允许，可以继续试 `32768`。同时训练 split 的类别指标使用批量聚合，避免大 batch 下 Python 逐样本循环成为瓶颈。
+`response` 的候选数通常远少于 `turn`，即使 DataLoader 不阻塞，单个 batch 的 GPU 计算也更轻，因此当前 response batch size 高于 turn。训练 split 的类别指标使用批量聚合，避免大 batch 下 Python 逐样本循环成为瓶颈。
 
 ## 4. 第二步：跑 turn smoke train
+
+`configs/turn_local_smoke.yaml` 当前是 `28` 个 epoch，不是一次极短的一轮测试；完整运行时间取决于设备。只想验证链路时，可以复制配置到本地忽略文件并把 `train.epochs` 改为 `1`，不要改动共享基线配置。
 
 命令：
 
@@ -137,8 +147,8 @@ python -m mjai.cli train --config configs/turn_local_smoke.yaml
 
 默认输出位置：
 
-- checkpoint：[outputs/checkpoints/turn_local_smoke](../outputs/checkpoints/turn_local_smoke)
-- log：[outputs/logs/turn_local_smoke](../outputs/logs/turn_local_smoke)
+- checkpoint：`outputs/checkpoints/turn_local_smoke`
+- log：`outputs/logs/turn_local_smoke`
 
 重点看这些文件：
 
@@ -153,6 +163,8 @@ python -m mjai.cli train --config configs/turn_local_smoke.yaml
 
 ## 5. 第三步：跑 response smoke train
 
+`configs/response_local_smoke.yaml` 当前是 `10` 个 epoch；只验证链路时同样建议用本地一轮覆盖配置。
+
 命令：
 
 ```powershell
@@ -165,8 +177,8 @@ python -m mjai.cli train --config configs/response_local_smoke.yaml
 
 默认输出位置：
 
-- checkpoint：[outputs/checkpoints/response_local_smoke](../outputs/checkpoints/response_local_smoke)
-- log：[outputs/logs/response_local_smoke](../outputs/logs/response_local_smoke)
+- checkpoint：`outputs/checkpoints/response_local_smoke`
+- log：`outputs/logs/response_local_smoke`
 
 和 `turn` 一样，至少确认这些文件存在：
 
@@ -341,20 +353,22 @@ response checkpoint 还会额外输出 `response` 诊断块，重点看：
 如果 response 的 false call 绝对量偏高，可以固定 checkpoint 做校准扫描，不需要重新训练：
 
 ```powershell
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --pass-biases 0,0.05,0.10,0.20,0.40 --no-yaku-call-penalties 0,0.2,0.4 --false-call-targets 1%,0.8%,0.5%
+python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --pass-biases 0,0.10,0.20,0.40,1.0,2.0 --no-yaku-call-penalties 0,0.4,0.8 --false-call-targets 1%,0.8%,0.5%
 ```
 
 报告里的 `points` 是每个 `pass_bias` 与 `no_yaku_call_penalty` 组合的完整指标，`selections` 是每个 false call 目标下推荐的 operating point。除常规 false call / missed call 外，报告还会写入 `no_yaku_false_call_rate` 和 `no_yaku_false_call_share`，用于专门追踪 `features[38] == 1` 的无明显役路误叫；`no_yaku_equivalent_call_margin` 表示无役候选实际需要超过 pass 的等效 margin。这个命令只改变推理选择阈值和无役候选扣分，不会改 checkpoint 权重。
+
+大规模 eval/calibration 可以在配置中设置 `eval.distributed: true`，再用 `torchrun` 启动。默认配置仍为单进程；分布式模式要求 `WORLD_SIZE > 1`，各 rank 分片读取数据，最终只由 rank 0 写报告。
 
 ### response 错例抽样
 
 需要系统分析 `pass->chi`、`pass->pon`、`chi->pass`、`pon->pass` 这类 hard negative 时，用专门的抽样命令重新跑全量 manifest 推理：
 
 ```powershell
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.3 --no-yaku-call-penalty 0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 2.0 --no-yaku-call-penalty 0.8
 ```
 
-`--seed` 默认继承 checkpoint 配置里的全局 `seed`；只有需要复现实验外的另一组随机样本时才显式传入。`--pass-bias 0 --no-yaku-call-penalty 0` 表示按普通 `eval` 的 raw argmax 抽样；如果要分析当前建议的安全推理 operating point，使用 `--pass-bias 0.3 --no-yaku-call-penalty 0.4`。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
+`--seed` 默认继承 checkpoint 配置里的全局 `seed`；只有需要复现实验外的另一组随机样本时才显式传入。`--pass-bias 0 --no-yaku-call-penalty 0` 表示 raw argmax；40w 较高召回对照为 `0.0 + 0.4`；当前 API 极保守默认为 `2.0 + 0.8`，其历史 valid 扫描 missed call 约 `31.52%`。2026-05-10 improved 的 `0.3 + 0.0` 只适用于对应历史 checkpoint，不能把不同模型的阈值直接互换。PowerShell 会把未引用的 `>` 当成重定向符号，所以 `--targets` 必须加引号。
 
 输出是 JSONL，每行一条样本，包含 `sample_id`、`confusion`、label/pred action、top predictions、legal actions，以及可直接执行的 `inspect-sample` 和 `dump-case` 命令。
 
@@ -385,7 +399,7 @@ python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
 python -m mjai.cli dump-case --game-id 2023010100gm-00e1-0000-8a80056a --kyoku-id 0 --step-id 2
 python -m mjai.cli eval --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --report outputs/checkpoints/response_local_smoke/eval_valid.json
 python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_local_smoke/response_calibration_valid.json --no-yaku-call-penalties 0,0.4
-python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 0.3 --no-yaku-call-penalty 0.4
+python -m mjai.cli sample-response-errors --ckpt outputs/checkpoints/response_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/response_local_smoke/response_error_samples_valid.jsonl --targets "pass->chi,pass->pon,chi->pass,pon->pass" --per-target 100 --pass-bias 2.0 --no-yaku-call-penalty 0.8
 python -m mjai.cli sample-turn-errors --ckpt outputs/checkpoints/turn_local_smoke/best.pt --split valid --manifest data/manifests/valid.jsonl --output outputs/checkpoints/turn_local_smoke/turn_discard_rank23_valid.jsonl
 ```
 

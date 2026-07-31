@@ -1,12 +1,12 @@
 # 多任务训练方案
 
-更新时间：`2026-05-21`
+更新时间：`2026-07-31`
 
 ## 1. 目标
 
 v1.1 的多任务训练目标不是把 v1.0.0 的两个 checkpoint 简单拼接成一个推理文件，而是在同一次训练中共享一段状态表征，让 `turn` 与 `response` 两个候选排序任务共同更新共享参数，再分别保留任务专属 action encoder 与 head。
 
-这一版先做可落地训练的 baseline，避免同时引入 DDP、value head、复杂 batch 混采和新特征。验收标准是：同一个 checkpoint 可以分别跑 `turn` 与 `response` 离线评估，并能和 v1.0.0 单任务 baseline 做 test 指标对照。
+初始 v1.1 实验先做可落地 baseline，当时没有同时引入 DDP、value head、复杂 batch 混采和新特征。后续已经完成 batch interleave、40w DDP、分布式 eval/calibration；value head 仍未实现。本文按时间保留各轮实验结论，当前决策见第 10.4 节。
 
 ## 2. 模型结构
 
@@ -14,7 +14,7 @@ v1.1 的多任务训练目标不是把 v1.0.0 的两个 checkpoint 简单拼接�
 
 ```text
 turn state feats     -> turn state projection     \
-                                                   -> shared state encoder -> turn head
+                                                    -> shared state MLP -> turn head
 response state feats -> response state projection /
 
 turn action feats     -> turn action encoder     -> turn head
@@ -26,7 +26,7 @@ response action feats -> response action encoder -> response head
 - `turn` state/action dim：`TURN_STATE_DIM` / `TURN_ACTION_DIM`
 - `response` state/action dim：`RESPONSE_STATE_DIM` / `RESPONSE_ACTION_DIM`
 
-因此 v1.1 的“多任务”含义是共享归一化后的状态表征主干，而不是强行要求两个任务共用同一个原始输入层或同一个 action encoder。action encoder 和候选排序 head 仍然按任务拆开，避免 response 的吃碰荣候选语义干扰 turn 的弃牌/自摸/暗杠候选语义。
+因此 v1.1 的“多任务”含义是共享归一化后的状态 MLP 主干，而不是强行要求两个任务共用同一个原始输入层或同一个 action encoder。action encoder 和候选排序 head 仍然按任务拆开，避免 response 的吃碰荣候选语义干扰 turn 的弃牌/自摸/暗杠候选语义。当前没有 Transformer。
 
 实现入口：
 
@@ -124,22 +124,24 @@ docker-compose -f docker-compose.p800.yml -f docker-compose.p800.multitask.yml c
 默认训练输出写入：
 
 ```text
-outputs/checkpoints/multitask_p800_v1_1/
-outputs/logs/multitask_p800_v1_1/
+outputs/checkpoints/multitask_p800_v1_1_ddp/
+outputs/logs/multitask_p800_v1_1_ddp/
 ```
 
 默认 eval 产出两份报告：
 
 ```text
-outputs/reports/multitask_p800_v1_1_turn_test_eval.json
-outputs/reports/multitask_p800_v1_1_response_test_eval.json
+outputs/reports/multitask_p800_v1_1_ddp_turn_test_eval.json
+outputs/reports/multitask_p800_v1_1_ddp_response_test_eval.json
 ```
+
+注意：`start.sh` 与 `docker-compose.p800.yml` 的 `MULTITASK_EVAL_CKPT` 默认值仍指向旧的 `outputs/checkpoints/multitask_p800_v1_1/best.pt`，与当前训练配置的 `_ddp` 输出不一致。运行主配置时必须显式设置 `MULTITASK_EVAL_CKPT` 和报告路径，直到脚本默认值修正。
 
 手动评估同一个多任务 checkpoint 时，需要显式指定任务：
 
 ```bash
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt --task turn --split test --report outputs/reports/multitask_turn_test_eval.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1/best.pt --task response --split test --report outputs/reports/multitask_response_test_eval.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1_ddp/best.pt --task turn --split test --report outputs/reports/multitask_turn_test_eval.json
+python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_p800_v1_1_ddp/best.pt --task response --split test --report outputs/reports/multitask_response_test_eval.json
 ```
 
 如果需要复现 v1.2 interleave，显式覆盖多任务配置和报告路径：
@@ -174,12 +176,12 @@ env TASKS=multitask RUN_TRAIN=1 RUN_EVAL=1 RUN_PREPROCESS=0 RUN_VALIDATE=0 RUN_B
 - 如果 `response` 明显回退，优先怀疑共享状态主干对 response 产生负迁移；下一步尝试降低 response loss scale、减小共享层深度，或改成只共享更浅层状态投影。
 - 如果 `turn` 回退而 response 持平，优先检查 epoch 顺序调度是否让 response 后训练覆盖共享参数；下一步再做 batch-level interleave 或 epoch 内交替。
 
-## 6. 暂不纳入 v1.1 baseline 的内容
+## 6. 首轮 v1.1 baseline 暂不纳入的内容
 
 以下内容先延后，避免首轮实验变量过多：
 
 - value head / value loss
-- DDP 多卡训练
+- DDP 多卡训练（后续已在 40w run 完成）
 - 自动 class weight 估计
 - WeightedRandomSampler 或分层采样
 - 新的 state/action feature
@@ -302,7 +304,7 @@ test 复核后的可比点如下：
 
 - `turn`：multitask v1.1 可以作为新的候选 baseline，后续优先用 `runs/2026-05-12_p800_multitask_v1_1/multitask/checkpoints/best.pt` 或 `best_turn.pt` 做进一步验证。
 - `response`：当时继续保留 `runs/2026-05-10_p800_improved/response/checkpoints/best.pt` 作为默认候选。multitask `best_response.pt` 的 raw test、valid calibration 和 test calibration 均未证明它能替代 improved。当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。
-- 校准：multitask `best_response.pt` 的实验候选点可记录为 `pass_bias=0.2`（test `false_call=0.998%`、`missed=9.07%`、`F1=73.02%`）和 `pass_bias=0.6`（test `false_call=0.750%`、`missed=12.83%`、`F1=75.54%`）。它们可用于后续对照，但不建议直接沿用为默认；v1.0.0 improved 的默认 `pass_bias=0.3` 仍是当前 serving 候选。
+- 校准：multitask `best_response.pt` 的实验候选点可记录为 `pass_bias=0.2`（test `false_call=0.998%`、`missed=9.07%`、`F1=73.02%`）和 `pass_bias=0.6`（test `false_call=0.750%`、`missed=12.83%`、`F1=75.54%`）。它们可用于后续对照，但不建议直接沿用为默认；v1.0.0 improved 的 `pass_bias=0.3` 是当时 serving 候选。
 - 训练策略：test calibration 没有反转 response 结论。下一轮优先尝试调整 epoch-sequential 调度、降低 `response_ce` loss scale，或单独处理 `daiminkan`/少数类质量；不要只靠更大的 `pass_bias` 抬高 `non_pass_f1`。
 
 ### 7.5 Multitask response calibration 使用说明
@@ -589,6 +591,8 @@ test 对比没有反转 response 结论。以 `best_response.pt` 为例：
 outputs/reports/formal_calibration_low_false_call_valid_20260625_151255.json
 ```
 
+当前工作区未保留这份原始 JSON；下列数值可在 40w run 的 `analysis.md` 追溯，但报告归档仍不完整。
+
 扫描覆盖 `55,352,691` 条 valid response 样本，参数网格为：
 
 - `pass_biases=0.8,0.9,1.0,1.1,1.2,1.4,1.6,1.8,2.0`
@@ -620,3 +624,4 @@ outputs/reports/formal_calibration_low_false_call_valid_20260625_151255.json
 - `response`：40w `best_response.pt` + `pass_bias=2.0` + `no_yaku_call_penalty=0.8` 升为当前默认 serving 档；该点 valid false call 约 `0.20%`，但 missed call 约 `31.5%`。
 - `response` 对照口径：05-10 improved `pass_bias=0.3` 继续作为稳定历史 baseline；40w `best_response.pt` + `pass_bias=0.0` + `no_yaku_call_penalty=0.4` 作为较高召回对照档。
 - `DDP`：本轮已经在 P800 上完成 `train.distributed=true` 的 40w 训练、eval 和 calibration，DDP 训练路径不再只是本地 smoke 能力。后续 DDP 工作重点应转为吞吐、卡数和稳定性调优，而不是“是否能跑通”。
+- `分布式评估`：2026-06-26 后 offline eval 与 response calibration 已支持 `eval.distributed=true`；默认仍为单进程，启用时用 `torchrun` 启动，并由 rank 0 写最终报告。

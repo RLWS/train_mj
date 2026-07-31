@@ -1,6 +1,6 @@
 # 项目进度状态
 
-更新时间：`2026-06-25`
+更新时间：`2026-07-31`
 
 ## 1. 总体判断
 
@@ -11,34 +11,45 @@
 
 换句话说，仓库当前已经从“只能产样本”进入“能用大数据训练、归档 run、做阈值校准、分析模型取舍，并提供第一版 HTTP 推理接口”的阶段。v1.0.0 已固定为 2026-05-10 P800 improved 单任务 baseline；v1.1 多任务结果显示 `turn` 明确受益，但早期 `response` 经 raw eval 与 valid/test calibration 复核后仍不能替代 improved 单任务。v1.2 `batch_interleave` 修复了部分 response macro/`daiminkan` 问题，但未解决核心 false/missed/F1/少数类取舍。2026-06-04 单任务 v1.2 safety/features 复训把 20w `turn` 推到 `top1=71.98%`、`macro_top1=91.53%`、`non_discard=91.99%`；`response` raw false call 降到 `1.009%`、non-pass F1 升到 `73.24%`，但 exact `chi/daiminkan` 低于 05-10 improved。2026-06-24 40w v1.1 DDP 多任务训练进一步刷新当前 turn 主候选：`best_turn.pt` test `top1=72.88%`、`top3=96.04%`、`top5=99.08%`、`riichi_discard=89.13%`、`non_discard=92.68%`；少数回退点是 `macro_top1` 略低于 06-04，`ankan/kakan` 需要错例复核。40w `best_response.pt` raw false call 降到 `0.987%`、non-pass F1 升到 `73.64%`、multi-candidate top1 升到 `87.87%`，但 missed call 为 `8.44%`，exact `chi/pon/daiminkan` 仍不如 05-10 improved。当前 response 默认 serving 配置已按“优先压低错误鸣牌”的产品口径切到 40w `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`；05-10 improved `pass_bias=0.3` 与 40w `pass_bias=0.0 + no_yaku_call_penalty=0.4` 继续作为对照口径保留。DDP 已在 P800 40w 训练、eval 和 calibration 中跑通；服务端合法动作生成和在线对局代理仍未完成。
 
+2026-07-31 代码审计还确认了以下实现边界：
+
+- 当前模型是 MLP candidate ranker，不是配置名所暗示的 Transformer；value head/value 训练尚未实现。
+- `replay-eval` 与 `infer-on-state` 只是已注册的占位命令，并会打印 pending 后返回 `0`。
+- API 是“调用方提供候选后的排序服务”；它做结构与基础取值校验，不会根据 state 重新证明候选动作合法。
+- Git 已有 `v1.2.0` 标签，但 `pyproject.toml`、`mjai.__version__` 和 OpenAPI 仍为 `1.1.0`，这是当前已知的版本元数据不一致。
+- PyTorch 必须按本机设备环境另行安装，当前不由 `pyproject.toml` 依赖自动提供。
+- `configs/multitask_p800.yaml` 的输出目录带 `_ddp`，但 `start.sh` / compose 的默认 `MULTITASK_EVAL_CKPT` 仍指向旧的不带 `_ddp` 路径；在脚本默认值修正前必须显式覆盖。
+
 ## 2. 已验证结果
 
 以下结果已经在仓库内实际验证：
 
-- `pytest` 全量通过，当前结果为 `127 passed`；本轮新增 `round_wind`、response 无役鸣牌惩罚和校准/抽样诊断后，全量回归已通过。
-- 新增 response 无役鸣牌诊断与 serving/API 配置后，相关 targeted pytest、`python -m compileall -q mjai tests` 和 `git diff --check` 均已通过。
+- 当前测试树经 `python -m pytest --collect-only -q` 可收集 `134` 个 case。全量测试包含多次完整 fixture 数据构建与 smoke train，本轮没有在文档维护时限内取得完整结束结果，因此不把收集数写成 passed 数。
+- 本轮针对规则、特征、配置、指标、校准、serving predictor/API 路由运行了两组定向回归，共 `86 passed`；`python -m compileall -q mjai tests`、`git diff --check` 和文档相对链接检查通过。
+- 最近一次文档记录的完整回归为 `127 passed`（2026-06-25）；本轮将其保留为历史验证，不再称为当前用例总数。
 - `python -m mjai.cli preprocess --input tests/fixtures/tenhou --output <tmp>` 可运行。
-- 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成 `6281` 条事件并写入 `bronze_events`。
+- 2026-07-31 对 `tests/fixtures/tenhou` 中当前 `21` 个 XML 夹具重新实测，生成 `7386` 条事件并写入 `bronze_events`。
 - `python -m mjai.cli validate-events --input <tmp> --report <tmp>` 可运行。
 - 同一批事件分片实测回放结果为：
-  - `files=20`
-  - `valid=20`
+  - `files=21`
+  - `valid=21`
   - `failed=0`
-  - `total_events=6281`
+  - `total_events=7386`
   - 可输出事件分布、失败原因聚合、总局数/弃牌数/副露数摘要
 - `python -m mjai.cli build-dataset --input <tmp> --output <tmp>` 可运行，且支持 `--workers N` 按事件分片并行构建。
 - `python -m mjai.cli build-dataset --input <tmp> --output <tmp> --workers 2` 已在 Windows fixture smoke 中验证通过。
-- 对 `tests/fixtures/tenhou` 中的 `20` 个 XML 夹具实测，生成：
-  - `2996` 条 `turn` 样本
-  - `8910` 条 `response` 样本
-  - 可输出 `turn/response` 标签动作分布，其中当前真实夹具的 `turn` 已覆盖 `discard / riichi_discard / tsumo / ankan / kyuushu_kyuuhai`，构建链路本身已支持 `kakan`
+- 对当前 `21` 个 XML 夹具实测，生成：
+  - `3532` 条 `turn` 样本
+  - `10506` 条 `response` 样本
+  - 可输出 `turn/response` 标签动作分布；当前真实夹具的 `turn` 已覆盖 `discard / riichi_discard / tsumo / ankan / kakan / kyuushu_kyuuhai`
 - `python -m mjai.cli make-manifest --input <tmp> --output <tmp>` 可运行。
 - 同一批夹具可生成 manifest，实测分桶结果为：
-  - `train_games=18`
+  - `train_games=19`
   - `valid_games=1`
   - `test_games=1`
 - `python -m mjai.cli train --config <tmp>` 可运行。
 - 2026-05-20 训练引擎已接入 PyTorch DDP：`train.distributed: true` 需要通过 `torchrun` / `python -m torch.distributed.run` 启动；训练集 streaming dataset 按 rank 切分 shard；验证、checkpoint 和指标写盘只在 rank 0 执行；DDP checkpoint 会保存未带 `module.` 前缀的模型权重。该能力已通过本地编译、配置、dataset sharding 和 multitask smoke 回归，并在 2026-06-24 P800 40w `multitask_p800_v1_1_ddp` 训练、eval 和 calibration 中完成实机验证；后续重点转为吞吐、卡数和稳定性调优。
+- 2026-06-26 起，offline eval 与 response calibration 也支持 `eval.distributed: true` 的多 rank 分片、指标归并和 rank 0 报告写出；默认配置仍为 `false`，启用时必须通过 `torchrun` 启动且 `WORLD_SIZE > 1`。
 - 以单局清单裁剪出的最小训练集实测，`turn` 与 `response` 任务都可完成 `1` 个 epoch 的 smoke train，并落盘：
   - `config.resolved.yaml`
   - `train_metrics.json`
@@ -82,7 +93,7 @@
   - `response best_response.pt` raw test 为 `multi_candidate top1=0.8641`、`multi_candidate macro=0.8760`、`non_pass_f1=0.7141`、`false_call_rate=1.142%`、`missed_call_rate=7.53%`、`daiminkan=0.6459`。相对 old v1.1 `best_response.pt` 明显恢复 `daiminkan`，但仍弱于 improved 单任务的 `multi_candidate top1=0.8686`、`non_pass_f1=0.7214`、`false_call_rate=1.105%` 和 `daiminkan=0.6817`。
   - valid/test calibration 已归档。test `pass_bias=0.3` 下，`7a7ad21 best_response.pt` 为 `false_call=0.956%`、`missed=9.55%`、`F1=73.51%`、`multi top1=88.02%`、`daiminkan=56.7%`，弱于 improved 默认 `0.925% / 9.29% / 74.18% / 88.40% / 61.6%`；test `pass_bias=0.4` 下也仍弱于 improved 的同 bias 结果。因此 response 默认候选不变。
 - 2026-06-04 基于 `start.sh` 的 P800 单任务复训已完成，训练产物已归档到 `runs/2026-06-04_p800_single_v1_2_safety/`，可提交分析见 [training-analysis-2026-06-04.md](training-analysis-2026-06-04.md)，run 目录下也有 `analysis.md` 与 `run_summary.json`。
-  - `turn_p800/best.pt` 是当前最强 turn 候选：test `top1=71.98%`、`top3=95.72%`、`top5=98.96%`、`macro_top1=91.53%`、`discard=71.49%`、`riichi_discard=87.89%`、`non_discard=91.99%`。相对 05-20 multitask `best_turn.pt`，overall 和少数类稳定性均更好。
+  - `turn_p800/best.pt` 是当时最强 turn 候选：test `top1=71.98%`、`top3=95.72%`、`top5=98.96%`、`macro_top1=91.53%`、`discard=71.49%`、`riichi_discard=87.89%`、`non_discard=91.99%`。相对 05-20 multitask `best_turn.pt`，overall 和少数类稳定性均更好；随后已被 06-24 40w `best_turn.pt` 的主指标刷新。
   - `response_p800/best.pt` raw test 为 `multi_candidate top1=87.67%`、`non_pass_f1=73.24%`、`false_call_rate=1.009%`、`missed_call_rate=8.28%`、`chi=79.68%`、`pon=94.08%`、`daiminkan=61.86%`。它比 05-10 improved 更会压误叫，但 exact `chi` 与 `daiminkan` 更弱，不应直接无条件替换默认 response。
   - response calibration 显示 `best.pt` 与 `best_response.pt` 曲线一致。当前建议新增实战候选为 `pass_bias=0.0 + no_yaku_call_penalty=0.4`：test `false_call=0.915%`、`no_yaku_false=0.242%`、`missed=9.49%`、`F1=74.27%`、`multi top1=88.45%`、`chi/pon/daiminkan=77.0%/93.4%/61.5%`。05-10 improved `pass_bias=0.3` 仍保留为稳定 serving baseline。
 - 2026-06-24 P800 multitask v1.1 DDP 40w 训练已完成，训练产物已归档到 `runs/2026-06-24_p800_multitask_v1_1_ddp_40w/`，数据集已归档到 `runs/_datasets/tenhou_40w_2026-06-23/`，分析记录见 [multitask-training.md](multitask-training.md) 第 10 节和 run 目录下的 `analysis.md`。
@@ -90,7 +101,7 @@
   - `multitask/best_turn.pt` 是当前最强 turn 候选：test `top1=72.88%`、`top3=96.04%`、`top5=99.08%`、`macro_top1=91.35%`、`discard=72.40%`、`riichi_discard=89.13%`、`non_discard=92.68%`。相对 06-04 single，overall、discard、riichi_discard 和 non_discard 均提升；`macro_top1`、`ankan`、`kakan` 轻微或中等回退，需要错例复核。
   - `multitask/best_response.pt` raw test 为 `multi_candidate top1=87.87%`、`non_pass_f1=73.64%`、`false_call_rate=0.987%`、`missed_call_rate=8.44%`、`chi=79.42%`、`pon=93.86%`、`daiminkan=62.31%`。它是当前 raw binary/multi 口径最强 response 候选，但相对 05-10 improved 仍牺牲 exact `chi/pon/daiminkan` 和 missed call。
   - response calibration 中，当前最值得人工复核的 40w 候选为 `best_response.pt` + `pass_bias=0.0 + no_yaku_call_penalty=0.4`：test `false_call=0.884%`、`no_yaku_false=0.217%`、`missed=9.85%`、`F1=74.72%`、`multi top1=88.70%`、`chi/pon/daiminkan=76.3%/93.1%/61.9%`。自动选出的 `pass_bias=1.0 + no_yaku_call_penalty=0.4` 虽有更高 F1，但 missed call 达 `18.54%`、`daiminkan=28.5%`，不适合作默认。
-  - 2026-06-25 对正式 valid split 追加扩展扫描，报告为 `outputs/reports/formal_calibration_low_false_call_valid_20260625_151255.json`，覆盖 `55,352,691` 条 response 样本。若目标明确偏向“错过鸣牌没关系，但尽量压低错误鸣牌”，推荐极保守档 `pass_bias=2.0 + no_yaku_call_penalty=0.8`：valid `false_call=0.1972%`、`no_yaku_false=0.0083%`、`missed=31.52%`、`precision=85.73%`、`recall=68.48%`、`F1=76.14%`。代表性参数对比如下：
+  - 2026-06-25 对正式 valid split 追加扩展扫描，当时报告路径为 `outputs/reports/formal_calibration_low_false_call_valid_20260625_151255.json`，覆盖 `55,352,691` 条 response 样本。当前工作区未保留这份原始 JSON，以下数值可在对应 run 的 `analysis.md` 追溯，但证据归档仍不完整。若目标明确偏向“错过鸣牌没关系，但尽量压低错误鸣牌”，推荐极保守档 `pass_bias=2.0 + no_yaku_call_penalty=0.8`：valid `false_call=0.1972%`、`no_yaku_false=0.0083%`、`missed=31.52%`、`precision=85.73%`、`recall=68.48%`、`F1=76.14%`。代表性参数对比如下：
 
 | pass_bias | no_yaku_penalty | false call | missed call | precision | recall | F1 |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -121,7 +132,7 @@
   - 同一局内的完整事件列表
   - 目标事件前后上下文
   - 来源 parquet 分片路径
-- 真实牌谱扩大批次已在当前 `data/` 目录下完成一次端到端数据主线验证，命令链路为 `preprocess -> validate-events -> build-dataset --workers N -> make-manifest`。这批结果有记录意义：它是当前规则、样本构建与 split 逻辑在 4000+ 局真实牌谱上的第一份质量基线，可用于后续训练结果和规则回补的对照。
+- 真实牌谱扩大批次曾在当前 `data/` 目录下完成一次端到端数据主线验证，命令链路为 `preprocess -> validate-events -> build-dataset --workers N -> make-manifest`。这批 2026-05 结果是历史本地质量基线；它早于 `round_wind` 和后续 turn 特征修正，与当前 schema/语义不兼容，不能直接作为当前 checkpoint 的训练数据。
   - `preprocess_summary.json`：`4233` 局，`1322990` 条事件，无 warning。
   - `validate.json`：`files_seen=4233`，`files_valid=4233`，`files_failed=0`，事件校验失败率 `0.00%`；总局数 `15275`，总弃牌 `625144`，总副露 `29935`。
   - `build_summary.json`：`631016` 条 `turn` 样本，`1876854` 条 `response` 样本；`games_with_zero_turn_samples=0`，`games_with_zero_response_samples=0`，无 warning。
@@ -155,7 +166,7 @@
 - `mjai/data/datasets/`
   - `build-dataset` 写出的 parquet 已包含 `state_features_bin`、`candidate_features_bin`、`label_index` 和 `label_kind`；训练和评估阶段不再逐 epoch 重新编码状态/动作特征。
   - `turn` discard 的向听数、有效牌、形状摘要等候选特征已经移到样本构建阶段离线计算，避免 DataLoader worker 在训练期反复执行 CPU 密集的规则搜索。
-  - manifest 数据集会在初始化时预反序列化样本 JSON，并读取预编码特征二进制；旧 schema 的 `silver_samples` 需要重新运行 `build-dataset` / `make-manifest` 后才能训练。若 parser 新增事件字段或样本状态字段，例如本轮 `round_wind`，还必须先重新运行 `preprocess`。
+  - 默认训练/eval 主线使用 streaming iterable dataset：初始化只读取 manifest 与 shard 元信息，迭代时按 shard/batch 读取预编码特征；eager 数据集只用于较小数据或调试。旧 schema 的 `silver_samples` 需要重新运行 `build-dataset` / `make-manifest` 后才能训练。若 parser 新增事件字段或样本状态字段，例如 `round_wind`，还必须先重新运行 `preprocess`。
 - `configs/`
   - 数据、任务、模型、训练配置目录已建立。
 - `mjai/features/`
@@ -165,7 +176,7 @@
   - 2026-05-09 已继续增强 response call/context 特征：`RESPONSE_ACTION_DIM` 从 `77` 增至 `91`，新增可见牌修正有效牌枚数、开副露后明显役路启发式、无役风险、七对子/国士等门清特殊路线破坏信号；样本状态同步写出 `all_melds`，用于扣除其他玩家副露里的可见牌。该特征是启发式，不等价于完整番种判定。
   - 2026-06-01 起，response 的役牌路线启发式会使用 `round_wind` 判断场风牌；该修正不改变特征维度，但会改变 response candidate 特征语义，下一轮训练数据需要重建。
 - `mjai/models/`
-  - 已有最小共享编码器与 `turn/response` 候选打分头。
+  - 当前单任务和多任务模型都是 MLP candidate ranker；多任务仅共享 state MLP 主干，turn/response 保留各自输入投影、action encoder 和 head。当前没有 Transformer 或 value head。
 - `mjai/training/`
   - 已有最小训练循环、`turn/response` 标签样本加权 loss、总体与宏平均 accuracy、按动作类别和主类/非主类分组的训练指标、checkpoint 落盘。
   - response 训练已支持 `train.response_min_train_candidate_count`，当前 response smoke / P800 配置默认用 `2` 过滤训练集中的 pass-only 单候选样本；valid/test 评估仍保留全量样本。
@@ -186,7 +197,7 @@
   - 已新增 response 错例抽样命令：重新跑 manifest 推理后按 `label->pred` confusion 抽样，避免误用 `eval.misclassified_examples` 里默认最多 `10` 条的调试样本。
   - 已新增 turn top-k 错例抽样命令：重新跑 manifest 推理后按 label kind 与 label rank 抽样，默认目标为 `discard@rank2` 与 `discard@rank3`。
 - `mjai/serving/` 与 `mjai/api/`
-  - 已完成第一版外部调用接口：`mjai/serving` 负责 checkpoint 加载、模型推理、候选排序和请求内核校验；`mjai/api` 负责 FastAPI app factory、路由、Pydantic schema、API key middleware 和统一错误响应。
+  - 已完成第一版外部调用接口：`mjai/serving` 负责 checkpoint 加载、模型推理、候选排序和请求结构/基础取值校验；`mjai/api` 负责 FastAPI app factory、路由、Pydantic schema、API key middleware 和统一错误响应。
   - 已支持 `/health`、`/v1/models`、`/v1/predict/turn`、`/v1/predict/response`。
   - `response` 当前默认接入 06-24 40w `best_response.pt` 的极低错误鸣牌 operating point：`pass_bias=2.0` 与 `no_yaku_call_penalty=0.8`；配置中仍保留 `recall=0.0` 与 `conservative=0.16` 作为低 bias 对照档。
   - `response` 推理已支持 `no_yaku_call_penalty`，对无明显开副露役路的 `chi/pon/daiminkan` 候选在 calibrated 选择前额外扣分；`configs/api_local.yaml` 当前默认设为 `0.8`，用于进一步降低无役鸣牌。
@@ -201,6 +212,9 @@
   - 子命令框架完整。
   - `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval`、`calibrate-response`、`sample-response-errors`、`sample-turn-errors`、`inspect-sample`、`dump-case` 已可用。
   - `replay-eval`、`infer-on-state` 仍是占位实现。
+- 配置与训练参数
+  - `configs/model/*.yaml` 中的 Transformer/value 字段，以及部分 `grad_accum_steps`、`val_every_n_steps`、`save_every_n_steps` 字段当前未被训练引擎消费；只有已在代码读取路径中的参数可视为生效配置。
+  - `configs/task/value.yaml` 是预留文件，训练入口只接受 `turn/response/multitask`。
 - 数据链路
   - 已经落地 `raw_xml -> bronze_events -> silver_samples` 两阶段流水线。
 - 第一版诊断输出已经落地，并已支持从评估错例跳转到样本与事件上下文，但还缺少更细的失败样本聚合和固定 case 管理。
@@ -239,11 +253,14 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 
 当前规则层已经足够支撑“早期监督学习样本构建”，但还不足以称为完整日麻规则引擎。继续补规则边界的优先级应由训练数据和错例证据决定，主要候选缺口包括：
 
+- 和牌只检查标准形/七对子/国士牌形，不检查役、番符和点数
+- 立直后的摸切锁定、鸣牌限制和暗杠等待不变
 - 更完整的和牌机会放弃语义与残余振听边界
-- 多家荣和等边界情况
-- 更完整的立直限制与流局处理
+- 多家荣和与响应仲裁
+- 136 张守恒、摸弃顺序、手牌张数节奏、终局点数移动
+- 更完整的流局处理
 
-### 4.3 训练与评估链路已打通最小版本，但覆盖面还很窄
+### 4.3 训练与评估已完成大规模验证，但高级能力仍有缺口
 
 当前已经有：
 
@@ -292,7 +309,7 @@ raw_xml -> bronze_events -> validate-events -> silver_samples
 如果按原始路线图划分，当前可以认为：
 
 - `Task 1` 项目骨架初始化：已完成
-- `Task 2` 牌表示与基础规则：已完成
+- `Task 2` 牌表示与基础规则：已完成第一版
 - `Task 3` 天凤解析与事件 schema：已完成
 - `Task 4` 回放与合法动作生成：已完成第一版
 - `Task 5` 样本构建：已完成第一版

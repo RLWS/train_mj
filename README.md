@@ -118,6 +118,8 @@
 python -m venv .venv
 ```
 
+PyTorch 不由本项目依赖自动安装。请先按本机 CUDA 或 P800 vendor 环境安装匹配的 PyTorch，再执行下面的 editable install。
+
 Windows PowerShell：
 
 ```powershell
@@ -241,6 +243,7 @@ train_mj/
 
 - [文档索引](docs/README.md)：完整阅读顺序。
 - [项目状态](docs/status.md)：当前结果、默认模型组合、缺口和下一步。
+- [v1.2.0 发布说明](docs/releases/v1.2.0.md)：DDP、40w 训练与当前 response 默认档。
 - [架构方案](docs/architecture-plan.md)：数据、规则、模型与训练策略。
 - [工程指南](docs/engineering-guide.md)：目录、配置、CLI 和工程约定。
 - [本地 smoke 流程](docs/smoke-training.md)：从夹具到训练与评估。

@@ -1,690 +1,373 @@
-# 雀魂四麻 AI 工程落地方案
+# 雀魂四麻 AI 工程指南
 
-## 0. 当前实现状态（2026-04-29）
+更新时间：`2026-07-31`
 
-本仓库已经从“纯规划阶段”进入“规则与数据链路已落地、最小训练链路已打通”的阶段。当前实际情况如下：
+本文描述当前仓库已经落地的工程结构和使用方式，不再把早期规划中的文件、命令或模型结构写成既成事实。长期路线与尚未实现的方向见 [architecture-plan.md](architecture-plan.md)，当前训练结论与下一步见 [status.md](status.md)。
 
-- 已完成：
-  - 天凤 XML 解析
-  - `bronze_events` 持久化
-  - 回放校验
-  - 基础合法动作生成
-  - `turn/response` 样本构建
-  - Parquet 写出与 manifest 切分
-  - 最小 `turn/response` baseline 训练链路
-  - 规则与数据链路相关测试
-- 部分完成：
-  - CLI 框架已建立，当前 `preprocess`、`validate-events`、`build-dataset`、`make-manifest`、`train`、`eval` 已可用
-  - 数据统计、失败归因和 split warning 已有第一版，但调试视图仍比较基础
-- 尚未开始：
-  - `serving/`
+## 1. 当前工程边界
 
-当前已验证结果：
+仓库已经具备：
 
-- `pytest` 结果为 `114 passed`
-- 使用 `tests/fixtures/tenhou` 实测可完成 `20` 局 XML 预处理、`6281` 条事件写入、`20/20` 个事件分片校验通过，并生成 `2996` 条 `turn` 样本、`8910` 条 `response` 样本
-- `turn/response` 单任务本地 smoke train 已可跑通并落盘 checkpoint 与指标
+- 天凤 XML 解析、标准化事件写出和回放校验。
+- `turn` / `response` 合法候选生成、监督样本构建和按局切分。
+- 状态与候选动作特征离线预编码。
+- 单任务和共享状态编码器的多任务候选排序训练。
+- 单机训练、PyTorch DDP、流式 Parquet 数据集、checkpoint 和指标归档。
+- 离线评估、response 阈值校准、response/turn 错例抽样。
+- checkpoint 推理内核和 FastAPI HTTP 接口。
 
-更细的进度判断、模块状态和建议的下一步任务见 [status.md](status.md)。
+当前仍未实现：
 
-## 1. 目标
+- `value` 样本、value head 和 value 训练；`configs/task/value.yaml` 只是预留配置。
+- `replay-eval` 与 `infer-on-state` 的业务逻辑；两个子命令已注册，但只返回占位提示。
+- API 侧根据局面重新生成并验证完整合法动作。
+- 在线对局 session、平台适配器、自博弈和完整计分引擎。
 
-本文档只回答工程落地问题，默认沿用主方案中的技术结论：
-
-- 框架统一为 `PyTorch 2.5.1+cu118`
-- 当前只做四麻
-- 使用“规则引擎 + 共享编码器 + 多头候选动作排序”
-- 任务拆分为 `turn_head`、`response_head`、`value_head`
-
-目标是尽快搭出一套可迭代骨架，满足：
-
-- 本地 4070 可跑通 parser、样本构建和小模型训练
-- 训练机可直接切换到正式训练
-- 合法性校验贯穿数据、训练和推理
-- 命令入口统一，后续加模型和加数据不需要重写主流程
-
-## 2. 建议目录结构
+## 2. 实际目录结构
 
 ```text
 train_mj/
-  README.md
-  docs/
-    architecture-plan.md
-    engineering-guide.md
-    status.md
-    rule-coverage.md
-    smoke-training.md
-  pyproject.toml
-  requirements.txt
-  .env.example
-  configs/
-    base.yaml
-    data/
-      tenhou_4p_red.yaml
-    model/
-      encoder_small.yaml
-      encoder_base.yaml
-    task/
-      turn.yaml
-      response.yaml
-      value.yaml
-      multitask.yaml
-    train/
-      local_smoke.yaml
-      local_debug.yaml
-      p800_single.yaml
-      p800_ddp.yaml
-  data/
-    raw_xml/
-    bronze_events/
-    silver_samples/
-    manifests/
-    cache/
-  outputs/
-    logs/
-    checkpoints/
-    reports/
-    replay_cases/
-  scripts/
-    preprocess.ps1
-    preprocess.sh
-    train_local.ps1
-    train_p800.sh
   mjai/
-    __init__.py
-    cli.py
-    utils/
-      io.py
-      logging.py
-      seed.py
-      registry.py
-      device.py
-      paths.py
+    api/                    # FastAPI app、路由、请求 schema、中间件
     data/
-      tenhou/
-        parser.py
-        meld_decoder.py
-        filters.py
-      schema/
-        events.py
-        samples.py
-      builders/
-        event_builder.py
-        sample_builder.py
-      datasets/
-        parquet_dataset.py
-        collate.py
-    rules/
-      tiles.py
-      state.py
-      legal_actions.py
-      hand_checker.py
-      shanten.py
-      scoring.py
-      validators.py
-    features/
-      state_features.py
-      history_features.py
-      action_features.py
+      builders/             # 事件、校验、样本和 manifest 构建
+      datasets/             # Parquet 存储、流式/内存数据集和 collator
+      schema/               # Event、TurnSample 数据对象
+      tenhou/               # Tenhou XML parser 与副露解码
+    eval/                   # 离线评估、分布式评估、校准和错例抽样
+    features/               # 状态与候选动作特征编码
     models/
-      common/
-        embeddings.py
-        transformer.py
-      encoder.py
-      heads/
-        turn_head.py
-        response_head.py
-        value_head.py
-      policy_net.py
-    training/
-      engine.py
-      losses.py
-      metrics.py
-      hooks.py
-      optim.py
-      scheduler.py
-    eval/
-      offline_eval.py
-      replay_eval.py
-      report.py
-    serving/
-      inference.py
-      action_adapter.py
+      heads/turn_head.py    # 通用候选打分 head；turn/response 均复用
+      encoder.py            # 单任务状态/动作 MLP 编码器
+      policy_net.py         # 单任务 turn/response policy
+      multitask_policy_net.py
+    rules/                  # 牌表示、回放状态、和牌检查、合法动作、校验
+    serving/                # checkpoint 加载、推理、适配与输入校验
+    training/               # 训练引擎、loss、指标和类别权重
+    utils/                  # 配置、设备、路径、随机种子
+    cli.py                  # 统一命令入口
+  configs/
+    data/ model/ task/ train/
+    experiments/
+    turn_local_smoke.yaml
+    response_local_smoke.yaml
+    turn_p800.yaml
+    response_p800.yaml
+    multitask_p800.yaml
+    api_local.yaml
   tests/
-    unit/
-      test_tiles.py
-      test_meld_decoder.py
-      test_state.py
-      test_legal_actions.py
-      test_shanten.py
-    integration/
-      test_parse_replay.py
-      test_build_samples.py
-      test_train_smoke.py
-    fixtures/
-      tenhou/
-        basic_01.xml
-        riichi_01.xml
-        meld_01.xml
+    fixtures/tenhou/
+    test_*.py
+  docs/
+  start.sh
+  docker-compose.p800.yml
+  docker-compose.p800.multitask.yml
 ```
 
-## 3. 目录职责说明
+`data/`、`outputs/` 和 `runs/` 是本地产物目录，已被 Git 忽略，不应提交原始牌谱、checkpoint 或机器相关路径。
 
-### `configs/`
+## 3. 数据链路
 
-只放配置，不写业务逻辑。建议把配置拆成四层：
+当前主线为：
 
-- `data/`：规则域、路径、切分、采样
-- `model/`：编码器规模、head 参数
-- `task/`：当前训练任务和损失组合
-- `train/`：设备、batch size、workers、precision、DDP
-
-### `mjai/data/`
-
-负责 XML 解析、事件标准化、样本构建和数据加载。不要把合法动作判断混进 parser。
-
-### `mjai/rules/`
-
-负责牌局状态、手牌增减、合法动作生成、向听和胡牌校验。这里是全项目最关键的正确性模块。
-
-### `mjai/features/`
-
-只负责把当前局面和候选动作转换成模型输入，不应包含规则推导。
-
-### `mjai/models/`
-
-负责共享编码器和多头结构。建议 `policy_net.py` 统一暴露接口：
-
-```python
-forward_turn(batch)
-forward_response(batch)
-forward_value(batch)
+```text
+Tenhou XML
+  -> preprocess
+  -> bronze_events/*.parquet
+  -> validate-events
+  -> build-dataset
+  -> silver_samples/{turn,response}/*.parquet
+  -> make-manifest
+  -> manifests/{train,valid,test}.jsonl
+  -> train / eval / calibration
 ```
 
-### `mjai/training/`
+### 3.1 事件 schema
 
-负责训练引擎、损失、日志、优化器和 checkpoint 管理。这里不要写具体规则。
+`bronze_events` 的物理字段以 `mjai/data/datasets/event_store.py::EVENT_SCHEMA` 为准：
 
-### `mjai/serving/`
-
-负责把模型输出转换成雀魂可执行动作，并在最终输出前再次做合法性过滤。
-
-## 4. 配置设计
-
-建议统一使用 YAML，采用“主配置 + 子配置合并”的模式。
-
-## 4.1 配置切分
-
-主配置示例：
-
-```yaml
-defaults:
-  - data: tenhou_4p_red
-  - model: encoder_small
-  - task: turn
-  - train: local_smoke
-
-seed: 20260423
-exp_name: turn_small_smoke
-output_dir: outputs/checkpoints/${exp_name}
-log_dir: outputs/logs/${exp_name}
+```text
+game_id
+kyoku_index
+step_index
+event_type
+actor
+raw_tag
+payload_json
 ```
 
-`configs/data/tenhou_4p_red.yaml`
+局数、分数、牌、副露等事件专属内容保存在 `payload_json`，不是独立 Parquet 列。
 
-```yaml
-ruleset: tenhou_4p_red
-tile_encoding: mahjong_34_plus_aka
-input_root: data/bronze_events
-train_manifest: data/manifests/train.jsonl
-valid_manifest: data/manifests/valid.jsonl
-test_manifest: data/manifests/test.jsonl
-max_history_len: 192
-candidate_limit: 64
+### 3.2 样本 schema
+
+`silver_samples` 的物理字段以 `mjai/data/datasets/sample_store.py::SAMPLE_SCHEMA` 为准：
+
+```text
+sample_id
+game_id
+kyoku_index
+step_index
+actor
+decision_type
+state_json
+legal_actions_json
+label_action_json
+state_features_bin
+candidate_features_bin
+label_index
+label_kind
 ```
 
-`configs/model/encoder_small.yaml`
+关键约束：
 
-```yaml
-name: hybrid_transformer_ranker
-hidden_size: 256
-num_layers: 4
-num_heads: 8
-dropout: 0.1
-state_mlp_dim: 512
-action_mlp_dim: 256
-share_encoder: true
-heads:
-  turn: true
-  response: true
-  value: true
+- `label_index` 必须指向 `legal_actions_json` 中的真实标签动作。
+- 特征在 `build-dataset` 阶段编码为 float32 字节串；训练和评估不应逐 epoch 重跑规则特征。
+- 当前维度为 turn state/action `8173/89`、response state/action `8216/91`，详细布局见 [model-inputs.md](model-inputs.md)。
+- 特征 schema、规则语义或 split 逻辑变化后必须重建 `silver_samples` 和 manifest；parser 或事件 schema 变化后必须从 `preprocess` 开始重建。
+
+### 3.3 数据切分
+
+`make-manifest` 对排序后的 `game_id` 计算 MD5 桶，使用固定的：
+
+```text
+train: 80%
+valid: 10%
+test: 10%
 ```
 
-`configs/task/turn.yaml`
+切分单位是完整对局，不会把同一 `game_id` 的决策样本分散到不同 split。小夹具集的实际局数可能因哈希桶取值偏离理论比例，并会输出空 split 或规模过小 warning。
 
-```yaml
-task: turn
-losses:
-  turn_ce: 1.0
-  response_ce: 0.0
-  value_mse: 0.0
-label_key: turn_label
-legal_key: turn_legal_actions
+## 4. 当前模型
+
+### 4.1 单任务 policy
+
+`MahjongPolicyNet` 是动态候选排序器：
+
+```text
+state_feats     -> 两层 MLP state encoder ----\
+                                                -> pairwise feature -> MLP scorer -> candidate logits
+candidate_feats -> 两层 MLP action encoder ---/
+candidate_mask ---------------------------------> padding logits = -1e9
 ```
 
-`configs/task/multitask.yaml`
+state 与 candidate 的联合特征由拼接、逐元素乘积和绝对差组成。当前实现没有 Transformer、CNN 或事件 token encoder。
 
-```yaml
-task: multitask
-losses:
-  turn_ce: 1.0
-  response_ce: 1.0
-  value_mse: 0.2
-sampling:
-  turn_weight: 1.0
-  response_weight: 1.5
-  value_weight: 0.5
+### 4.2 多任务 policy
+
+`MultitaskMahjongPolicyNet` 的真实共享边界为：
+
+```text
+turn state     -> turn projection     \
+                                        -> shared state MLP -> turn head
+response state -> response projection /
+
+turn action     -> turn action MLP     -> turn head
+response action -> response action MLP -> response head
 ```
 
-`configs/train/local_smoke.yaml`
+turn/response 共享状态主干，但保留任务专属输入投影、action encoder 和候选打分 head。支持：
 
-```yaml
-device: cuda
-precision: fp16
-batch_size: 32
-num_workers: 0
-epochs: 1
-grad_accum_steps: 1
-distributed: false
-log_every_n_steps: 20
-val_every_n_steps: 100
-save_every_n_steps: 200
-```
+- `epoch_sequential`：每个 epoch 顺序训练两路任务。
+- `batch_interleave`：按配置的有效 batch 数交错更新。
 
-`configs/train/p800_ddp.yaml`
+### 4.3 尚未消费的配置字段
 
-```yaml
-device: cuda
-precision: bf16
-batch_size: 256
-num_workers: 16
-epochs: 3
-grad_accum_steps: 1
-distributed: true
-backend: vendor
-find_unused_parameters: false
-```
+`configs/model/encoder_small.yaml` 与 `encoder_base.yaml` 中的 `num_layers`、`num_heads`、`state_mlp_dim`、`action_mlp_dim` 和 `heads.value` 来自早期设计，目前训练引擎只消费 `hidden_size` 与 `dropout`。它们不能作为“Transformer/value 已实现”的证据，后续应选择删除、正式接线或迁入实验配置。
 
-`train.distributed: true` 现在已经接入 PyTorch DDP。启动时必须使用
-`torchrun` / `python -m torch.distributed.run`，否则训练入口会直接报错，避免多
-进程未切分数据却重复训练。`backend: vendor` 会按设备选择后端：CUDA 用
-`nccl`，XPU 用 `ccl`，CPU 用 `gloo`。
+`grad_accum_steps`、`val_every_n_steps` 与 `save_every_n_steps` 目前也没有进入训练控制流；当前训练按 epoch 验证和保存。配置中出现这些字段不表示梯度累积或 step 级验证/保存已经生效。
 
-```bash
-python -m torch.distributed.run --standalone --nproc_per_node=4 -m mjai.cli train --config configs/experiments/multitask_p800_v1_2_interleave.yaml
-```
+## 5. 配置入口
 
-多任务 DDP 需要 `find_unused_parameters: true`，因为 `turn` / `response`
-每个 batch 只走其中一条任务分支。训练集 streaming dataset 会按
-`rank * dataloader_workers + worker_id` 切分 parquet shard；验证、checkpoint
-和指标文件只由 rank 0 执行与写盘。`start.sh` 会在配置里检测到
-`distributed: true` 时自动切换到 `torch.distributed.run`，可用
-`DDP_NPROC_PER_NODE` 显式指定本机进程数。
+| 场景 | 配置 |
+| --- | --- |
+| 本地 turn smoke | `configs/turn_local_smoke.yaml` |
+| 本地 response smoke | `configs/response_local_smoke.yaml` |
+| P800 turn 单任务 | `configs/turn_p800.yaml` |
+| P800 response 单任务 | `configs/response_p800.yaml` |
+| P800 多任务 DDP 主线 | `configs/multitask_p800.yaml` |
+| v1.2 batch interleave 复现 | `configs/experiments/multitask_p800_v1_2_interleave.yaml` |
+| 本地 HTTP API | `configs/api_local.yaml` |
 
-## 4.2 配置原则
+配置加载器支持递归字典覆盖、`defaults` 合并和对顶层标量的 `${...}` 字符串插值；它不是完整 Hydra/OmegaConf。`defaults` 路径相对主配置所在目录解析，因此 `configs/experiments/` 下的配置若直接使用现有 `defaults` 写法会寻找错误的子目录。`turn_local_smoke.yaml` 与 `response_local_smoke.yaml` 是可直接运行的完整配置；分层的 `data/model/task/train` YAML 主要由 `configs/` 根目录下的 P800 主配置组合。
 
-- 不在代码里硬编码路径
-- 不在代码里写死设备类型
-- 规则域、牌表示、历史长度、候选动作上限都可配
-- `turn`、`response`、`multitask` 通过 `task` 配置切换
-- 设备相关差异只出现在 `train/*.yaml`
+训练入口实际支持 `task.task: turn|response|multitask`。若传入 `value`，训练引擎会明确报错。
 
-## 5. CLI 约定
+## 6. CLI 现状
 
-建议所有功能收口到一个入口：
+统一入口：
 
 ```bash
 python -m mjai.cli <subcommand> [args]
 ```
 
-建议子命令如下。
+| 子命令 | 状态 | 用途 |
+| --- | --- | --- |
+| `preprocess` | 可用 | XML 转标准化事件分片 |
+| `validate-events` | 可用 | 回放并输出事件校验报告 |
+| `build-dataset` | 可用 | 构建 turn/response 样本；支持多进程和跳过重复校验 |
+| `make-manifest` | 可用 | 生成 train/valid/test manifest |
+| `train` | 可用 | 单任务或多任务训练 |
+| `eval` | 可用 | 单任务 checkpoint 或多任务指定 head 的离线评估 |
+| `calibrate-response` | 可用 | 扫描 pass bias 与无役鸣牌惩罚 |
+| `sample-response-errors` | 可用 | 按 label→prediction confusion 抽样 |
+| `sample-turn-errors` | 可用 | 按标签类型与真实动作排名抽样 |
+| `inspect-sample` | 可用 | 按索引或 sample_id 查看样本 |
+| `dump-case` | 可用 | 按 game/kyoku/step 回溯事件上下文 |
+| `serve-api` | 可用 | 启动 FastAPI 服务 |
+| `replay-eval` | 占位 | 已注册参数，业务逻辑未实现 |
+| `infer-on-state` | 占位 | 已注册参数，业务逻辑未实现 |
 
-## 5.1 数据处理
+占位命令当前会打印 `implementation pending` 并返回成功码，因此不能只根据退出码判断功能已经执行。
+
+## 7. 常用工作流
+
+### 7.1 本地 fixture 数据闭环
 
 ```bash
-python -m mjai.cli preprocess --input data/raw_xml --output data/bronze_events --config configs/data/tenhou_4p_red.yaml
-python -m mjai.cli validate-events --input data/bronze_events --report outputs/reports/event_validation.json
-python -m mjai.cli build-dataset --input data/bronze_events --output data/silver_samples --workers 8 --config configs/data/tenhou_4p_red.yaml
-python -m mjai.cli make-manifest --input data/silver_samples --output data/manifests
+python -m mjai.cli preprocess \
+  --input tests/fixtures/tenhou \
+  --output data/bronze_events
+
+python -m mjai.cli validate-events \
+  --input data/bronze_events \
+  --report outputs/reports/event_validation.json
+
+python -m mjai.cli build-dataset \
+  --input data/bronze_events \
+  --output data/silver_samples \
+  --workers 8 \
+  --skip-validation
+
+python -m mjai.cli make-manifest \
+  --input data/silver_samples \
+  --output data/manifests
 ```
 
-说明：
+2026-07-31 对当前 21 个 XML 夹具重新实测的结果为：
 
-- `preprocess`：XML 转事件流
-- `validate-events`：回放校验和规则一致性检查
-- `build-dataset`：生成训练样本，`--workers N` 可按事件分片并行构建，Windows 本机建议先从 `6` 或 `8` 起步
-- `make-manifest`：生成 train/valid/test 清单和统计
+- `7386` 条事件，`21/21` 分片校验通过。
+- `3532` 条 turn 样本，`10506` 条 response 样本。
+- manifest 为 `19/1/1` 个 train/valid/test game。
 
-## 5.2 训练与评估
+`--skip-validation` 只应在同一批事件已经通过 `validate-events` 后使用。
+
+### 7.2 训练与评估
 
 ```bash
-python -m mjai.cli train --config configs/turn_small.yaml
-python -m mjai.cli train --config configs/response_small.yaml
-python -m mjai.cli train --config configs/policy_multitask.yaml
-python -m mjai.cli eval --ckpt outputs/checkpoints/turn_small/best.pt --split valid
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/response_small/best.pt --split valid --manifest data/manifests/valid.jsonl --report outputs/checkpoints/response_small/response_calibration_valid.json
-python -m mjai.cli replay-eval --ckpt outputs/checkpoints/turn_small/best.pt --games data/manifests/replay_cases.txt
+python -m mjai.cli train --config configs/turn_local_smoke.yaml
+python -m mjai.cli train --config configs/response_local_smoke.yaml
+
+python -m mjai.cli eval \
+  --ckpt outputs/checkpoints/turn_local_smoke/best.pt \
+  --split valid \
+  --report outputs/checkpoints/turn_local_smoke/eval_valid.json
 ```
 
-说明：
+多任务 checkpoint 评估时必须选择 head：
 
-- `train`：统一训练入口，依赖配置决定当前 task
-- `eval`：离线指标评估；默认流式读取 manifest 中的 parquet shard，只保留 batch 级数据和有限错例报告，适合大数据 valid/test
-- `calibrate-response`：固定 response checkpoint 扫描 pass/call score margin
-- `replay-eval`：固定牌谱回放
+```bash
+python -m mjai.cli eval --ckpt <multitask-ckpt> --task turn --split test
+python -m mjai.cli eval --ckpt <multitask-ckpt> --task response --split test
+```
 
-P800/Linux 上可以用仓库根目录的 `start.sh` 串联端到端训练流水线，默认从 `/workspace/dataset` 读取原始 XML，其余产物使用当前仓库下的 `data/` 和 `outputs/`：
+### 7.3 调试与校准
+
+```bash
+python -m mjai.cli inspect-sample --dataset data/silver_samples --index 0
+python -m mjai.cli dump-case --game-id <game_id> --kyoku-id <kyoku_id> --step-id <step_id>
+
+python -m mjai.cli calibrate-response \
+  --ckpt <response-ckpt> \
+  --split valid \
+  --manifest data/manifests/valid.jsonl \
+  --report outputs/reports/response_calibration_valid.json
+```
+
+完整参数和错例抽样示例见 [smoke-training.md](smoke-training.md)。
+
+### 7.4 P800/Linux
+
+`start.sh` 可以串联 preprocess、validate、build、manifest、train、eval 和 calibration：
 
 ```bash
 ./start.sh
 TASKS=turn ./start.sh
 TASKS=response ./start.sh
-RUN_VALIDATE=0 ./start.sh
-RUN_TRAIN=0 RUN_EVAL=0 ./start.sh
+TASKS=multitask DDP_NPROC_PER_NODE=8 ./start.sh
+CLEAN_DATA=1 RUN_CALIBRATION=1 ./start.sh
 ```
 
-其中 `TASKS` 控制参与训练和对应 eval 的任务，默认 `turn response` 全跑；`RUN_VALIDATE`、`RUN_TRAIN`、`RUN_EVAL` 分别控制独立校验、训练和评估阶段。
+`train.distributed: true` 时必须由 `torchrun` / `python -m torch.distributed.run` 启动。多任务 DDP 还要求 `find_unused_parameters: true`。训练 shard 按 rank 和 DataLoader worker 切分；验证、checkpoint 和指标文件只由 rank 0 写出。
 
-## 5.3 推理与调试
+## 8. 训练产物与评估
+
+单任务训练会写出：
+
+```text
+config.resolved.yaml
+epoch_metrics.jsonl
+train_metrics.json
+best.pt
+best_accuracy.pt
+best_loss.pt
+best_macro.pt
+final.pt
+```
+
+response 还会维护按 `non_pass_f1 - false_call_rate` 选择的 `best_response.pt`。多任务训练另外写出 `best_turn.pt`、`best_response.pt` 和 `best_multitask.pt`。
+
+离线评估包含 top-k、macro top-k、动作类别聚合、候选规模分桶和有限错例。response 额外报告 pass/non-pass precision、recall、F1、false call、missed call 和 confusion。当前默认 serving 模型与 operating point 以 [status.md](status.md) 和 `configs/api_local.yaml` 为准。
+
+## 9. Serving/API 边界
+
+启动：
 
 ```bash
-python -m mjai.cli inspect-sample --dataset data/silver_samples --index 100
-python -m mjai.cli infer-on-state --ckpt outputs/checkpoints/turn_small/best.pt --state-json tests/fixtures/state_case_01.json
-python -m mjai.cli dump-case --game-id <id> --kyoku-id <id> --step-id <id>
+python -m mjai.cli serve-api --config configs/api_local.yaml
 ```
 
-说明：
+已实现：
 
-- `inspect-sample`：抽查样本内容
-- `infer-on-state`：手工给定状态跑一次推理
-- `dump-case`：定位错误样本和错误牌谱
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/predict/turn`
+- `POST /v1/predict/response`
+- 可选 API key、统一错误响应、请求/响应 debug logging
+- response `pass_bias` 和 `no_yaku_call_penalty`
 
-## 5.4 CLI 约束
+调用方必须传入 `legal_actions`。服务端当前只校验 schema、必要字段、动作类型、座位/牌值范围和候选数量，不会根据 `state` 用规则引擎重新证明每个候选动作合法。完整边界见 [serving-api-plan.md](serving-api-plan.md)。
 
-- 子命令名尽量用短横线风格
-- 所有命令支持 `--config`
-- 所有命令支持 `--output-dir`
-- 日志必须打印 `exp_name`、`git_commit`、`data_manifest`
-- 所有训练命令必须落 `config.resolved.yaml`
+`configs/api_local.yaml` 是开发配置：默认允许无 API key，并打开请求/响应 body 日志；不应原样用于公网。`request_timeout_seconds` 当前也尚未接入实际超时控制。
 
-## 6. 模型工程约定
+## 10. 测试与变更约束
 
-建议主模型类定义为：
-
-```python
-class MahjongPolicyNet(nn.Module):
-    def forward_turn(self, batch): ...
-    def forward_response(self, batch): ...
-    def forward_value(self, batch): ...
+```bash
+python -m pytest
+python -m compileall -q mjai tests
+git diff --check
 ```
 
-输入 batch 建议统一字段：
+2026-07-31 当前测试树可收集 `134` 个 case。全量测试包含多次 fixture 数据构建和 smoke train，耗时明显高于纯单元测试。
 
-```python
-{
-    "state_feats": ...,
-    "history_tokens": ...,
-    "candidate_feats": ...,
-    "candidate_mask": ...,
-    "label": ...,
-    "meta": ...
-}
-```
+修改时至少同步以下内容：
 
-说明：
+| 变化 | 必须同步 |
+| --- | --- |
+| state/action 特征维度或语义 | `docs/model-inputs.md`、重建 silver/manifest、重训 checkpoint |
+| parser 或 Event schema | 从 bronze 开始重建、更新 smoke/status 证据 |
+| 合法动作或样本标签 | `docs/rule-coverage.md`、对应规则/样本测试 |
+| CLI 参数或子命令 | 本文、`README.md`、`docs/smoke-training.md` |
+| serving 请求或默认 operating point | `docs/serving-api-plan.md`、`configs/api_local.yaml`、`docs/status.md` |
+| 新训练 run | `runs/<date>_<exp>/` 证据与对应训练分析文档 |
 
-- `candidate_mask` 用于屏蔽非法动作
-- `label` 必须是候选动作索引，不直接是牌字符串
-- `meta` 保存 `game_id`、`kyoku_id`、`step_id`、`actor`
+## 11. 当前工程债与下一步
 
-## 7. 数据格式约定
+优先级最高的工程事实是：
 
-建议 `bronze_events` 每条记录包含：
+1. 当前牌力主线已经不是“先把训练跑起来”，而是复核 response 极保守 operating point、分析 turn 防铳与少数类回退。
+2. 配置仍保留未消费的 Transformer/value 字段，应避免继续形成“配置看似支持、代码实际忽略”的歧义。
+3. `replay-eval`、`infer-on-state` 的占位命令返回成功码，后续应实现或改为明确的非零退出。
+4. API 合法候选仍由调用方负责，规则层和 serving 层尚未形成完整在线闭环。
+5. 自动类别权重、分层采样、value/risk 辅助目标和完整计分仍是后续能力，不属于当前 baseline。
 
-```text
-game_id
-kyoku_id
-step_id
-event_type
-actor
-tile
-meld
-scores
-honba
-kyotaku
-round_wind
-seat_wind
-raw_payload
-```
-
-建议 `silver_samples` 每条记录包含：
-
-```text
-sample_id
-game_id
-kyoku_id
-step_id
-decision_type        # turn / response / value
-state_blob
-history_blob
-legal_actions_blob
-label_action_idx
-label_action_text
-state_features_bin
-candidate_features_bin
-label_kind
-player_weight
-ruleset_id
-```
-
-关键要求：
-
-- `label_action_idx` 必须对应 `legal_actions_blob`
-- `label_action_text` 只用于 debug，不作为训练主键
-- `state_features_bin` 和 `candidate_features_bin` 是训练/评估直接读取的 float32 特征；CPU 密集的规则特征必须在 `build-dataset` 阶段离线写入，不能在训练期 DataLoader 里按 epoch 重算。
-- 样本切分必须按 `game_id`
-
-## 8. 首批开发任务清单
-
-建议按下面顺序做，不要并行铺太大。
-
-注：当前任务状态以 [status.md](status.md) 为准；下方清单保留原始工程拆解和验收口径。
-
-### Task 1：项目骨架初始化
-
-产出：
-
-- `pyproject.toml`
-- `requirements.txt`
-- `mjai/` 包结构
-- `configs/` 初始目录
-- `tests/` 初始目录
-
-验收标准：
-
-- `python -m mjai.cli --help` 可运行
-- `pytest` 可发现测试
-
-### Task 2：牌表示与基础规则模块
-
-产出：
-
-- `tiles.py`
-- `state.py`
-- `legal_actions.py` 骨架
-- 赤牌映射工具
-
-验收标准：
-
-- 能表示 34 类牌 + 赤牌
-- 能完成摸牌、弃牌、碰后减张等基础状态变更
-- 单测覆盖最小闭环
-
-### Task 3：天凤副露解析与事件 schema
-
-产出：
-
-- `meld_decoder.py`
-- `events.py`
-- `parser.py` 初版
-
-验收标准：
-
-- 能解析 `INIT`、摸牌、弃牌、`N`、`REACH`、`DORA`、`AGARI`、`RYUUKYOKU`
-- 固定 fixture 可回放
-
-### Task 4：状态回放与合法动作生成
-
-产出：
-
-- `validators.py`
-- `legal_actions.py` 首版
-- `test_parse_replay.py`
-
-验收标准：
-
-- 弃牌合法性可校验
-- 吃碰杠基础规则可校验
-- 标签动作不在合法集合内时直接报错
-
-### Task 5：样本构建
-
-产出：
-
-- `sample_builder.py`
-- `samples.py`
-- `parquet_dataset.py`
-
-验收标准：
-
-- 可从事件流构建 `turn` 和 `response` 样本
-- 输出 Parquet shard
-- 可按 `game_id` 生成 manifest
-
-### Task 6：baseline 模型与训练引擎
-
-产出：
-
-- `encoder.py`
-- `turn_head.py`
-- `response_head.py`
-- `policy_net.py`
-- `engine.py`
-
-验收标准：
-
-- 本地 100 局样本能跑通 1 个 epoch
-- loss 可下降
-- 无 NaN
-
-### Task 7：TensorBoard 与离线评估
-
-产出：
-
-- `metrics.py`
-- `offline_eval.py`
-- `report.py`
-
-验收标准：
-
-- 能输出 top-k accuracy
-- 能输出动作级 precision/recall
-- 能导出一个 JSON 或 Markdown 报告
-
-### Task 8：多任务训练与共享编码器
-
-产出：
-
-- `multitask.yaml`
-- 多头 loss 聚合逻辑
-- 编码器共享与 head 路由逻辑
-
-验收标准：
-
-- 同一模型可切 `turn`、`response`、`multitask`
-- checkpoint 可单独评估各 head
-
-当前实现说明：模型类已经暴露共享 encoder + `turn_head` / `response_head` 接口，但训练入口目前只支持单任务 `turn` / `response`。`task: multitask` 的 batch 混合、loss 聚合和真正的共享 encoder 联合训练仍未实现。response 训练优化只作用于 response 数据过滤、response 指标和 response checkpoint 选择，不改变 turn 训练路径。
-
-### Task 9：训练机适配
-
-产出：
-
-- `device.py`
-- `p800_single.yaml`
-- `p800_ddp.yaml`
-- `train_p800.sh`
-
-验收标准：
-
-- 单卡可跑
-- 多卡初始化可跑
-- DataLoader、混合精度和 checkpoint 保存正常
-
-## 9. 第一阶段代码冻结范围
-
-为了避免首版过度扩张，第一阶段明确不做：
-
-- 三麻
-- 雀魂 UI 接管
-- 在线对局代理
-- 自博弈训练
-- 完整高阶计分优化
-- 大而全的数据平台
-
-第一阶段只做：
-
-- 可验证 parser
-- 可测试 rules
-- 可训练 turn/response baseline
-- 可视化与离线评估
-
-## 10. 建议的最小可运行里程碑
-
-如果要尽快拿到第一个真正可运行版本，建议只盯下面四个里程碑。
-
-### M1
-
-- 解析 100 局 XML
-- 回放通过
-- 能生成合法动作
-
-### M2
-
-- 构建 1000 局 `turn` 样本
-- 本地训练 `turn_head`
-- 输出 TensorBoard
-
-### M3
-
-- 构建 `response` 样本
-- 跑通 `response_head`
-- 解决 `pass` 不平衡
-
-### M4
-
-- 接入共享编码器
-- 多任务微调
-- 在训练机上跑通正式实验
-
-## 11. 当前建议
-
-当前 parser、样本构建、合法动作、训练和离线评估的最小闭环已经打通。后续开发顺序调整为：
-
-1. 扩大真实牌谱数据构建，建立失败率、非法标签率和动作分布质量闸门
-2. 深入训练当前 `turn/response` baseline，扩大数据量、训练轮数和模型配置
-3. 用 eval report、`inspect-sample` 和 `dump-case` 聚合高频错例
-4. 只对高频污染标签或高频错例的规则边界做优先回补
-5. 再推进共享编码器多头化、P800 训练适配和推理入口
-
-这个顺序的核心原因是：当前规则层已经足够支撑早期监督训练。继续追求完整日麻规则的边际收益低于先跑更大规模训练；规则修补应由数据构建失败和模型错例来驱动。
+更具体的任务顺序见 [status.md](status.md)。

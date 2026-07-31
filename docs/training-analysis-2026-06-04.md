@@ -1,5 +1,7 @@
 # 2026-06-04 P800 single-task retrain analysis
 
+本文是 2026-06-04 单任务复训的历史快照。当前默认 checkpoint、40w DDP 结果和 response operating point 见 [status.md](status.md)。
+
 本轮基于 `start.sh` 重新跑了单任务 `turn_p800` 与 `response_p800` 的训练、test eval 和 response valid/test calibration。归档目录为 `runs/2026-06-04_p800_single_v1_2_safety/`。
 
 注意：`runs/` 被 `.gitignore` 忽略，长期可提交结论以本文为准。run 目录保存了 checkpoint、日志、eval、calibration 和 `event_validation.json`。
@@ -137,7 +139,7 @@ outputs/reports/event_validation.json
 
 如果后续要把“重建数据”也作为正式数据版本，需要新建 `runs/_datasets/<new_dataset_id>/`，同时归档 `preprocess_summary.json`、`build_summary.json`、`manifest_summary.json` 和 split manifest。
 
-## 7. 下一步
+## 7. 当时的下一步
 
 1. `turn`：把 06-04 `turn_p800/best.pt` 作为当前主候选，先做 serving load smoke，再更新部署配置或 release note。
 2. `response`：本轮当时不直接替换 05-10 improved 默认；当前仓库默认已在 40w DDP 后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`。

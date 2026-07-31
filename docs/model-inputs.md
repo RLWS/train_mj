@@ -1,6 +1,6 @@
 # 模型输入特征说明
 
-更新时间：`2026-06-01`
+更新时间：`2026-07-31`
 
 本文记录当前 `turn` / `response` policy 模型实际吃到的输入张量、维度和每个维度的语义。这里描述的是 `build-dataset` 写入 `silver_samples` 后，训练和评估阶段从 parquet 读取的离线预编码特征。
 
@@ -23,7 +23,7 @@
 数据流：
 
 ```text
-TurnSample/ResponseSample
+TurnSample（decision_type=turn|response）
 -> encode_*_state + encode_*_candidate_actions
 -> state_features_bin / candidate_features_bin
 -> Manifest*Dataset
@@ -251,7 +251,7 @@ candidate_mask: [B, C]
 
 1. `MahjongEncoder.state_encoder` 把 `state_feats` 编码为 `[B, H]`。
 2. `MahjongEncoder.action_encoder` 把 `candidate_feats` 编码为 `[B, C, H]`。
-3. `TurnHead` / `response_head` 将 state hidden broadcast 到每个候选，与 candidate hidden 拼接后逐候选打分。
+3. turn/response 都复用 `TurnHead` 这一个候选打分类；它将 state hidden broadcast 到每个候选，与 candidate hidden 拼接后逐候选打分。
 4. padding 候选通过 `candidate_mask` mask 掉。
 5. loss 是合法候选集合内的交叉熵，label 是真实动作在候选列表中的位置。
 
@@ -274,4 +274,4 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 
 2026-06-01 起，`round_wind` 会进入样本状态并修正 response 无役风险/役牌路线启发式。虽然 `state_features_bin` / `candidate_features_bin` 维度不变，但 response candidate 语义发生变化；要获得正确的南场/西场役牌判断，需要重新运行 `preprocess`、`build-dataset` 和 `make-manifest`。
 
-2026-06-22 起，turn discard candidate features keep the same `TURN_ACTION_DIM=89`, but their semantics changed: shanten and effective waits now treat `own_melds` as fixed melds, and visible/effective wait counts include visible tiles from all player melds, including called tiles that may have been removed from `all_discards`. Rebuild `silver_samples` and manifests before retraining turn.
+2026-06-22 起，turn discard candidate feature 仍保持 `TURN_ACTION_DIM=89`，但语义已经变化：向听与有效牌计算会把 `own_melds` 视为固定面子；可见牌与有效等待计数会包含四家副露里的牌，包括可能已从 `all_discards` 移除的被鸣牌。重新训练 turn 前必须重建 `silver_samples` 和 manifest。

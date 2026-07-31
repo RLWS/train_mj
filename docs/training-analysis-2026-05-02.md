@@ -1,6 +1,8 @@
 # Turn / Response 训练分析记录
 
-更新时间：`2026-05-06`
+记录范围：`2026-05-02` 至 `2026-05-10`
+
+本文是历史实验快照。文中的“当前”“下一步”和特征维度均指对应实验日期；当前默认 checkpoint、40w DDP 结果、response operating point 与特征维度见 [status.md](status.md) 和 [model-inputs.md](model-inputs.md)。
 
 本文记录 `turn/response` 从 4k local smoke、response 训练与特征增强，到 2026-05-06 P800 大数据单任务 baseline 的训练结果分析，以及当前下一步改进方向。
 
@@ -1009,7 +1011,7 @@ baseline 的默认候选 `pass_bias=0.4` 不应直接迁移到 improved；它会
 
 当前仓库默认已在 2026-06-24 40w DDP 与 2026-06-25 扩展校准后切到 06-24 `best_response.pt + pass_bias=2.0 + no_yaku_call_penalty=0.8`；本节保留为 05-10 历史分析。
 
-## 12. 下一步核心工作
+## 12. 当时的下一步核心工作
 
 ### 12.1 接入 response operating point
 
