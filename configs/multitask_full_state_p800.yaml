@@ -1,0 +1,64 @@
+defaults:
+  - data: tenhou_4p_red
+  - model: encoder_base
+  - task: multitask
+  - train: p800_single
+
+seed: 20260423
+exp_name: multitask_full_state_v2_ddp
+output_dir: outputs/checkpoints/multitask_full_state_v2_ddp
+log_dir: outputs/logs/multitask_full_state_v2_ddp
+
+data:
+  train_manifest: data/full_state_v2/manifests/train.jsonl
+  valid_manifest: data/full_state_v2/manifests/valid.jsonl
+  turn_candidate_limit: 64
+  response_candidate_limit: 16
+
+model:
+  hidden_size: 512
+  dropout: 0.1
+
+task:
+  schedule: epoch_sequential
+
+train:
+  distributed: true
+  backend: vendor
+  find_unused_parameters: true
+  precision: bf16
+  allow_tf32: true
+  float32_matmul_precision: high
+  turn_batch_size: 8192
+  response_batch_size: 16384
+  num_workers: 16
+  valid_num_workers: 4
+  log_every_n_steps: 500
+  epochs: 10
+  lr: 0.001
+  weight_decay: 0.0001
+  response_min_train_candidate_count: 2
+  response_train_diagnostics: false
+  response_eval_diagnostics: true
+  turn_class_weights:
+    discard: 1.0
+    riichi_discard: 4.0
+    tsumo: 6.0
+    ankan: 8.0
+    kakan: 8.0
+    kyuushu_kyuuhai: 8.0
+  response_class_weights:
+    pass: 1.0
+    chi: 8.0
+    pon: 8.0
+    daiminkan: 8.0
+    ron: 12.0
+    chankan: 12.0
+
+eval:
+  distributed: false
+  backend: vendor
+  turn_batch_size: 8192
+  response_batch_size: 16384
+  num_workers: 4
+  max_misclassified_examples: 10

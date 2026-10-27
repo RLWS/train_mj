@@ -1,0 +1,33 @@
+seed: 20260423
+exp_name: response_full_state_smoke
+output_dir: outputs/checkpoints/response_full_state_smoke
+log_dir: outputs/logs/response_full_state_smoke
+data:
+  train_manifest: data/full_state_v2_smoke/manifests/train.jsonl
+  valid_manifest: data/full_state_v2_smoke/manifests/valid.jsonl
+  candidate_limit: 16
+task:
+  task: response
+model:
+  hidden_size: 64
+  dropout: 0.1
+train:
+  device: cuda
+  batch_size: 128
+  num_workers: 0
+  valid_num_workers: 0
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 1
+  log_every_n_steps: 20
+  epochs: 1
+  lr: 0.001
+  weight_decay: 0.0
+  response_min_train_candidate_count: 2
+  response_class_weights:
+    pass: 1.0
+    chi: 8.0
+    pon: 8.0
+    daiminkan: 8.0
+    ron: 12.0
+    chankan: 12.0

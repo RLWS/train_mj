@@ -473,9 +473,9 @@ def test_encode_turn_state_includes_four_player_riichi_context():
 
     riichi_offset = _riichi_by_player_offset()
     turn_offset = riichi_offset + RIICHI_BY_PLAYER_DIM
-    assert vector[riichi_offset:turn_offset] == [1.0, 0.0, 1.0, 1.0]
+    assert vector[riichi_offset:turn_offset] == [1.0, 1.0, 1.0, 0.0]
     assert vector[turn_offset : turn_offset + RIICHI_TURN_BY_PLAYER_DIM] == pytest.approx(
-        [3 / 18, 0.0, 0.0, 1.0]
+        [0.0, 1.0, 3 / 18, 0.0]
     )
 
 

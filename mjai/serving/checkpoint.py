@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from mjai.features.compatibility import require_checkpoint_schema
+
 import torch
 
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
@@ -21,6 +23,7 @@ def load_policy_checkpoint(
 ) -> LoadedPolicy:
     checkpoint_path = Path(path)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    require_checkpoint_schema(checkpoint)
     config = checkpoint.get("config")
     if not isinstance(config, dict):
         raise TypeError(f"checkpoint config is missing or invalid: {checkpoint_path}")

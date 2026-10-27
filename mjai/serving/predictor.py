@@ -43,7 +43,7 @@ class MahjongPredictor:
     ) -> PredictionResult:
         if top_k <= 0:
             raise BadRequestError("top_k must be positive")
-        normalized_state = validate_and_normalize_state("turn", state)
+        normalized_state = validate_and_normalize_state("turn", state, require_full_state=True)
         checked_legal_actions = validate_legal_actions(
             legal_actions,
             candidate_limit=min(self.max_legal_actions, self.turn_policy.candidate_limit),
@@ -61,7 +61,7 @@ class MahjongPredictor:
     ) -> PredictionResult:
         if top_k <= 0:
             raise BadRequestError("top_k must be positive")
-        normalized_state = validate_and_normalize_state("response", state)
+        normalized_state = validate_and_normalize_state("response", state, require_full_state=True)
         checked_legal_actions = validate_legal_actions(
             legal_actions,
             candidate_limit=min(self.max_legal_actions, self.response_policy.candidate_limit),

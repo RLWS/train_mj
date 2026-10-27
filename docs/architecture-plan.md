@@ -239,7 +239,7 @@ State Features  -> State MLP  -----\
 Action Features -> Action MLP -----/
 ```
 
-当前 state/action 维度分别为 turn `8173/89`、response `8216/91`。本地配置使用 hidden size `256/128`，P800 单任务或多任务主线使用 `256/512`。配置中的 `num_layers`、`num_heads`、`state_mlp_dim`、`action_mlp_dim` 和 `heads.value` 仍是未被训练引擎消费的遗留字段。
+当前 state/action 维度分别为 turn `11969/89`、response `12012/91`。本地配置使用 hidden size `256/128`，P800 单任务或多任务主线使用 `256/512`。配置中的 `num_layers`、`num_heads`、`state_mlp_dim`、`action_mlp_dim` 和 `heads.value` 仍是未被训练引擎消费的遗留字段。
 
 ## 7. 模型拆分
 

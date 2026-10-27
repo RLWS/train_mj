@@ -1,5 +1,8 @@
 # 雀魂四麻 AI 工程指南
 
+> 2026-10-27 实验分支更新：`codex/full-state-features` 使用 `full_state_v2`，turn/response state 为 11969/12012 维，候选维度仍为 89/91。旧模型与数据继续使用原 checkout；本分支必须从原始 XML 重建并重训。新训练命令、API 字段和验证证据见 [完整状态训练流程](full-state-training.md)，特征布局见 [模型输入](model-inputs.md)。下文旧 run 的结果属于历史 baseline，不代表 v2 牌力。
+
+
 更新时间：`2026-07-31`
 
 本文描述当前仓库已经落地的工程结构和使用方式，不再把早期规划中的文件、命令或模型结构写成既成事实。长期路线与尚未实现的方向见 [architecture-plan.md](architecture-plan.md)，当前训练结论与下一步见 [status.md](status.md)。
@@ -122,7 +125,7 @@ label_kind
 
 - `label_index` 必须指向 `legal_actions_json` 中的真实标签动作。
 - 特征在 `build-dataset` 阶段编码为 float32 字节串；训练和评估不应逐 epoch 重跑规则特征。
-- 当前维度为 turn state/action `8173/89`、response state/action `8216/91`，详细布局见 [model-inputs.md](model-inputs.md)。
+- 当前维度为 turn state/action `11969/89`、response state/action `12012/91`，详细布局见 [model-inputs.md](model-inputs.md)。
 - 特征 schema、规则语义或 split 逻辑变化后必须重建 `silver_samples` 和 manifest；parser 或事件 schema 变化后必须从 `preprocess` 开始重建。
 
 ### 3.3 数据切分

@@ -1,6 +1,8 @@
 # 模型输入特征说明
 
-更新时间：`2026-07-31`
+更新时间：`2026-10-27`
+
+当前实验分支使用 `full_state_v2`，旧 checkpoint / bronze / silver 不能复用；完整操作见 [full-state-training.md](full-state-training.md)。
 
 本文记录当前 `turn` / `response` policy 模型实际吃到的输入张量、维度和每个维度的语义。这里描述的是 `build-dataset` 写入 `silver_samples` 后，训练和评估阶段从 parquet 读取的离线预编码特征。
 
@@ -10,8 +12,8 @@
 
 | 任务 | `state_feats` | `candidate_feats` | `candidate_mask` | `labels` |
 |---|---:|---:|---:|---:|
-| `turn` | `[B, 8173]` | `[B, C, 89]` | `[B, C]` | `[B]` |
-| `response` | `[B, 8216]` | `[B, C, 91]` | `[B, C]` | `[B]` |
+| `turn` | `[B, 11969]` | `[B, C, 89]` | `[B, C]` | `[B]` |
+| `response` | `[B, 12012]` | `[B, C, 91]` | `[B, C]` | `[B]` |
 
 含义：
 
@@ -50,49 +52,57 @@ TurnSample（decision_type=turn|response）
 
 前 37 维使用 exact tile order，最后 1 维表示 `missing / none`。
 
-### 2.3 Actor，4 或 5 维
+### 2.3 座位与点数约定
 
-- 4 维 actor one-hot：`actor 0, 1, 2, 3`。
-- 5 维 optional actor one-hot：`actor 0, 1, 2, 3, missing`。
+原始 JSON 保留平台绝对座位。编码器同时旋转 state 和 candidate source：
+`0=自家、1=下家、2=对面、3=上家`。所有四家数组、dealer、历史 actor、
+副露 source 和 response target 同步旋转；`seat_wind/round_wind` 是风位，不能旋转。
+返回的候选动作仍使用调用方绝对座位，不改变候选顺序。
 
-## 3. `turn` state，8173 维
+`scores` 使用实际点数，例如 25000；GameState 内部仍使用天凤百点单位，
+只在 snapshot 边界乘 100。state 中点数除以 1000，分差除以 10000。
 
-`TURN_STATE_DIM = 8173`。
-
-| 范围 | 维度 | 语义 |
-|---:|---:|---|
-| `0..36` | 37 | 当前玩家手牌 exact tile counts |
-| `37..184` | 148 | 四家弃牌河 exact tile counts，按玩家 `0,1,2,3` 各 37 维 |
-| `185..222` | 38 | 最近一张弃牌，optional tile |
-| `223..227` | 5 | 最近弃牌玩家，optional actor |
-| `228..231` | 4 | 当前决策玩家 actor one-hot |
-| `232` | 1 | 当前玩家是否已立直 |
-| `233` | 1 | temporary furiten |
-| `234` | 1 | riichi furiten |
-| `235..239` | 5 | 自家副露计数，顺序为 `chi, pon, daiminkan, ankan, kakan` |
-| `240..243` | 4 | 四家立直状态，按 actor `0,1,2,3` 排列 |
-| `244..247` | 4 | 对手立直巡目，按 actor `0,1,2,3` 排列；当前玩家和未立直为 `0`，其他玩家为 `riichi_turn / 18` |
-| `248..8119` | 7872 | 全局牌河顺序 token，最多 192 个弃牌事件；每个 token 为 `actor one-hot(4) + exact tile one-hot(37)`，不足部分为 0 |
-| `8120..8123` | 4 | 庄家 actor one-hot |
-| `8124..8127` | 4 | 自风 actor one-hot |
-| `8128..8164` | 37 | dora base tile counts，按 exact tile order 的普通牌面槽位记录 |
-| `8165..8168` | 4 | 四家点数，`score / 1000.0` |
-| `8169` | 1 | 巡目，`turn_number / 18`，截断到 `1.0` |
-| `8170` | 1 | 估计剩余摸牌数，`remaining_draws_estimate / 18`，截断到 `1.0` |
-| `8171` | 1 | 本场数，`honba / 8`，截断到 `1.0` |
-| `8172` | 1 | 立直棒数，`riichi_sticks / 8`，截断到 `1.0` |
-
-## 4. `response` state，8216 维
-
-`RESPONSE_STATE_DIM = TURN_STATE_DIM + 43 = 8216`。
-
-前 `0..8172` 与 `turn` state 完全相同，后面追加响应窗口的目标牌信息：
+## 3. turn state，11969 维
 
 | 范围 | 维度 | 语义 |
-|---:|---:|---|
-| `0..8172` | 8173 | 完整 `turn` state |
-| `8173..8177` | 5 | `response_target.source`，optional actor |
-| `8178..8215` | 38 | `response_target.tile`，optional tile |
+|---|---:|---|
+| 0..247 | 248 | 原有手牌、四家牌河、最近弃牌、actor、振听、副露类型计数、立直状态及巡目；座位改为相对座位 |
+| 248..8695 | 8448 | 192 个弃牌 token，每个 44 维 |
+| 8696..8699 | 4 | 相对庄家 one-hot |
+| 8700..8703 | 4 | 自风 one-hot |
+| 8704..8740 | 37 | 宝牌计数，保留重复指示牌带来的倍数 |
+| 8741..8744 | 4 | 相对座位点数 / 1000 |
+| 8745..10120 | 1376 | 四家各 4 个副露槽，每槽 86 维 |
+| 10121..11944 | 1824 | 最多 32 个非弃牌公开事件，每个 57 维 |
+| 11945..11948 | 4 | 场风 one-hot |
+| 11949..11952 | 4 | 场内局号 one-hot，0..3 对应一至四局；不使用含连庄的回放序号 |
+| 11953..11955 | 3 | 东风 / 半庄 / 未知赛制 |
+| 11956..11957 | 2 | 是否为计划末局、是否已进入延长场；不预测实际何时终局 |
+| 11958..11959 | 2 | 剩余摸牌数已知标志、remaining_tiles / 70 |
+| 11960..11963 | 4 | 各家与自家的点差 / 10000 |
+| 11964 | 1 | 非弃牌公开事件数量 / 32 |
+| 11965..11968 | 4 | 自家实际摸牌次数 / 18、remaining_tiles / 72、本场 / 8、立直棒 / 8；均上截断为 1 |
+
+弃牌 token：相对 actor(4) + exact tile(37) + 摸切信息已知(1) + 摸切(1) + 立直宣言牌(1)。
+摸切由天凤 136 牌 ID 与本家最近摸牌 ID 比较得到，不再依赖 XML 标签大小写。
+未知摸切使用 null，不能当成手切。历史不移除被鸣走的弃牌。
+
+副露槽：存在标志(1) + kind(5: chi/pon/daiminkan/ankan/kakan) + source(5，含缺失) +
+called_tile(38，含缺失) + consumed_tiles exact counts(37)。
+暗杠 consumed 包含四张；加杠保存升级后的副露，保留原碰来源。
+
+公开事件：kind(8: reach1/reach2/chi/pon/daiminkan/ankan/kakan/dora) +
+actor(5，含缺失) + source(5，含缺失) + tile(38，含缺失) + discard_count/192(1)。
+顺序按发生顺序保存，discard_count 标记事件发生前已有多少次弃牌，用于和牌河合并排序。
+不包含对手摸牌内容、隐藏手牌或终局结果。超过容量时报错，不静默截断。
+turn 立直样本在记入自身 reach1 之前截取状态，防止把标签暴露给模型。
+
+剩余摸牌机会初始为 70，每次普通摸牌或岭上摸牌递减一次；不在宣杠时再次递减，
+避免将岭上补牌及补充王牌重复计数。这是四麻计数，不是完整牌山模拟。
+
+## 4. response state，12012 维
+
+前 11969 维与 turn 相同；追加 response_target 的相对 source(5，含缺失) 和 tile(38，含缺失)。
 
 ## 5. `turn` candidate action，89 维
 
@@ -159,10 +169,10 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 | `38` | 是否为下家最近 6 巡现物 |
 | `39` | 是否为对面最近 6 巡现物 |
 | `40` | 是否为上家最近 6 巡现物 |
-| `41` | 是否为 actor 0 的现物；当前玩家自己固定为 `0` |
-| `42` | 是否为 actor 1 的现物；当前玩家自己固定为 `0` |
-| `43` | 是否为 actor 2 的现物；当前玩家自己固定为 `0` |
-| `44` | 是否为 actor 3 的现物；当前玩家自己固定为 `0` |
+| `41` | 是否为相对 actor 0 的现物；当前玩家自己固定为 `0` |
+| `42` | 是否为相对 actor 1 的现物；当前玩家自己固定为 `0` |
+| `43` | 是否为相对 actor 2 的现物；当前玩家自己固定为 `0` |
+| `44` | 是否为相对 actor 3 的现物；当前玩家自己固定为 `0` |
 
 ## 6. `response` candidate action，91 维
 
@@ -172,7 +182,7 @@ discard, riichi_discard, tsumo, ankan, kakan, kyuushu_kyuuhai, unknown
 |---:|---:|---|
 | `0..6` | 7 | 动作类型 one-hot |
 | `7..43` | 37 | `action.tile` exact tile one-hot |
-| `44..47` | 4 | `action.source` actor one-hot；没有 source 时全 0 |
+| `44..47` | 4 | `action.source` 相对 actor one-hot；没有 source 时全 0 |
 | `48..90` | 43 | response call/context 候选特征 |
 
 动作类型顺序：
@@ -259,6 +269,10 @@ candidate_mask: [B, C]
 
 ## 8. 数据重建提醒
 
+**full_state_v2 必须从原始 XML 重新 preprocess，之后重建 silver 和 manifest 并从头训练。**
+旧 bronze 缺少 schema 标记会被 build-dataset 拒绝；旧 checkpoint 会被 eval/serving 明确拒绝。
+以下日期记录是历史变化，不替代本分支迁移要求。
+
 `state_features_bin` 和 `candidate_features_bin` 是固定维度 float32 二进制。只要上述任何维度或语义发生变化，都必须重新运行：
 
 ```bash
@@ -270,7 +284,7 @@ python -m mjai.cli make-manifest --input data/silver_samples --output data/manif
 
 2026-05-09 起，`response` 的 `candidate_features` 从 `77` 维增加到 `91` 维。
 
-2026-05-19 起，`turn` 的 `candidate_features` 从 `85` 维增加到 `89` 维，新增按绝对座位拆开的现物特征。`turn` / `response` 的 `state_features` 也同步加入四家立直状态、对手立直巡目和最多 192 个全局牌河顺序 token。已有 `data/silver_samples`、manifest 和旧 checkpoint 不再适用于当前代码，下一轮训练前必须重建数据并重训。
+2026-05-19 起，`turn` 的 `candidate_features` 从 `85` 维增加到 `89` 维，新增按座位拆开的现物特征（v2 编码时改为相对座位）。`turn` / `response` 的 `state_features` 也同步加入四家立直状态、对手立直巡目和最多 192 个全局牌河顺序 token。已有 `data/silver_samples`、manifest 和旧 checkpoint 不再适用于当前代码，下一轮训练前必须重建数据并重训。
 
 2026-06-01 起，`round_wind` 会进入样本状态并修正 response 无役风险/役牌路线启发式。虽然 `state_features_bin` / `candidate_features_bin` 维度不变，但 response candidate 语义发生变化；要获得正确的南场/西场役牌判断，需要重新运行 `preprocess`、`build-dataset` 和 `make-manifest`。
 

@@ -482,6 +482,9 @@ def _build_one_game(game_id: str, events: list, output_root: Path, validate: boo
     异常:
         无。
     """
+    for event in events:
+        if event.event_type == "init" and event.payload.get("feature_schema") != "full_state_v2":
+            raise ValueError("old bronze schema: rerun preprocess for full_state_v2")
     if validate:
         ReplayValidator().validate_events(events)
 

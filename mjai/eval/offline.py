@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from mjai.features.compatibility import require_checkpoint_schema
+
 import torch
 from torch.utils.data import DataLoader
 
@@ -158,6 +160,7 @@ def evaluate_checkpoint(
     """
     checkpoint_path = Path(ckpt_path)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    require_checkpoint_schema(checkpoint)
     base_config = checkpoint.get("config")
     if not isinstance(base_config, dict):
         raise TypeError(f"checkpoint config is missing or invalid: {checkpoint_path}")

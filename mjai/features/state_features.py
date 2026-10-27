@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from mjai.features.perspective import relative_state
+from mjai.rules.tiles import dora_from_indicator, tile_to_base_index
+
+FEATURE_SCHEMA = "full_state_v2"
+
 def _build_exact_tile_vocab() -> list[str]:
     """构建与函数名对应的数据结构或处理结果。
     
@@ -52,7 +57,7 @@ OWN_MELD_COUNTS_DIM = 5
 RIICHI_BY_PLAYER_DIM = ACTOR_DIM
 RIICHI_TURN_BY_PLAYER_DIM = ACTOR_DIM
 DISCARD_HISTORY_MAX_LEN = 192
-DISCARD_HISTORY_TOKEN_DIM = ACTOR_DIM + EXACT_TILE_DIM
+DISCARD_HISTORY_TOKEN_DIM = ACTOR_DIM + EXACT_TILE_DIM + 3
 DISCARD_HISTORY_DIM = DISCARD_HISTORY_MAX_LEN * DISCARD_HISTORY_TOKEN_DIM
 DEALER_DIM = ACTOR_DIM
 SEAT_WIND_DIM = ACTOR_DIM
@@ -60,6 +65,15 @@ DORA_COUNTS_DIM = EXACT_TILE_DIM
 SCORE_DIM = 4
 ROUND_NUMERIC_DIM = 4
 ROUND_CONTEXT_DIM = DEALER_DIM + SEAT_WIND_DIM + DORA_COUNTS_DIM + SCORE_DIM + ROUND_NUMERIC_DIM
+
+MELD_TOKEN_DIM = 1 + 5 + 5 + 38 + 37
+MELDS_DIM = 4 * 4 * MELD_TOKEN_DIM
+PUBLIC_EVENT_KINDS = ("reach1", "reach2", "chi", "pon", "daiminkan", "ankan", "kakan", "dora")
+PUBLIC_EVENT_MAX_LEN = 32
+PUBLIC_EVENT_TOKEN_DIM = 8 + 5 + 5 + 38 + 1
+PUBLIC_EVENTS_DIM = PUBLIC_EVENT_MAX_LEN * PUBLIC_EVENT_TOKEN_DIM
+FULL_CONTEXT_DIM = 4 + 4 + 3 + 2 + 2 + 4 + 1
+FULL_STATE_EXTRA_DIM = MELDS_DIM + PUBLIC_EVENTS_DIM + FULL_CONTEXT_DIM
 
 TURN_STATE_DIM = (
     HAND_COUNTS_DIM
@@ -74,6 +88,7 @@ TURN_STATE_DIM = (
     + RIICHI_TURN_BY_PLAYER_DIM
     + DISCARD_HISTORY_DIM
     + ROUND_CONTEXT_DIM
+    + FULL_STATE_EXTRA_DIM
 )
 
 # encode_response_state appends the pending call/ron target to the turn-state
@@ -95,6 +110,7 @@ def encode_turn_state(state: dict) -> list[float]:
     异常:
         无。
     """
+    state = relative_state(state)
     features: list[float] = []
     # 37 exact-tile hand counts. Red fives use their own exact-tile slots.
     features.extend(_encode_exact_tile_counter(state.get("hand", {})))
@@ -129,6 +145,7 @@ def encode_turn_state(state: dict) -> list[float]:
     features.extend(_encode_actor_onehot(int(state.get("seat_wind", 0))))
     features.extend(_encode_dora_counts(state))
     features.extend(_encode_scores(state.get("scores", [])))
+    features.extend(_encode_full_state(state))
     features.extend(_encode_round_numeric(state))
     return features
 
@@ -148,7 +165,7 @@ def encode_response_state(state: dict) -> list[float]:
     features = encode_turn_state(state)
     # Response adds the pending discard/kakan target to the common turn-state
     # prefix so pass/chi/pon/ron candidates are scored against the same target.
-    response_target = state.get("response_target", {})
+    response_target = relative_state(state).get("response_target", {})
     features.extend(_encode_optional_actor(response_target.get("source")))
     features.extend(_encode_optional_tile(response_target.get("tile")))
     return features
@@ -285,6 +302,11 @@ def _encode_discard_history(history: list[dict]) -> list[float]:
         offset = token_index * DISCARD_HISTORY_TOKEN_DIM
         vector[offset + actor] = 1.0
         vector[offset + ACTOR_DIM + tile_index] = 1.0
+        if isinstance(item, dict):
+            flag = item.get("tsumogiri")
+            vector[offset + 41] = float(flag is not None)
+            vector[offset + 42] = float(flag is True)
+            vector[offset + 43] = float(bool(item.get("riichi_discard", False)))
     return vector
 
 
@@ -324,7 +346,9 @@ def _encode_dora_counts(state: dict) -> list[float]:
         无。
     """
     counts = [0.0] * len(EXACT_TILE_VOCAB)
-    for base_index in state.get("dora_base_indices", []):
+    base_indices = ([tile_to_base_index(dora_from_indicator(tile)) for tile in state["dora_indicators"]]
+                    if state.get("dora_indicators") else state.get("dora_base_indices", []))
+    for base_index in base_indices:
         tile = _base_index_to_feature_tile(int(base_index))
         counts[EXACT_TILE_INDEX[tile]] += 1.0
     return counts
@@ -387,3 +411,54 @@ def _base_index_to_feature_tile(base_index: int) -> str:
     if base_index < 27:
         return f"{base_index - 17}s"
     return f"{base_index - 26}z"
+
+
+def _encode_full_state(state: dict) -> list[float]:
+    """Public meld identities, non-discard chronology and match context."""
+    result: list[float] = []
+    kinds = ("chi", "pon", "daiminkan", "ankan", "kakan")
+    rows = state.get("all_melds", [[], [], [], []])
+    for melds in rows:
+        if len(melds) > 4:
+            raise ValueError("a player cannot have more than four melds")
+        for index in range(4):
+            if index >= len(melds):
+                result.extend([0.0] * MELD_TOKEN_DIM)
+                continue
+            meld = melds[index]
+            result.append(1.0)
+            result.extend(float(meld["kind"] == kind) for kind in kinds)
+            result.extend(_encode_optional_actor(meld.get("source")))
+            result.extend(_encode_optional_tile(meld.get("called_tile")))
+            counts: dict[str, int] = {}
+            for tile in meld.get("consumed_tiles", []):
+                counts[tile] = counts.get(tile, 0) + 1
+            result.extend(_encode_exact_tile_counter(counts))
+    events = state.get("public_events", [])
+    if len(events) > PUBLIC_EVENT_MAX_LEN:
+        raise ValueError("public_events exceeds full_state_v2 capacity")
+    for index in range(PUBLIC_EVENT_MAX_LEN):
+        if index >= len(events):
+            result.extend([0.0] * PUBLIC_EVENT_TOKEN_DIM)
+            continue
+        event = events[index]
+        result.extend(float(event["kind"] == kind) for kind in PUBLIC_EVENT_KINDS)
+        result.extend(_encode_optional_actor(event.get("actor")))
+        result.extend(_encode_optional_actor(event.get("source")))
+        result.extend(_encode_optional_tile(event.get("tile")))
+        result.append(float(event.get("discard_count", 0)) / DISCARD_HISTORY_MAX_LEN)
+    result.extend(_encode_actor_onehot(int(state.get("round_wind", 0))))
+    result.extend(_encode_actor_onehot(int(state.get("round_number", 0))))
+    match_rounds = state.get("match_rounds")
+    result.extend(float(match_rounds == item) for item in (4, 8, None))
+    round_index = int(state.get("round_wind", 0)) * 4 + int(state.get("round_number", 0))
+    result.extend([float(match_rounds is not None and round_index == match_rounds - 1),
+                   float(match_rounds is not None and round_index >= match_rounds)])
+    remaining = state.get("remaining_tiles")
+    result.extend([float(remaining is not None), float(remaining or 0) / 70])
+    scores = state.get("scores", [0] * 4)
+    scores = scores if len(scores) == 4 else [0] * 4
+    result.extend((float(score) - float(scores[0])) / 10000 for score in scores)
+    result.append(float(len(state.get("public_events", []))) / PUBLIC_EVENT_MAX_LEN)
+    assert len(result) == FULL_STATE_EXTRA_DIM
+    return result

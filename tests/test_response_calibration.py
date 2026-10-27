@@ -108,6 +108,7 @@ def test_response_calibration_reuses_eval_loader_config(
                     "prefetch_factor": 5,
                 },
             },
+            "feature_schema": "full_state_v2",
             "model_state_dict": {},
         },
     )

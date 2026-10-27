@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from mjai.features.perspective import relative_action, relative_state
 from mjai.features.state_features import EXACT_TILE_INDEX, EXACT_TILE_VOCAB
 from mjai.rules.hand_checker import (
     effective_tile_base_indices_from_counts,
@@ -28,7 +29,7 @@ RESPONSE_ACTION_DIM = (
 )
 
 
-def encode_turn_action(
+def _encode_turn_action(
     action: dict,
     state: dict | None = None,
     context: dict | None = None,
@@ -78,11 +79,13 @@ def encode_turn_candidate_actions(actions: list[dict], state: dict) -> list[list
     异常:
         无。
     """
+    actor = int(state.get("actor", 0))
+    state = relative_state(state)
     context = build_turn_discard_feature_context(state)
-    return [encode_turn_action(action, state, context) for action in actions]
+    return [_encode_turn_action(relative_action(action, actor), state, context) for action in actions]
 
 
-def encode_response_action(
+def _encode_response_action(
     action: dict,
     state: dict | None = None,
     context: dict | None = None,
@@ -138,8 +141,10 @@ def encode_response_candidate_actions(actions: list[dict], state: dict) -> list[
     异常:
         无。
     """
+    actor = int(state.get("actor", 0))
+    state = relative_state(state)
     context = build_response_call_feature_context(state)
-    return [encode_response_action(action, state, context) for action in actions]
+    return [_encode_response_action(relative_action(action, actor), state, context) for action in actions]
 
 
 def build_turn_discard_feature_context(state: dict | None) -> dict | None:
@@ -1366,3 +1371,21 @@ def _dora_base_indices(state: dict) -> set[int]:
         tile_to_base_index(dora_from_indicator(str(indicator)))
         for indicator in state.get("dora_indicators", [])
     }
+
+
+def encode_turn_action(action: dict, state: dict | None = None, context: dict | None = None) -> list[float]:
+    if state is None:
+        return _encode_turn_action(action, state, context)
+    actor = int(state.get("actor", 0))
+    canonical = relative_state(state)
+    return _encode_turn_action(relative_action(action, actor), canonical,
+                               build_turn_discard_feature_context(canonical))
+
+
+def encode_response_action(action: dict, state: dict | None = None, context: dict | None = None) -> list[float]:
+    if state is None:
+        return _encode_response_action(action, state, context)
+    actor = int(state.get("actor", 0))
+    canonical = relative_state(state)
+    return _encode_response_action(relative_action(action, actor), canonical,
+                                   build_response_call_feature_context(canonical))

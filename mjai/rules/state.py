@@ -244,6 +244,12 @@ class GameState:
     last_discard_tile: str | None = None
     discard_history: list[tuple[int, str]] = field(default_factory=list)
     kyoku_index: int = -1
+    round_number: int = 0
+    match_rounds: int | None = None
+    remaining_tiles: int = 70
+    draw_counts: list[int] = field(default_factory=lambda: [0] * 4)
+    discard_details: list[dict] = field(default_factory=list)
+    public_events: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_init_payload(cls, kyoku_index: int, payload: dict) -> "GameState":
@@ -279,6 +285,8 @@ class GameState:
             scores=scores,
             dealer=int(payload.get("oya", 0)),
             round_wind=round_wind,
+            round_number=int(payload.get("round_number", seed_parts[0] % 4 if seed_parts else 0)),
+            match_rounds=payload.get("match_rounds"),
             honba=honba,
             riichi_sticks=riichi_sticks,
             dora_indicators=dora_indicators,
@@ -300,8 +308,11 @@ class GameState:
         """
         self.temporary_furiten[actor] = False
         self.hands[actor].add_tile(tile)
+        # Each normal or replacement draw consumes one remaining draw opportunity.
+        self.remaining_tiles = max(0, self.remaining_tiles - 1)
+        self.draw_counts[actor] += 1
 
-    def apply_discard(self, actor: int, tile: str) -> None:
+    def apply_discard(self, actor: int, tile: str, tsumogiri: bool | None = None) -> None:
         """执行与函数名对应的业务逻辑。
         
         参数:
@@ -318,6 +329,8 @@ class GameState:
         self.hands[actor].remove_tile(tile)
         self.discards[actor].append(tile)
         self.discard_history.append((actor, tile))
+        self.discard_details.append({"actor": actor, "tile": tile, "tsumogiri": tsumogiri,
+                                     "riichi_discard": self.riichi_pending[actor]})
         self.furiten_discard_bases[actor].add(tile_to_base_index(tile))
         self.last_discard_actor = actor
         self.last_discard_tile = tile
@@ -336,6 +349,8 @@ class GameState:
         异常:
             无。
         """
+        if step in (1, 2):
+            self.record_public_event(f"reach{step}", actor=actor)
         if step == 1:
             self.riichi_pending[actor] = True
         if step == 2 and self.scores[actor] >= 10:
@@ -343,6 +358,7 @@ class GameState:
             self.riichi_pending[actor] = False
             self.riichi_turns[actor] = len(self.discards[actor])
             self.scores[actor] -= 10
+            self.riichi_sticks += 1
 
     def apply_meld(
         self,
@@ -368,6 +384,8 @@ class GameState:
         异常:
             ValueError: 当输入数据不满足函数约束时抛出。
         """
+        if kind in {"chi", "pon", "daiminkan", "ankan", "kakan"}:
+            self.record_public_event(kind, actor=actor, source=source, tile=called_tile)
         if kind in {"chi", "pon", "daiminkan"}:
             if self.last_discard_actor != source:
                 raise ValueError(
@@ -553,6 +571,7 @@ class GameState:
             无。
         """
         self.dora_indicators.append(tile)
+        self.record_public_event("dora", tile=tile)
 
     def dora_base_indices(self) -> set[int]:
         """执行与函数名对应的业务逻辑。
@@ -567,3 +586,7 @@ class GameState:
             无。
         """
         return {tile_to_base_index(dora_from_indicator(tile)) for tile in self.dora_indicators}
+
+    def record_public_event(self, kind: str, **fields: object) -> None:
+        """Record visible events only; draw tile identities are never included."""
+        self.public_events.append({"kind": kind, "discard_count": len(self.discard_history), **fields})

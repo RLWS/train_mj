@@ -32,6 +32,8 @@ class TenhouParser:
         kyoku_index = -1
         step_index = 0
         events: list[Event] = []
+        last_draws: list[int | None] = [None] * 4
+        game_type: int | None = None
 
         for _, elem in iterparse(file_path, events=("end",)):
             tag = elem.tag
@@ -39,6 +41,7 @@ class TenhouParser:
             normalized_head = tag_head.upper()
 
             if tag == "GO":
+                game_type = int(elem.get("type", "0"))
                 events.append(
                     Event(
                         game_id=game_id,
@@ -89,6 +92,7 @@ class TenhouParser:
                 kyoku_index += 1
                 step_index = 0
                 seed = elem.get("seed")
+                last_draws = [None] * 4
                 events.append(
                     Event(
                         game_id=game_id,
@@ -100,6 +104,9 @@ class TenhouParser:
                         payload={
                             "seed": seed,
                             "round_wind": _parse_round_wind(seed),
+                            "round_number": int(seed.split(",")[0]) % 4 if seed else 0,
+                            "match_rounds": None if game_type is None else (8 if game_type & 8 else 4),
+                            "feature_schema": "full_state_v2",
                             "ten": elem.get("ten"),
                             "oya": int(elem.get("oya", "0")),
                             "dora_indicator": tile136_to_string(_parse_seed_dora_indicator(seed)),
@@ -160,6 +167,7 @@ class TenhouParser:
             elif tag == "N":
                 actor = int(elem.get("who", "0"))
                 meld = decode_meld(actor=actor, value=int(elem.get("m", "0")))
+                last_draws[actor] = None
                 events.append(
                     Event(
                         game_id=game_id,
@@ -180,6 +188,7 @@ class TenhouParser:
                 step_index += 1
             elif tag and normalized_head in DRAW_TAG_TO_ACTOR and tag[1:].isdigit():
                 tile136 = int(tag[1:])
+                last_draws[DRAW_TAG_TO_ACTOR[normalized_head]] = tile136
                 events.append(
                     Event(
                         game_id=game_id,
@@ -208,11 +217,13 @@ class TenhouParser:
                         payload={
                             "tile136": tile136,
                             "tile": tile136_to_string(tile136),
-                            "tsumogiri": tag[0].islower(),
+                            "tsumogiri": last_draws[DISCARD_TAG_TO_ACTOR[normalized_head]] == tile136,
                         },
                     )
                 )
                 step_index += 1
+
+                last_draws[DISCARD_TAG_TO_ACTOR[normalized_head]] = None
 
             elem.clear()
 

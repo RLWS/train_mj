@@ -1838,6 +1838,7 @@ def _save_checkpoint(
     """
     torch.save(
         {
+            "feature_schema": "full_state_v2",
             "model_state_dict": _unwrap_model(model).state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "config": config,

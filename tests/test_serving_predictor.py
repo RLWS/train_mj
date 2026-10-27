@@ -169,6 +169,7 @@ def _write_checkpoint(path: Path, *, task: str, hidden_size: int) -> Path:
         candidate_limit = 16
     torch.save(
         {
+            "feature_schema": "full_state_v2",
             "model_state_dict": model.state_dict(),
             "config": {
                 "task": {"task": task},
@@ -206,6 +207,15 @@ def _api_config(
 
 def _turn_state() -> dict:
     return {
+        "feature_schema": "full_state_v2",
+        "round_number": 0,
+        "match_rounds": 8,
+        "remaining_tiles": 69,
+        "all_melds": [[], [], [], []],
+        "discard_history": [],
+        "public_events": [],
+        "riichi_declared_by_player": [False] * 4,
+        "riichi_turn_by_player": [None] * 4,
         "actor": 0,
         "hand": {
             "1m": 1,

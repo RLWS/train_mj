@@ -1,0 +1,32 @@
+seed: 20260423
+exp_name: turn_full_state_smoke
+output_dir: outputs/checkpoints/turn_full_state_smoke
+log_dir: outputs/logs/turn_full_state_smoke
+data:
+  train_manifest: data/full_state_v2_smoke/manifests/train.jsonl
+  valid_manifest: data/full_state_v2_smoke/manifests/valid.jsonl
+  candidate_limit: 64
+task:
+  task: turn
+model:
+  hidden_size: 64
+  dropout: 0.1
+train:
+  device: cuda
+  batch_size: 128
+  num_workers: 0
+  valid_num_workers: 0
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  log_every_n_steps: 20
+  epochs: 1
+  lr: 0.001
+  weight_decay: 0.0001
+  turn_class_weights:
+    discard: 1.0
+    riichi_discard: 4.0
+    tsumo: 6.0
+    ankan: 8.0
+    kakan: 8.0
+    kyuushu_kyuuhai: 8.0

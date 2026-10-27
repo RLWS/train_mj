@@ -77,7 +77,10 @@ class TurnSampleBuilder:
                     label_action=label_action,
                 )
                 samples.append(sample)
-                state.apply_discard(event.actor, event.payload["tile"])
+                # REACH step 1 belongs to the chosen action, not its input.
+                if label_kind == "riichi_discard":
+                    state.apply_reach(event.actor, 1)
+                state.apply_discard(event.actor, event.payload["tile"], event.payload.get("tsumogiri"))
                 last_draw_actor = None
                 continue
 
@@ -185,7 +188,7 @@ class ResponseSampleBuilder:
 
             if event.event_type == "discard":
                 assert event.actor is not None
-                state.apply_discard(event.actor, event.payload["tile"])
+                state.apply_discard(event.actor, event.payload["tile"], event.payload.get("tsumogiri"))
 
                 resolution = _resolve_discard_window(events, event_index)
                 for responder in range(4):
@@ -308,11 +311,16 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
     异常:
         无。
     """
-    own_draws = len(state.discards[actor]) + (1 if state.hands[actor].total_tiles() % 3 == 2 else 0)
+    own_draws = state.draw_counts[actor]
     return {
         "actor": actor,
         "hand": state.hands[actor].snapshot(),
-        "scores": list(state.scores),
+        "feature_schema": "full_state_v2",
+        "scores": [score * 100 for score in state.scores],
+        "round_number": state.round_number,
+        "match_rounds": state.match_rounds,
+        "remaining_tiles": state.remaining_tiles,
+        "public_events": [dict(item) for item in state.public_events],
         "dealer": state.dealer,
         "round_wind": state.round_wind,
         "seat_wind": (actor - state.dealer) % 4,
@@ -321,7 +329,7 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
         "dora_indicators": list(state.dora_indicators),
         "dora_base_indices": sorted(state.dora_base_indices()),
         "turn_number": own_draws,
-        "remaining_draws_estimate": max(0, 18 - own_draws),
+        "remaining_draws_estimate": state.remaining_tiles / 4,
         "own_discards": list(state.discards[actor]),
         "own_melds": [
             {
@@ -352,10 +360,7 @@ def _player_view_snapshot(state: GameState, actor: int) -> dict:
         "last_discard_actor": state.last_discard_actor,
         "last_discard_tile": state.last_discard_tile,
         "all_discards": [list(discard_row) for discard_row in state.discards],
-        "discard_history": [
-            {"actor": discard_actor, "tile": tile}
-            for discard_actor, tile in state.discard_history
-        ],
+        "discard_history": [dict(item) for item in state.discard_details],
     }
 
 
