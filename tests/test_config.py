@@ -74,20 +74,26 @@ def test_load_resolved_multitask_experiment_config():
     assert config["output_dir"] == "outputs/checkpoints/multitask_p800_v1_2_interleave"
 
 
-def test_api_local_targets_2026_06_24_ddp_40w_models():
+def test_api_local_targets_2026_10_28_full_state_v2_models():
     config = load_yaml("configs/api_local.yaml")
 
     assert (
         config["models"]["turn"]["checkpoint"]
-        == "runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_turn.pt"
+        == "runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_turn.pt"
     )
     assert (
         config["models"]["response"]["checkpoint"]
-        == "runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_response.pt"
+        == "runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_response.pt"
     )
     assert config["models"]["response"]["pass_bias"] == {
-        "default": 2.0,
-        "recall": 0.0,
-        "conservative": 0.16,
+        "default": 1.5,
+        "recall": 1.0,
+        "conservative": 2.0,
     }
-    assert config["models"]["response"]["no_yaku_call_penalty"] == 0.8
+    assert config["models"]["response"]["no_yaku_call_penalty"] == 0.0
+
+
+def test_full_state_config_keeps_all_splits_in_same_dataset():
+    config = load_resolved_yaml("configs/multitask_full_state_p800.yaml")
+    for split in ("train", "valid", "test"):
+        assert config["data"][f"{split}_manifest"] == f"data/full_state_v2/manifests/{split}.jsonl"

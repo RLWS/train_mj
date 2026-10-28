@@ -1,6 +1,6 @@
 # 雀魂四麻 AI 工程指南
 
-> 2026-10-27 实验分支更新：`codex/full-state-features` 使用 `full_state_v2`，turn/response state 为 11969/12012 维，候选维度仍为 89/91。旧模型与数据继续使用原 checkout；本分支必须从原始 XML 重建并重训。新训练命令、API 字段和验证证据见 [完整状态训练流程](full-state-training.md)，特征布局见 [模型输入](model-inputs.md)。下文旧 run 的结果属于历史 baseline，不代表 v2 牌力。
+> 2026-10-28 更新：当前代码使用 `full_state_v2` 特征（turn/response state 11969/12012，候选 89/91），旧 bronze/silver/manifest/checkpoint 不兼容，需从原始 XML 重建。流程见 [full-state-training.md](full-state-training.md)，最终分析见 [training-analysis-2026-10-28.md](training-analysis-2026-10-28.md)，特征布局见 [model-inputs.md](model-inputs.md)。下文旧 run 结果属于历史 baseline。
 
 
 更新时间：`2026-07-31`

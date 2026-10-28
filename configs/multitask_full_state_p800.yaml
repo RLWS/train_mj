@@ -12,6 +12,7 @@ log_dir: outputs/logs/multitask_full_state_v2_ddp
 data:
   train_manifest: data/full_state_v2/manifests/train.jsonl
   valid_manifest: data/full_state_v2/manifests/valid.jsonl
+  test_manifest: data/full_state_v2/manifests/test.jsonl
   turn_candidate_limit: 64
   response_candidate_limit: 16
 

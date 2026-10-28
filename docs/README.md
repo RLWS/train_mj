@@ -2,7 +2,12 @@
 
 本目录存放项目的长期文档。根目录只保留 `README.md` 作为入口，以及 `AGENTS.md` 作为协作约定。
 
-新增实验分支入口：[完整状态 v2 训练流程与命令](full-state-training.md)。
+full_state_v2（2026-10-28 收尾）相关文档：
+
+- [full-state-training.md](full-state-training.md)：训练、评估、校准与接入流程。
+- [full-state-api.md](full-state-api.md)：推理接口与请求字段契约。
+- [parallel-eval-p800.md](parallel-eval-p800.md)：P800 六任务并行评估 launcher。
+- [training-analysis-2026-10-28.md](training-analysis-2026-10-28.md)：最终训练、独立评估与服务参数校准分析。
 
 ## 推荐阅读顺序
 

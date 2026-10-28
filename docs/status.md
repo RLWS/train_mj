@@ -1,6 +1,6 @@
 # 项目进度状态
 
-> 2026-10-27 实验分支更新：`codex/full-state-features` 使用 `full_state_v2`，turn/response state 为 11969/12012 维，候选维度仍为 89/91。旧模型与数据继续使用原 checkout；本分支必须从原始 XML 重建并重训。新训练命令、API 字段和验证证据见 [完整状态训练流程](full-state-training.md)，特征布局见 [模型输入](model-inputs.md)。下文旧 run 的结果属于历史 baseline，不代表 v2 牌力。
+> 2026-10-28 更新：当前代码使用 `full_state_v2` 特征（turn/response state 11969/12012，候选 89/91），旧 bronze/silver/manifest/checkpoint 不兼容，需从原始 XML 重建。流程见 [full-state-training.md](full-state-training.md)，最终分析见 [training-analysis-2026-10-28.md](training-analysis-2026-10-28.md)，特征布局见 [model-inputs.md](model-inputs.md)。下文旧 run 结果属于历史 baseline。
 
 
 更新时间：`2026-07-31`
@@ -202,8 +202,8 @@
 - `mjai/serving/` 与 `mjai/api/`
   - 已完成第一版外部调用接口：`mjai/serving` 负责 checkpoint 加载、模型推理、候选排序和请求结构/基础取值校验；`mjai/api` 负责 FastAPI app factory、路由、Pydantic schema、API key middleware 和统一错误响应。
   - 已支持 `/health`、`/v1/models`、`/v1/predict/turn`、`/v1/predict/response`。
-  - `response` 当前默认接入 06-24 40w `best_response.pt` 的极低错误鸣牌 operating point：`pass_bias=2.0` 与 `no_yaku_call_penalty=0.8`；配置中仍保留 `recall=0.0` 与 `conservative=0.16` 作为低 bias 对照档。
-  - `response` 推理已支持 `no_yaku_call_penalty`，对无明显开副露役路的 `chi/pon/daiminkan` 候选在 calibrated 选择前额外扣分；`configs/api_local.yaml` 当前默认设为 `0.8`，用于进一步降低无役鸣牌。
+  - `response` 当前默认接入 2026-10-28 full_state_v2 归档 `best_response.pt` 的校准 operating point：`pass_bias=1.5` 与 `no_yaku_call_penalty=0`（valid 网格 non-pass F1 最优）；配置中保留 `recall=1.0` 与 `conservative=2.0` 作为召回/保守对照档。
+  - `response` 推理已支持 `no_yaku_call_penalty`，对无明显开副露役路的 `chi/pon/daiminkan` 候选在 calibrated 选择前额外扣分；`configs/api_local.yaml` 当前默认 `0`，本轮网格 F1 最优为 penalty=0，无役惩罚仅在部分工作点有效（见 [training-analysis-2026-10-28.md](training-analysis-2026-10-28.md)）。
   - 第一版仍要求调用方传入 `legal_actions`，服务端合法动作生成留到后续阶段。
 - `tests/`
   - 规则、解析、样本构建、CLI、配置和数据写出都有测试覆盖。

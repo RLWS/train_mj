@@ -1,6 +1,6 @@
 # 完整状态 v2：训练、评估与接入
 
-更新时间：2026-10-27。实验分支：`codex/full-state-features`。
+更新时间：2026-10-28。
 
 ## 实验范围
 
@@ -19,15 +19,16 @@ state 维度 turn/response 从 8173/8216 变为 **11969/12012**；candidate 仍�
 正式配置保持 hidden_size=512、epoch_sequential 和原类别权重；DDP batch size 先沿用旧值，
 如显存不足再单独减小并记录差异。新增特征与单位修复是一个组合实验，不能将收益归因于其中单项。
 
-这是可训练的工程版本，尚无大数据复训或实战牌力改善证据。
+2026-10-28 已完成训练产物、独立 valid/test 和扩展服务参数校准分析，离线指标总体改善；尚无实战牌力改善证据。详见 [本轮最终分析](training-analysis-2026-10-28.md)。
 现有合法动作生成、计分及多家响应边界仍然存在，本轮没有实现完整模拟器。
 
 ## 隔离与兼容性
 
-所有命令在**新 worktree 根目录**运行。原实战 checkout、分支、API 配置和已有模型继续保持原样。
-本分支不自动启动服务、不连接 P800、不执行远程训练。实验 API 使用 8001 端口。
+本轮改造已收尾合回主线：`configs/api_local.yaml` 现在指向归档的 full_state_v2 checkpoint（8000 端口），
+旧 2026-06-24 模型仍保留在 `runs/2026-06-24_p800_multitask_v1_1_ddp_40w/`，可随时切回。
+服务不自动启动，也不连接 P800。
 
-建议使用独立 Python 环境；不要在实战共享环境中执行指向新 worktree 的 `pip install -e .`。
+建议使用独立 Python 环境；不要在实战共享环境中执行指向实验 checkout 的 `pip install -e .`。
 本项目依赖可在独立环境安装 `python -m pip install -e ".[dev,api]"`；PyTorch 需按设备另行安装，
 P800 继续使用已验证的厂商 PyTorch 环境。
 
@@ -76,49 +77,41 @@ python -m torch.distributed.run --standalone --nproc_per_node=8 -m mjai.cli trai
 
 ## 正式评估与校准
 
-checkpoint 内保存正式 manifest 路径；默认 eval 不启用 DDP，以下命令单进程执行。
+默认 eval 不启用 DDP，以下命令单进程执行。
+
+**2026-10-28 修正：首轮 checkpoint 内的 test_manifest 继承了旧的 `data/manifests/test.jsonl`。**
+当前配置已补上 `data/full_state_v2/manifests/test.jsonl`。已训练 checkpoint 不会随配置文件自动改变，
+所以下面的 test 命令显式传入 `--config` 覆盖路径。三条 valid eval/校准命令不受此问题影响。
 
 ```bash
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_full_state_v2_ddp/best_turn.pt --task turn --split valid --report outputs/reports/full_state_v2_turn_valid.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_full_state_v2_ddp/best_response.pt --task response --split valid --report outputs/reports/full_state_v2_response_valid.json
-python -m mjai.cli calibrate-response --ckpt outputs/checkpoints/multitask_full_state_v2_ddp/best_response.pt --split valid --report outputs/reports/full_state_v2_response_calibration_valid.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_full_state_v2_ddp/best_turn.pt --task turn --split test --report outputs/reports/full_state_v2_turn_test.json
-python -m mjai.cli eval --ckpt outputs/checkpoints/multitask_full_state_v2_ddp/best_response.pt --task response --split test --report outputs/reports/full_state_v2_response_test.json
+python -m mjai.cli eval --ckpt runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_turn.pt --task turn --split valid --report outputs/reports/full_state_v2_turn_valid.json
+python -m mjai.cli eval --ckpt runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_response.pt --task response --split valid --report outputs/reports/full_state_v2_response_valid.json
+python -m mjai.cli calibrate-response --ckpt runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_response.pt --split valid --report outputs/reports/full_state_v2_response_calibration_valid.json
+python -m mjai.cli eval --ckpt runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_turn.pt --task turn --split test --config configs/multitask_full_state_p800.yaml --report outputs/reports/full_state_v2_turn_test.json
+python -m mjai.cli eval --ckpt runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_response.pt --task response --split test --config configs/multitask_full_state_p800.yaml --report outputs/reports/full_state_v2_response_test.json
 ```
 
 在 valid 上选择参数，然后固定参数在 test 上报告；不要反复根据 test 挑参数。
-更改模型后旧 pass_bias 的效果不保证保持一致。`api_full_state.yaml` 暂保留原保守参数以控制变量，
-它不是为新模型重新验证过的 operating point。
+本轮扩展校准在 valid 网格选出 `pass_bias=1.5`、`no_yaku_call_penalty=0`，`configs/api_local.yaml` 已采用；
+配置中的 `recall=1.0`、`conservative=2.0` 对照档即来自校准报告的召回/保守候选。
 
 对比 baseline 时固定原始 game_id 集合和 split。原模型在原 checkout/旧 schema 上评估，
 新模型在本分支/新 schema 上评估，再按相同 game/sample 身份对齐报告。
 记录 turn top1/top3、立直弃牌、杠类、response multi-candidate、false/missed、F1、
 合法标签验证结果以及实际对局收益；候选有役与仲裁不完整的边界仍需单独审查。
 
-## 新 API 接入契约
+## 新 API 接入
 
-大数据训练完成并准备独立验证时，可手动启动：
+训练产物已归档，可直接启动：
 
 ```bash
-python -m mjai.cli serve-api --config configs/api_full_state.yaml
+python -m mjai.cli serve-api --config configs/api_local.yaml
 ```
 
-地址为 `127.0.0.1:8001`。不应将实战客户端直接切到这里：调用方先适配新字段。
-
-- `feature_schema: "full_state_v2"`。
-- `scores` 为实际点数；actor、dealer、source 及四家数组仍为平台绝对座位。
-- `round_wind`、`round_number` 均为 0..3，后者为一至四局，不能把连庄次数算进局号。
-- `match_rounds` 为 4（东风）、8（半庄）或 null（确实未知）。
-- `remaining_tiles` 为四麻剩余摸牌机会，初始 70；包含岭上摸牌的消耗。
-- `all_melds` 必须有四家，`own_melds` 必须与 `all_melds[actor]` 一致。
-- `discard_history` 每项包含 actor、tile、tsumogiri（布尔或 null）、riichi_discard（布尔）。
-- `public_events` 保存 reach1/reach2/chi/pon/daiminkan/ankan/kakan/dora；每项带 discard_count。
-  reach 需 actor；鸣牌需 actor/source/tile；dora 需 tile。discard_count 必须按时间非递减。
-- 必须提供四家立直标记/巡目、牌河、宝牌指示牌、手牌、本场、供托、自家实际摸牌次数等基础字段。
-- turn 选择立直前的请求不能预先写入本次 reach1；对手已经发生的 reach1 则应保留。
-- 不提供对手隐藏手牌、摸牌牌面或未来事件。缺失必需字段返回 422，不用零值静默补齐。
-
-完整向量布局见 [model-inputs.md](model-inputs.md)。
+地址为 `127.0.0.1:8000`，默认加载归档的 full_state_v2 checkpoint，默认 operating point 为
+`pass_bias=1.5`、`no_yaku_call_penalty=0`。请求字段契约、校验规则与已知训练侧边界见
+[full-state-api.md](full-state-api.md)，完整向量布局见 [model-inputs.md](model-inputs.md)。
+实战客户端切换前先完成新字段适配与独立对比，不要把生产流量直接切到新模型。
 
 ## 本地验证记录
 

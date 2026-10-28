@@ -29,4 +29,6 @@ tail -f outputs/logs/parallel_eval_launcher.log
 
 两个 calibration 都会扫描默认阈值网格。最终阈值只能根据 valid 的结果选择，再读取 test 对应点的指标；不要使用 test 报告推荐值重新调参。
 
+2026-10-28 首轮六任务报告已归档至 `runs/2026-10-28_p800_multitask_full_state_v2/multitask/eval/`，扩展校准报告在同名 `multitask/calibration/`。
+
 本地已检查 Python 语法、配置解析和六命令生成；尚未在 P800 节点实测吞吐或峰值显存。

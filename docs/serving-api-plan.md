@@ -1,6 +1,6 @@
 # Serving API 方案
 
-> 2026-10-27 实验分支更新：`codex/full-state-features` 使用 `full_state_v2`，turn/response state 为 11969/12012 维，候选维度仍为 89/91。旧模型与数据继续使用原 checkout；本分支必须从原始 XML 重建并重训。新训练命令、API 字段和验证证据见 [完整状态训练流程](full-state-training.md)，特征布局见 [模型输入](model-inputs.md)。下文旧 run 的结果属于历史 baseline，不代表 v2 牌力。
+> 2026-10-28 更新：当前代码使用 `full_state_v2` 特征（turn/response state 11969/12012，候选 89/91），旧 bronze/silver/manifest/checkpoint 不兼容，需从原始 XML 重建。流程见 [full-state-training.md](full-state-training.md)，最终分析见 [training-analysis-2026-10-28.md](training-analysis-2026-10-28.md)，特征布局见 [model-inputs.md](model-inputs.md)。下文旧 run 结果属于历史 baseline。
 
 
 更新时间：`2026-06-29`
@@ -153,10 +153,10 @@ choose_non_pass = non_pass_exists and (
 当前默认值：
 
 ```text
-default:      pass_bias = 2.0
-recall:       pass_bias = 0.0
-conservative: pass_bias = 0.16
-no_yaku_call_penalty = 0.8  # configs/api_local.yaml
+default:      pass_bias = 1.5
+recall:       pass_bias = 1.0
+conservative: pass_bias = 2.0
+no_yaku_call_penalty = 0.0  # configs/api_local.yaml
 ```
 
 ### `mjai/serving/validation.py`
@@ -205,20 +205,20 @@ no_yaku_call_penalty = 0.8  # configs/api_local.yaml
 {
   "models": {
     "turn": {
-      "checkpoint": "outputs/checkpoints/turn_local_smoke/best.pt",
+      "checkpoint": "runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_turn.pt",
       "checkpoint_task": "turn",
       "device": "cuda",
       "state_dim": 11969,
       "action_dim": 89
     },
     "response": {
-      "checkpoint": "runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_response.pt",
+      "checkpoint": "runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_response.pt",
       "checkpoint_task": "response",
       "device": "cuda",
       "state_dim": 12012,
       "action_dim": 91,
-      "default_pass_bias": 2.0,
-      "no_yaku_call_penalty": 0.8
+      "default_pass_bias": 1.5,
+      "no_yaku_call_penalty": 0.0
     }
   }
 }
@@ -373,12 +373,12 @@ no_yaku_call_penalty = 0.8  # configs/api_local.yaml
 
 ```yaml
 api:
-  host: 0.0.0.0
+  host: 127.0.0.1
   port: 8000
   enable_docs: true
   request_timeout_seconds: 5
   max_legal_actions: 64
-  debug_log_requests: false
+  debug_log_requests: true
   debug_log_responses: true
   debug_log_max_body_chars: 20000
   debug_log_logger: uvicorn.error
@@ -387,14 +387,14 @@ device: auto
 
 models:
   turn:
-    checkpoint: runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_turn.pt
+    checkpoint: runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_turn.pt
   response:
-    checkpoint: runs/2026-06-24_p800_multitask_v1_1_ddp_40w/multitask/checkpoints/best_response.pt
+    checkpoint: runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/best_response.pt
     pass_bias:
-      default: 2.0
-      recall: 0.0
-      conservative: 0.16
-    no_yaku_call_penalty: 0.8
+      default: 1.5
+      recall: 1.0
+      conservative: 2.0
+    no_yaku_call_penalty: 0.0
 
 security:
   api_key_env: MJAI_API_KEY
