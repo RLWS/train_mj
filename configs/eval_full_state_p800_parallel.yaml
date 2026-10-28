@@ -1,0 +1,16 @@
+# Evaluation-only overrides, merged into the checkpoint configuration.
+# Six jobs: 72 loader workers total on a 96-physical-core node.
+data:
+  valid_manifest: data/full_state_v2/manifests/valid.jsonl
+  test_manifest: data/full_state_v2/manifests/test.jsonl
+train:
+  device: cuda
+eval:
+  distributed: false
+  turn_batch_size: 16384
+  response_batch_size: 32768
+  num_workers: 12
+  prefetch_factor: 2
+  persistent_workers: false
+  pin_memory: true
+  max_misclassified_examples: 10
