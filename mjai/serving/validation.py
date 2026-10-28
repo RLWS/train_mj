@@ -396,7 +396,7 @@ def _validate_full_state(state: Mapping[str, Any]) -> None:
     events = state["public_events"]
     if not isinstance(events, list) or len(events) > PUBLIC_EVENT_MAX_LEN:
         raise RequestValidationError("public_events must contain at most 32 entries")
-    previous = -1
+    previous = 0
     for item in events:
         if not isinstance(item, Mapping) or item.get("kind") not in PUBLIC_EVENT_KINDS:
             raise RequestValidationError("invalid public event kind")
@@ -404,9 +404,9 @@ def _validate_full_state(state: Mapping[str, Any]) -> None:
         if type(count) is not int or not previous <= count <= len(history):
             raise RequestValidationError("public event discard_count must be chronological and within history")
         previous = count
-        if item["kind"] != "dora":
+        if item["kind"] != "dora" or item.get("actor") is not None:
             _normalize_seat(item.get("actor"), "public_event.actor")
-        if item["kind"] not in ("reach1", "reach2"):
+        if item["kind"] not in ("reach1", "reach2") or item.get("tile") is not None:
             _normalize_tile(item.get("tile"), "public_event.tile")
-        if item["kind"] not in ("reach1", "reach2", "dora"):
+        if item["kind"] not in ("reach1", "reach2", "dora") or item.get("source") is not None:
             _normalize_seat(item.get("source"), "public_event.source")

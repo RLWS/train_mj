@@ -51,6 +51,9 @@ def test_api_health_models_and_predictions(tmp_path: Path):
     assert health.json() == {"status": "ok"}
     assert models.status_code == 200
     assert set(models.json()["models"]) == {"turn", "response"}
+    assert models.json()["models"]["turn"]["feature_schema"] == "full_state_v2"
+    assert turn.json()["model"]["feature_schema"] == "full_state_v2"
+    assert response.json()["model"]["feature_schema"] == "full_state_v2"
     assert turn.status_code == 200
     assert turn.json()["selected_action"] in [
         {"kind": "discard", "tile": "1m"},
@@ -200,3 +203,20 @@ def _client(
     predictor = build_predictor_from_config(config)
     app = create_app(config=config, predictor=predictor)
     return TestClient(app)
+
+
+@pytest.mark.parametrize("event", [
+    {"kind": "reach1", "actor": 0, "discard_count": -1},
+    {"kind": "dora", "actor": 4, "tile": "1m", "discard_count": 0},
+    {"kind": "reach1", "actor": 0, "source": 4, "discard_count": 0},
+    {"kind": "reach1", "actor": 0, "tile": "bad", "discard_count": 0},
+])
+def test_api_rejects_invalid_public_event_fields(tmp_path: Path, event):
+    client = _client(tmp_path)
+    state = _turn_state()
+    state["public_events"] = [event]
+    result = client.post("/v1/predict/turn", json={
+        "state": state, "legal_actions": [{"kind": "discard", "tile": "1m"}],
+    })
+    assert result.status_code == 422
+    assert result.json()["error"]["code"] == "invalid_state"

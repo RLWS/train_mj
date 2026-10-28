@@ -10,6 +10,7 @@ class HealthResponse(BaseModel):
 
 
 class ModelInfo(BaseModel):
+    feature_schema: str
     checkpoint: str
     checkpoint_task: str
     task: str

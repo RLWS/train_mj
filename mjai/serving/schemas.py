@@ -7,6 +7,8 @@ from typing import Any
 import torch
 from torch import nn
 
+from mjai.features.state_features import FEATURE_SCHEMA
+
 
 @dataclass(slots=True, frozen=True)
 class RankedAction:
@@ -28,6 +30,7 @@ class ModelMetadata:
     candidate_limit: int
     hidden_size: int
     dropout: float
+    feature_schema: str = FEATURE_SCHEMA
     default_pass_bias: float | None = None
     no_yaku_call_penalty: float = 0.0
 
