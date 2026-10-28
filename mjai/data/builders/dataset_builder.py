@@ -16,6 +16,7 @@ from mjai.data.datasets.sample_store import write_samples_to_parquet
 from mjai.data.tenhou.parser import TenhouParser
 from mjai.rules.validators import ReplayValidator
 from mjai.utils.paths import ensure_dir
+from mjai.utils.process_workers import initialize_data_worker
 
 
 @dataclass(slots=True, frozen=True)
@@ -302,7 +303,9 @@ def _run_process_build_workers(
     pending: set[Future[list[_ShardBuildResult]]] = set()
     results: list[_ShardBuildResult] = []
 
-    with ProcessPoolExecutor(max_workers=workers, mp_context=context) as executor:
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=context, initializer=initialize_data_worker,
+    ) as executor:
         for start in range(0, len(source_paths), chunksize):
             end = min(start + chunksize, len(source_paths))
             pending.add(

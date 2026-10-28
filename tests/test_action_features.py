@@ -728,3 +728,33 @@ def _riichi_by_player_offset() -> int:
 
 def _discard_history_offset() -> int:
     return _riichi_by_player_offset() + RIICHI_BY_PLAYER_DIM + RIICHI_TURN_BY_PLAYER_DIM
+
+
+@pytest.mark.parametrize("keep_called_discard", [False, True])
+@pytest.mark.parametrize("with_history", [False, True])
+def test_cached_public_counts_match_scan(keep_called_discard, with_history):
+    from copy import deepcopy
+    from mjai.features.action_features import (
+        _visible_base_count_with_hand_counts, _with_public_tile_counts,
+    )
+
+    state = {
+        "all_discards": [["0m"] if keep_called_discard else [], ["1p"], [], []],
+        "all_melds": [[], [{"kind": "pon", "source": 0, "called_tile": "0m",
+                            "consumed_tiles": ["5m", "5m"]}],
+                      [{"kind": "ankan", "called_tile": "1z",
+                        "consumed_tiles": ["1z"] * 4}], []],
+        "dora_indicators": ["1p", "5m"],
+    }
+    if with_history:
+        state["discard_history"] = [{"actor": 0, "tile": "0m"}]
+    cached = _with_public_tile_counts(deepcopy(state))
+    for include_called in (False, True):
+        for hand_count in (0, 1, 4):
+            for base in range(34):
+                args = ([hand_count] * 34, base, [4, 4, 9])
+                assert _visible_base_count_with_hand_counts(
+                    cached, *args, include_called_meld_tiles=include_called,
+                ) == _visible_base_count_with_hand_counts(
+                    state, *args, include_called_meld_tiles=include_called,
+                )

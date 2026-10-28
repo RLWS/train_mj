@@ -374,3 +374,31 @@ git diff --check
 5. 自动类别权重、分层采样、value/risk 辅助目标和完整计分仍是后续能力，不属于当前 baseline。
 
 更具体的任务顺序见 [status.md](status.md)。
+
+
+### 数据准备并行与性能调优
+
+`preprocess` 和 `validate-events` 支持按文件多进程处理，默认仍为 `--workers 1`。
+待执行任务数量有界，校验报告仍按文件名排序；串行与并行使用相同的解析和回放逻辑。
+例如在 Linux 数据机器上：
+
+```bash
+python -m mjai.cli preprocess --input /workspace/dataset_100 --output data/full_state_v2/bronze_events --workers 32
+python -m mjai.cli validate-events --input data/full_state_v2/bronze_events --report outputs/reports/full_state_v2_events.json --workers 32
+# 确认报告 files_failed=0 后执行：
+python -m mjai.cli build-dataset --input data/full_state_v2/bronze_events --output data/full_state_v2/silver_samples --workers 32 --skip-validation
+```
+
+这里的 workers 是进程数。多进程数据 worker 的 Arrow CPU/IO 线程池限制为各 1 个，
+避免文件级并行叠加进程内部的大线程池。preprocess/validate-events 在 Windows 上最多使用
+61 个进程。增加进程数不保证增加吞吐；使用相同的代表性输入，分别测试 32、64、96、128、180，
+输出到各自的临时目录，以总耗时和 samples_per_s 比较，同时观察内存、swap、磁盘和 CPU。
+手牌判定中多个 LRU 缓存是每进程独立的，缓存随处理量增长，短测不能代表长任务的内存峰值。
+
+候选特征编码在每个样本内复用公共可见牌计数，保留被鸣牌的两种计数约定，并在加上
+候选手牌及额外可见牌后才截断到 4。float32 写出直接使用 array 构造器，减少 Python
+逐元素转换；上述修改不改变 full_state_v2 特征布局或样本内容。
+
+本地 21 局 fixture（14,038 个样本）一次单进程、无 profiler 的对比：修改前 62.83 秒、
+223.4 samples/s，修改后 34.01 秒、412.8 samples/s。同期有测试进程运行，结果仅为本地
+参考，不代表 P800 的高并发加速比。42 个输出分片所有列（包含特征字节）逐项比较一致。

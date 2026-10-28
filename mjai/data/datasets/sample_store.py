@@ -104,8 +104,7 @@ def _label_metadata(sample: TurnSample) -> tuple[int, str]:
 
 
 def _float32_bytes(values: Iterable[float]) -> bytes:
-    encoded = array("f")
-    encoded.extend(float(value) for value in values)
+    encoded = array("f", values)
     if encoded.itemsize != 4:
         raise RuntimeError("array('f') is not 32-bit on this platform")
     return encoded.tobytes()

@@ -84,7 +84,7 @@ def _run_preprocess(args: argparse.Namespace) -> int:
     """
     _load_optional_config(getattr(args, "config", None))
     builder = EventBuilder()
-    summary = builder.build_from_xml_dir(args.input, args.output)
+    summary = builder.build_from_xml_dir(args.input, args.output, workers=max(1, args.workers))
     print(
         f"preprocessed events: games={summary.games} events={summary.events} "
         f"event_types={summary.event_type_counts}"
@@ -107,7 +107,7 @@ def _run_validate_events(args: argparse.Namespace) -> int:
     """
     _load_optional_config(getattr(args, "config", None))
     validator = EventValidator()
-    summary = validator.validate_dir(args.input, args.report)
+    summary = validator.validate_dir(args.input, args.report, workers=max(1, args.workers))
     print(
         f"validated events: files={summary.files_seen} valid={summary.files_valid} "
         f"failed={summary.files_failed} total_events={summary.total_events} "
@@ -673,6 +673,7 @@ def build_parser() -> argparse.ArgumentParser:
     preprocess = subparsers.add_parser("preprocess", help="Convert Tenhou XML into event shards.")
     preprocess.add_argument("--input", required=True, help="Input raw XML directory.")
     preprocess.add_argument("--output", required=True, help="Output event directory.")
+    preprocess.add_argument("--workers", type=int, default=1, help="Parallel file processes.")
     _add_config_arg(preprocess)
 
     validate_events = subparsers.add_parser(
@@ -680,6 +681,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_events.add_argument("--input", required=True, help="Input event directory.")
     validate_events.add_argument("--report", required=True, help="Output validation report path.")
+    validate_events.add_argument("--workers", type=int, default=1, help="Parallel file processes.")
     _add_config_arg(validate_events)
 
     build_dataset = subparsers.add_parser(

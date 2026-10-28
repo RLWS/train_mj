@@ -7,6 +7,7 @@ from pathlib import Path
 
 from mjai.data.datasets.event_store import read_events_from_parquet
 from mjai.rules.validators import ReplayValidator
+from mjai.utils.process_workers import process_map
 
 
 @dataclass(slots=True, frozen=True)
@@ -40,7 +41,9 @@ class EventValidator:
         """
         self.validator = ReplayValidator()
 
-    def validate_dir(self, input_dir: str | Path, report_path: str | Path) -> ValidationSummary:
+    def validate_dir(
+        self, input_dir: str | Path, report_path: str | Path, workers: int = 1,
+    ) -> ValidationSummary:
         """校验输入数据的一致性和合法性。
         
         参数:
@@ -69,41 +72,23 @@ class EventValidator:
         error_counts: Counter[str] = Counter()
         file_reports: list[dict[str, object]] = []
 
-        for shard_path in sorted(input_root.glob("*.parquet")):
+        paths = sorted(input_root.glob("*.parquet"))
+        for count, counts, report in process_map(
+            _validate_one_shard, paths, min(workers, len(paths)),
+        ):
             files_seen += 1
-            events = read_events_from_parquet(shard_path)
-            total_events += len(events)
-            event_type_counts.update(event.event_type for event in events)
-
-            try:
-                summary = self.validator.validate_events(events)
-            except Exception as exc:
+            total_events += count
+            event_type_counts.update(counts)
+            file_reports.append(report)
+            if not report["ok"]:
                 files_failed += 1
-                error_key = _classify_error_message(str(exc))
-                error_counts[error_key] += 1
-                file_reports.append(
-                    {
-                        "game_id": shard_path.stem,
-                        "path": str(shard_path.as_posix()),
-                        "ok": False,
-                        "error": str(exc),
-                        "error_kind": error_key,
-                    }
-                )
+                error_counts[report["error_kind"]] += 1
                 continue
-
             files_valid += 1
-            total_kyokus += summary.kyokus_seen
-            total_discards += summary.total_discards
-            total_melds += summary.total_melds
-            file_reports.append(
-                {
-                    "game_id": shard_path.stem,
-                    "path": str(shard_path.as_posix()),
-                    "ok": True,
-                    "summary": asdict(summary),
-                }
-            )
+            summary = report["summary"]
+            total_kyokus += summary["kyokus_seen"]
+            total_discards += summary["total_discards"]
+            total_melds += summary["total_melds"]
 
         warnings: list[str] = []
         if files_seen == 0:
@@ -151,3 +136,17 @@ def _classify_error_message(message: str) -> str:
     """
     prefix, _, _ = message.partition(":")
     return prefix.strip() or "unknown"
+
+
+def _validate_one_shard(shard_path: Path) -> tuple[int, dict[str, int], dict]:
+    # Preserve read-error behavior: unreadable shards abort the command.
+    events = read_events_from_parquet(shard_path)
+    counts = dict(Counter(event.event_type for event in events))
+    report = {"game_id": shard_path.stem, "path": shard_path.as_posix()}
+    try:
+        summary = ReplayValidator().validate_events(events)
+    except Exception as exc:
+        report.update(ok=False, error=str(exc), error_kind=_classify_error_message(str(exc)))
+    else:
+        report.update(ok=True, summary=asdict(summary))
+    return len(events), counts, report

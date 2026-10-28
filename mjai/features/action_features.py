@@ -80,7 +80,7 @@ def encode_turn_candidate_actions(actions: list[dict], state: dict) -> list[list
         无。
     """
     actor = int(state.get("actor", 0))
-    state = relative_state(state)
+    state = _with_public_tile_counts(relative_state(state))
     context = build_turn_discard_feature_context(state)
     return [_encode_turn_action(relative_action(action, actor), state, context) for action in actions]
 
@@ -142,7 +142,7 @@ def encode_response_candidate_actions(actions: list[dict], state: dict) -> list[
         无。
     """
     actor = int(state.get("actor", 0))
-    state = relative_state(state)
+    state = _with_public_tile_counts(relative_state(state))
     context = build_response_call_feature_context(state)
     return [_encode_response_action(relative_action(action, actor), state, context) for action in actions]
 
@@ -568,6 +568,11 @@ def _visible_base_count_with_hand_counts(
     include_called_meld_tiles: bool = False,
 ) -> int:
     """统计某 base tile 已知不可摸的张数。"""
+    cached = state.get("_public_tile_counts")
+    if cached is not None:
+        visible = int(hand_counts[base_index]) + cached[include_called_meld_tiles][base_index]
+        return min(4, visible + extra_visible_bases.count(base_index))
+
     visible = int(hand_counts[base_index])
 
     for player_discards in state.get("all_discards", []):
@@ -590,6 +595,29 @@ def _visible_base_count_with_hand_counts(
 
     visible += sum(1 for extra_base in extra_visible_bases if extra_base == base_index)
     return min(4, visible)
+
+
+def _with_public_tile_counts(state: dict) -> dict:
+    """Cache public counts only on the encoder's private, per-sample state copy.
+
+    Keep both called-tile conventions and unclamped counts: candidate-specific
+    hand counts and extra visible tiles must be added before the final clamp.
+    """
+    river_and_dora = [0] * 34
+    for discards in state.get("all_discards", []):
+        for tile in discards:
+            river_and_dora[tile_to_base_index(str(tile))] += 1
+    for tile in state.get("dora_indicators", []):
+        river_and_dora[tile_to_base_index(str(tile))] += 1
+    counts = []
+    for tiles in (_visible_meld_tiles_without_called_tiles(state),
+                  _visible_meld_tiles_with_called_tiles(state)):
+        public = river_and_dora.copy()
+        for tile in tiles:
+            public[tile_to_base_index(tile)] += 1
+        counts.append(public)
+    state["_public_tile_counts"] = counts
+    return state
 
 
 def _visible_meld_tiles_without_called_tiles(state: dict):
