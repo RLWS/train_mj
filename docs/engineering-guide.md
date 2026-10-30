@@ -319,6 +319,33 @@ final.pt
 
 response 还会维护按 `non_pass_f1 - false_call_rate` 选择的 `best_response.pt`。多任务训练另外写出 `best_turn.pt`、`best_response.pt` 和 `best_multitask.pt`。
 
+部署推理服务时，可以去掉训练专用的 `optimizer_state_dict`，生成只包含推理所需状态的 checkpoint：
+
+```bash
+python scripts/strip_optimizer.py \
+  runs/2026-10-28_p800_multitask_full_state_v2/multitask/checkpoints/final.pt
+```
+
+默认输出为同目录下的 `final.inference.pt`。也可以显式指定输出路径：
+
+```bash
+python scripts/strip_optimizer.py final.pt --output final.inference.pt
+```
+
+脚本保留 `model_state_dict`、`feature_schema`、`config` 和 `summary`，只删除 `optimizer_state_dict`。因此生成的文件可以用于推理和模型结构校验，但不能用于从该 checkpoint 无缝恢复训练。脚本默认不会覆盖已有输出文件；确认需要覆盖时才使用 `--force`。
+
+对于 multitask checkpoint，如果 turn 和 response 配置指向同一个文件，serving 会只加载一次模型，并让两个接口共用该模型的 turn/response head：
+
+```yaml
+models:
+  turn:
+    checkpoint: runs/final.inference.pt
+  response:
+    checkpoint: runs/final.inference.pt
+```
+
+如果两个路径不同，serving 会分别加载两个 checkpoint，保留独立模型行为。
+
 离线评估包含 top-k、macro top-k、动作类别聚合、候选规模分桶和有限错例。response 额外报告 pass/non-pass precision、recall、F1、false call、missed call 和 confusion。当前默认 serving 模型与 operating point 以 [status.md](status.md) 和 `configs/api_local.yaml` 为准。
 
 ## 9. Serving/API 边界
