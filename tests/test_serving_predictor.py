@@ -7,6 +7,7 @@ import torch
 from mjai.features.action_features import RESPONSE_ACTION_DIM, TURN_ACTION_DIM
 from mjai.features.state_features import RESPONSE_STATE_DIM, TURN_STATE_DIM
 from mjai.models.policy_net import MahjongPolicyNet
+from mjai.models.multitask_policy_net import MultitaskMahjongPolicyNet
 from mjai.serving.action_adapter import select_response_action
 from mjai.serving.predictor import build_predictor_from_config
 from mjai.serving.validation import BadRequestError, CandidateLimitError
@@ -32,6 +33,18 @@ def test_serving_predictor_returns_turn_action_from_legal_set(tmp_path: Path):
     assert len(result.predictions) == 2
     assert result.model.state_dim == TURN_STATE_DIM
     assert result.model.action_dim == TURN_ACTION_DIM
+
+
+def test_shared_multitask_checkpoint_is_loaded_once(tmp_path: Path):
+    checkpoint = _write_multitask_checkpoint(tmp_path / "final.pt", hidden_size=16)
+    predictor = build_predictor_from_config(_api_config(checkpoint, checkpoint))
+
+    assert predictor.turn_policy.model is predictor.response_policy.model
+    assert predictor.turn_policy.checkpoint_path == predictor.response_policy.checkpoint_path
+    assert predictor.turn_policy.task == "turn"
+    assert predictor.response_policy.task == "response"
+    assert predictor.response_policy.state_dim == RESPONSE_STATE_DIM
+    assert predictor.response_policy.action_dim == RESPONSE_ACTION_DIM
 
 
 def test_serving_predictor_returns_calibrated_response_action(tmp_path: Path):
@@ -175,6 +188,27 @@ def _write_checkpoint(path: Path, *, task: str, hidden_size: int) -> Path:
                 "task": {"task": task},
                 "model": {"hidden_size": hidden_size, "dropout": 0.0},
                 "data": {"candidate_limit": candidate_limit},
+                "train": {"device": "cpu"},
+            },
+        },
+        path,
+    )
+    return path
+
+
+def _write_multitask_checkpoint(path: Path, *, hidden_size: int) -> Path:
+    model = MultitaskMahjongPolicyNet(hidden_size=hidden_size, dropout=0.0)
+    torch.save(
+        {
+            "feature_schema": "full_state_v2",
+            "model_state_dict": model.state_dict(),
+            "config": {
+                "task": {"task": "multitask"},
+                "model": {"hidden_size": hidden_size, "dropout": 0.0},
+                "data": {
+                    "turn_candidate_limit": 64,
+                    "response_candidate_limit": 16,
+                },
                 "train": {"device": "cpu"},
             },
         },

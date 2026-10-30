@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from mjai.features.action_features import (
+    RESPONSE_ACTION_DIM,
     encode_response_candidate_actions,
     encode_turn_candidate_actions,
 )
-from mjai.features.state_features import encode_response_state, encode_turn_state
+from mjai.features.state_features import (
+    RESPONSE_STATE_DIM,
+    encode_response_state,
+    encode_turn_state,
+)
 from mjai.serving.action_adapter import rank_candidates, select_response_action
 from mjai.serving.checkpoint import load_policy_checkpoint
 from mjai.serving.schemas import LoadedPolicy, PredictionResult
@@ -202,8 +207,24 @@ def build_predictor_from_config(config: dict[str, Any], *, base_dir: str | Path 
     device = config.get("device", config.get("train", {}).get("device"))
     turn_checkpoint = _resolve_checkpoint_path(base_path, turn_config.get("checkpoint"))
     response_checkpoint = _resolve_checkpoint_path(base_path, response_config.get("checkpoint"))
-    turn_policy = load_policy_checkpoint(turn_checkpoint, task="turn", device=device)
-    response_policy = load_policy_checkpoint(response_checkpoint, task="response", device=device)
+    if turn_checkpoint.resolve() == response_checkpoint.resolve():
+        turn_policy = load_policy_checkpoint(turn_checkpoint, task="turn", device=device)
+        if turn_policy.checkpoint_task != "multitask":
+            raise ValueError(
+                "turn and response checkpoints share a path, but the checkpoint is not multitask"
+            )
+        response_policy = replace(
+            turn_policy,
+            task="response",
+            state_dim=RESPONSE_STATE_DIM,
+            action_dim=RESPONSE_ACTION_DIM,
+            candidate_limit=_candidate_limit_for_shared_policy(
+                turn_policy.config, "response"
+            ),
+        )
+    else:
+        turn_policy = load_policy_checkpoint(turn_checkpoint, task="turn", device=device)
+        response_policy = load_policy_checkpoint(response_checkpoint, task="response", device=device)
     response_policy.default_pass_bias = _configured_pass_bias(response_config)
     response_policy.no_yaku_call_penalty = _configured_no_yaku_call_penalty(response_config)
     max_legal_actions = int(config.get("api", {}).get("max_legal_actions", 64))
@@ -221,6 +242,16 @@ def _resolve_checkpoint_path(base_dir: Path, value: Any) -> Path:
     if not path.is_absolute():
         path = base_dir / path
     return path
+
+
+def _candidate_limit_for_shared_policy(config: dict[str, Any], task: str) -> int:
+    data_config = config.get("data", {})
+    task_key = f"{task}_candidate_limit"
+    if task_key in data_config:
+        return int(data_config[task_key])
+    if "candidate_limit" in data_config:
+        return int(data_config["candidate_limit"])
+    return 16 if task == "response" else 64
 
 
 def _configured_pass_bias(response_config: dict[str, Any]) -> float:
